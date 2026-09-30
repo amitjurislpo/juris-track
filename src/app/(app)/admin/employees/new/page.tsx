@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CreateEmployeeForm } from "@/components/admin/employee-forms";
 import { PageHeader } from "@/components/ui/misc";
 import { requireRole } from "@/lib/auth/guards";
+import { defaultUserPassword } from "@/lib/auth/password";
 import { idParam } from "@/lib/validation/filters";
 import { listTeams } from "@/server/services/teams.service";
 
@@ -19,10 +20,14 @@ export default async function NewEmployeePage({ searchParams }: { searchParams: 
     <div className="max-w-3xl">
       <PageHeader
         back={defaultTeamId ? { href: `/admin/teams/${defaultTeamId}`, label: "Back to team" } : { href: "/admin/employees", label: "Employees" }}
-        title="Add employee"
-        description="Create an account. Sign-in credentials are generated securely and never displayed in employee tables."
+        title="Add user"
+        description="Create an account, then share the username (their email) and password with them. Passwords are never displayed in user tables."
       />
-      <CreateEmployeeForm teams={teams.map((t) => ({ value: t.id, label: t.name }))} defaultTeamId={defaultTeamId} />
+      <CreateEmployeeForm
+        teams={teams.map((t) => ({ value: t.id, label: t.name }))}
+        defaultTeamId={defaultTeamId}
+        defaultPassword={defaultUserPassword()}
+      />
     </div>
   );
 }

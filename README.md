@@ -27,11 +27,11 @@ Runtime dependencies are kept small: `next`, `react`, `@prisma/client`, `@prisma
 Prerequisites: Node.js 20+ and Docker (or any PostgreSQL 14+ instance).
 
 ```bash
-cp .env.example .env              # then set AUTH_SECRET (see below)
+cp .env.example .env              # then set AUTH_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD (see below)
 npm install                       # also runs `prisma generate`
 npm run db:up                     # starts PostgreSQL via docker-compose
 npm run db:deploy                 # applies migrations to a fresh database
-npm run db:seed                   # DEMO data (wipes the database)
+npm run db:bootstrap              # creates the administrator only (no other data)
 npm run dev                       # http://localhost:3000
 ```
 
@@ -44,8 +44,24 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 Production:
 
 ```bash
-npm run db:deploy && npm run build && npm start
+npm run db:deploy && npm run db:bootstrap && npm run build && npm start
 ```
+
+### First run: the administrator sets everything up
+
+The database starts with **only the administrator account**. There are no teams, users, time records or demo data.
+
+1. **Sign in** with `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env`. The first sign-in opens **Create your organization**. Enter the name, the organization timezone (India is preselected), the display timezones, and the "not ended" threshold. The admin area stays locked until this is done.
+2. **Create teams** in **Teams → Add Team**.
+3. **Create users** in **Employees → Add Employee** (or **Add Employee** on a team). Choose the initial password:
+   - **Default password** (`DEFAULT_USER_PASSWORD`, e.g. `User@123`), preselected
+   - **Generate a unique password**
+   - **Type a password**
+
+   The app then shows the **username (their work email) and password** once, with a *Copy sign-in details* button, so you can share them with the user.
+4. **The user signs in.** Every page reminds them to change the password until they do so in **Profile → Change password**. New passwords need at least 10 characters with upper- and lowercase letters and a number. Changing the password signs out their other devices.
+
+Administrators can reset a user's password from the user's profile. It is set back to the default password, or a generated one if no default is configured, and the user is signed out everywhere.
 
 ### Scripts
 
@@ -57,9 +73,11 @@ npm run db:deploy && npm run build && npm start
 | `npm run db:validate` | Validate the Prisma schema |
 | `npm run db:migrate` | Create/apply migrations in development |
 | `npm run db:deploy` | Apply migrations (CI and production) |
-| `npm run db:seed` | Insert demo data (**destructive**; refuses to run when `NODE_ENV=production`) |
-| `npm run db:reset` | Drop, migrate and seed |
-| `npm run test:flows` | End-to-end verification of the time engine against the database |
+| `npm run db:bootstrap` | Create the administrator from `.env` if missing. Safe to re-run; never deletes data |
+| `npm run db:reset-data` | **Deletes ALL data** (including the organization), then creates only the administrator. Refuses in production unless `ALLOW_DATA_WIPE=true` |
+| `npm run db:seed:demo` | Optional demo data for local testing (**destructive**; refuses in production) |
+| `npm run db:reset` | Drop the schema, re-apply migrations, and create the administrator |
+| `npm run test:flows` | End-to-end verification of the time engine against the database (cleans up after itself) |
 
 ### Environment variables
 
@@ -67,24 +85,18 @@ npm run db:deploy && npm run build && npm start
 |---|---|---|
 | `DATABASE_URL` | yes | PostgreSQL connection string |
 | `AUTH_SECRET` | yes | 32 or more characters. Used to HMAC session tokens before storage |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | for bootstrap | The initial administrator created by `db:bootstrap`. Keep real values in `.env` only |
+| `DEFAULT_USER_PASSWORD` | no | Default first-login password for users the admin creates (e.g. `User@123`). If unset, only generated or typed passwords are offered |
 | `SESSION_TTL_HOURS` | no (12) | Sliding session lifetime |
-| `ORG_TIMEZONE` | no (`Asia/Kolkata`) | Initial organization timezone. After that it is managed in **Admin → Settings** |
-| `SEED_DEMO_PASSWORD` | no (`Demo@12345`) | Password for seeded demo accounts |
+| `ORG_TIMEZONE` | no (`Asia/Kolkata`) | Timezone preselected on the organization setup page |
+| `SEED_DEMO_PASSWORD` | no (`Demo@12345`) | Password for accounts created by the optional demo seed |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | docker only | Credentials for the local `docker-compose` database |
 
-### Demo accounts (development only)
+> **Security note:** a shared default password such as `User@123` is convenient but guessable. Users are prompted to change it immediately. Consider the *Generate a unique password* option for sensitive accounts.
 
-All seeded accounts use the reserved `demo.jurislpo.test` domain and are flagged `isDemo` (shown with a **Demo** badge). The password is `SEED_DEMO_PASSWORD`.
+### Optional demo data (local testing only)
 
-| Role | Email |
-|---|---|
-| Admin | `admin@demo.jurislpo.test` |
-| Manager, Paralegal | `manager.paralegal@demo.jurislpo.test` |
-| Manager, Sales | `manager.sales@demo.jurislpo.test` |
-| Manager, Technology | `manager.tech@demo.jurislpo.test` |
-| Employees | `priya.sharma@…` (working), `rahul.verma@…` (on break), `arjun.nair@…` (not started), `rohan.gupta@…` (forgot to end yesterday), and more. The seed prints the full list |
-
-The seed creates 3 teams and 12 employees in mixed live states, with about 4 weeks of completed weekday history. "Today's" states are anchored to the moment the seed runs, so nothing is dated in the future.
+`npm run db:seed:demo` replaces everything with 3 demo teams, 12 employees in mixed live states and about 4 weeks of history. All demo accounts use the reserved `demo.jurislpo.test` domain and are flagged **Demo**, with the password from `SEED_DEMO_PASSWORD`. Run `npm run db:reset-data` afterwards to return to an admin-only database.
 
 ---
 
@@ -213,4 +225,5 @@ src/
 - **Temporary passwords are shown once** to the administrator. There is no email delivery.
 - **Organization timezone changes** apply to new workdays. Existing workdays keep the date and timezone they were recorded with. The display-timezone switcher never changes stored data.
 - **Administrators** do not track their own time. Give them a Manager account if needed.
+- **Single organization.** The app serves one organization, which the administrator creates on first sign-in. It is not multi-tenant.
 - **`npm audit`** reports advisories in the Prisma CLI's dev-tooling dependency chain (`deepmerge-ts`), not in runtime code.

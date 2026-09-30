@@ -55,6 +55,8 @@ export const EmployeeCreateSchema = z.object({
   role: RoleSchema,
   teamId: optionalId,
   isActive: checkbox,
+  /** default = organization default password, generated = random, custom = typed by the admin. */
+  passwordMode: z.enum(["default", "generated", "custom"]).default("default"),
   password: z
     .string()
     .optional()
@@ -63,7 +65,7 @@ export const EmployeeCreateSchema = z.object({
 });
 export type EmployeeCreateInput = z.infer<typeof EmployeeCreateSchema>;
 
-export const EmployeeUpdateSchema = EmployeeCreateSchema.omit({ password: true, teamId: true, isActive: true }).extend({
+export const EmployeeUpdateSchema = EmployeeCreateSchema.omit({ password: true, passwordMode: true, teamId: true, isActive: true }).extend({
   id,
 });
 export type EmployeeUpdateInput = z.infer<typeof EmployeeUpdateSchema>;

@@ -20,6 +20,15 @@ export async function verifyPassword(plain: string, hash: string | null | undefi
   return bcrypt.compare(plain, hash);
 }
 
+/**
+ * Organization default password for newly created users (DEFAULT_USER_PASSWORD).
+ * Users are flagged to change it after their first sign-in.
+ */
+export function defaultUserPassword(): string | null {
+  const value = process.env.DEFAULT_USER_PASSWORD?.trim();
+  return value ? value : null;
+}
+
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
 
 /** Readable temporary password, e.g. "Jt-kP7x-Qm4r-Zt9w". */

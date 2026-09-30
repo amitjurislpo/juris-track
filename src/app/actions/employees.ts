@@ -25,7 +25,7 @@ export async function createEmployeeAction(form: FormData) {
     const { user, temporaryPassword } = await createEmployee(actor, input);
     revalidatePath("/", "layout");
     return { id: user.id, name: `${user.firstName} ${user.lastName}`, email: user.email, temporaryPassword };
-  }, "Employee created.");
+  }, "User created.");
 }
 
 export async function updateEmployeeAction(form: FormData) {

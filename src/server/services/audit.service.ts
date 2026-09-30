@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = {
   TEAM_DELETED: "Team deleted",
   TIME_ADJUSTED: "Time record adjusted",
   WORKDAY_CLOSED_BY_ADMIN: "Workday closed by administrator",
+  ORGANIZATION_CREATED: "Organization created",
   SETTINGS_UPDATED: "Organization settings changed",
 } as const;
 

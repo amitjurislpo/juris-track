@@ -5,7 +5,8 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
-    seed: "tsx prisma/seed.ts",
+    // `prisma db seed` / `migrate reset` only create the administrator.
+    seed: "tsx prisma/bootstrap.ts",
   },
   datasource: {
     url: env("DATABASE_URL"),

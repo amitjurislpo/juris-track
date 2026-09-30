@@ -3,7 +3,32 @@
  * IANA zone works; "America/New_York" shows EDT or EST depending on the date.
  */
 
-const initialsOf = (name: string) =>
+/**
+ * Intl.supportedValuesOf("timeZone") returns some legacy ICU names (e.g.
+ * "Asia/Calcutta"). Offer the modern IANA names instead; both resolve to the
+ * same rules.
+ */
+const MODERN_NAMES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Europe/Kiev": "Europe/Kyiv",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Godthab": "America/Nuuk",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+  "Pacific/Truk": "Pacific/Chuuk",
+  "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Enderbury": "Pacific/Kanton",
+};
+
+/** Sorted list of selectable IANA zones, always including `include`. */
+export function timezoneOptions(include: readonly string[] = []): string[] {
+  const listed = Intl.supportedValuesOf("timeZone").map((tz) => MODERN_NAMES[tz] ?? tz);
+  return [...new Set([...listed, ...include])].sort((a, b) => a.localeCompare(b));
+}
+
+const initialsOf =(name: string) =>
   name
     .split(/\s+/)
     .map((w) => w[0])

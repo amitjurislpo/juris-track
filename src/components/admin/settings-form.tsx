@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { updateSettingsAction } from "@/app/actions/admin-time";
+import { createOrganizationAction } from "@/app/actions/organization";
 import { Button } from "@/components/ui/button";
 import { Field, FormError, SelectInput, TextInput } from "@/components/ui/form";
 import { Icon } from "@/components/ui/icons";
@@ -71,15 +72,27 @@ function DisplayZonesField({ initial, all, error }: { initial: string[]; all: st
 export function SettingsForm({
   values,
   timezones,
+  mode = "edit",
 }: {
   values: { organizationName: string; timezone: string; staleWorkdayHours: number; displayTimezones: string[] };
   timezones: string[];
+  /** "create" is the first-run organization setup. */
+  mode?: "create" | "edit";
 }) {
-  const { submit, pending, errors, formError } = useActionForm(updateSettingsAction);
+  const { submit, pending, errors, formError } = useActionForm(mode === "create" ? createOrganizationAction : updateSettingsAction);
   return (
     <form action={submit} className="max-w-xl space-y-5">
       <FormError message={formError} />
-      <TextInput label="Organization name" name="organizationName" required maxLength={80} defaultValue={values.organizationName} error={errors.organizationName} />
+      <TextInput
+        label="Organization name"
+        name="organizationName"
+        required
+        maxLength={80}
+        defaultValue={values.organizationName}
+        error={errors.organizationName}
+        placeholder="e.g. Juris LPO"
+        autoFocus={mode === "create"}
+      />
       <SelectInput
         label="Organization timezone"
         name="timezone"
@@ -110,7 +123,7 @@ export function SettingsForm({
         hint="Workdays still open after this long are flagged as 'Not ended' for review. Crossing midnight alone is not flagged, so night shifts are supported."
       />
       <Button type="submit" loading={pending}>
-        Save settings
+        {mode === "create" ? "Create organization" : "Save settings"}
       </Button>
     </form>
   );

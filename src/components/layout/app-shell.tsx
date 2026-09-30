@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { logoutAction } from "@/app/actions/auth";
 import { Icon } from "@/components/ui/icons";
-import { Avatar } from "@/components/ui/misc";
+import { Avatar, Callout } from "@/components/ui/misc";
 import type { SessionUser } from "@/lib/auth/session";
 import { homeFor, navFor, ROLE_LABELS } from "@/lib/auth/roles";
 import { MobileSidebar, SidebarNav } from "./sidebar-nav";
@@ -79,7 +79,24 @@ export function AppShell({ user, orgName, tz, children }: { user: SessionUser; o
           </MobileSidebar>
           <span className="font-semibold">JurisTrack</span>
         </header>
-        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">{children}</main>
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+          {user.mustChangePassword && (
+            <div className="mb-6">
+              <Callout
+                tone="warning"
+                title="Please change your password"
+                action={
+                  <Link href="/profile" className="text-sm font-semibold underline">
+                    Change password
+                  </Link>
+                }
+              >
+                You are signed in with a password issued by an administrator. Set your own to keep your account secure.
+              </Callout>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </div>
   );

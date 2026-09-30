@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DailyChart } from "@/components/time/daily-chart";
 import { TimerPanel } from "@/components/time/timer-panel";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
-import { Callout, PageHeader } from "@/components/ui/misc";
+import { PageHeader } from "@/components/ui/misc";
 import { requireRole } from "@/lib/auth/guards";
 import { formatDateKey, formatDuration } from "@/lib/time/format";
 import { addDays } from "@/lib/time/tz";
@@ -32,21 +32,6 @@ export default async function EmployeeDashboard() {
   return (
     <>
       <PageHeader title={`${greeting(hour)}, ${user.firstName}`} description={formatDateKey(state.today)} />
-      {user.mustChangePassword && (
-        <div className="mb-6">
-          <Callout
-            tone="warning"
-            title="Please set your own password"
-            action={
-              <Link href="/profile" className="text-sm font-semibold underline">
-                Change password
-              </Link>
-            }
-          >
-            You are using a temporary password issued by an administrator.
-          </Callout>
-        </div>
-      )}
       <TimerPanel initialState={state} displayTimezone={viewTz} />
       <Card className="mt-6">
         <CardHeader

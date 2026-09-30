@@ -10,7 +10,7 @@ export default async function AuthenticatedLayout({ children }: { children: Reac
   const [settings, viewerTz] = await Promise.all([getSettings(), getViewerTimezone()]);
   const tz = { zones: settings.displayTimezones, current: viewerTz, serverNow: new Date().toISOString() };
   return (
-    <AppShell user={user} orgName={settings.organizationName} tz={tz}>
+    <AppShell user={user} orgName={settings.configured ? settings.organizationName : "Setup required"} tz={tz}>
       {children}
     </AppShell>
   );

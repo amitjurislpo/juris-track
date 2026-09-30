@@ -5,15 +5,14 @@ import { DescriptionList, PageHeader } from "@/components/ui/misc";
 import { requireRole } from "@/lib/auth/guards";
 import { formatDateTime } from "@/lib/time/format";
 import { getSettings } from "@/server/services/settings.service";
-import { zoneAbbr } from "@/lib/time/zones";
+import { timezoneOptions, zoneAbbr } from "@/lib/time/zones";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function AdminSettingsPage() {
   await requireRole("ADMIN");
   const settings = await getSettings();
-  const timezones = Intl.supportedValuesOf("timeZone");
-  if (!timezones.includes(settings.timezone)) timezones.unshift(settings.timezone);
+  const timezones = timezoneOptions([settings.timezone, ...settings.displayTimezones]);
 
   return (
     <>

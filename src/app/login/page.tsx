@@ -10,7 +10,6 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage() {
   const user = await getSessionUser();
   if (user) redirect(homeFor(user.role));
-  const showDemo = process.env.NODE_ENV !== "production";
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
@@ -50,15 +49,6 @@ export default async function LoginPage() {
           <div className="mt-8">
             <LoginForm />
           </div>
-          {showDemo && (
-            <div className="mt-8 rounded-xl border border-dashed border-border-strong bg-surface px-4 py-3 text-xs text-ink-3">
-              <p className="font-semibold text-ink-2">Development demo accounts</p>
-              <p className="mt-1">
-                admin@demo.jurislpo.test · manager.paralegal@demo.jurislpo.test · priya.sharma@demo.jurislpo.test — password from{" "}
-                <code className="font-mono">SEED_DEMO_PASSWORD</code> (default <code className="font-mono">Demo@12345</code>).
-              </p>
-            </div>
-          )}
         </div>
       </section>
     </div>

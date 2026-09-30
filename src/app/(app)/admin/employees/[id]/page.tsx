@@ -1,6 +1,7 @@
 import { EmployeeAdminPanel } from "@/components/admin/employee-forms";
 import { EmployeeDetailView } from "@/components/views/employee-detail-view";
 import { requireRole } from "@/lib/auth/guards";
+import { defaultUserPassword } from "@/lib/auth/password";
 import { orNotFound } from "@/lib/not-found";
 import { getEmployee } from "@/server/services/employees.service";
 import { listTeams } from "@/server/services/teams.service";
@@ -21,6 +22,7 @@ export default async function AdminEmployeePage({ params, searchParams }: { para
       adminPanel={
         <EmployeeAdminPanel
           isSelf={employee.id === actor.id}
+          defaultPassword={defaultUserPassword()}
           teams={teams.map((t) => ({ value: t.id, label: t.name }))}
           employee={{
             id: employee.id,

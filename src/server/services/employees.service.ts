@@ -2,7 +2,7 @@ import type { Prisma, Role } from "@/generated/prisma/client";
 import { db, type Tx } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import type { SessionUser } from "@/lib/auth/session";
-import { generateTemporaryPassword, hashPassword, verifyPassword } from "@/lib/auth/password";
+import { defaultUserPassword, generateTemporaryPassword, hashPassword, verifyPassword } from "@/lib/auth/password";
 import type { EmployeeCreateInput, EmployeeUpdateInput } from "@/lib/validation/schemas";
 import { recordAudit } from "./audit.service";
 import { employeeScopeWhere } from "./scope.service";
@@ -178,10 +178,25 @@ export async function assignTeamTx(tx: Tx, actor: SessionUser, employeeId: strin
   return true;
 }
 
+function resolveInitialPassword(mode: EmployeeCreateInput["passwordMode"], custom?: string): string {
+  if (mode === "custom") {
+    if (!custom) throw new AppError("VALIDATION", "Enter a password.", { password: ["Enter a password"] });
+    return custom;
+  }
+  if (mode === "default") {
+    const value = defaultUserPassword();
+    if (!value) throw new AppError("VALIDATION", "No default password is configured (DEFAULT_USER_PASSWORD).");
+    return value;
+  }
+  return generateTemporaryPassword();
+}
+
 export async function createEmployee(actor: SessionUser, input: EmployeeCreateInput) {
   requireAdmin(actor);
-  const temporaryPassword = input.password ? null : generateTemporaryPassword();
-  const passwordHash = await hashPassword(input.password ?? temporaryPassword!);
+  const initialPassword = resolveInitialPassword(input.passwordMode, input.password);
+  const passwordHash = await hashPassword(initialPassword);
+  // Shown once to the admin to share; a password the admin typed is not echoed back.
+  const temporaryPassword = input.passwordMode === "custom" ? null : initialPassword;
 
   const user = await db.$transaction(async (tx) => {
     await assertUnique(tx, input);
@@ -315,7 +330,8 @@ export async function assignTeam(actor: SessionUser, employeeId: string, teamId:
 
 export async function resetPassword(actor: SessionUser, id: string): Promise<string> {
   requireAdmin(actor);
-  const temporaryPassword = generateTemporaryPassword();
+  // Reset to the organization default when configured, otherwise a random one.
+  const temporaryPassword = defaultUserPassword() ?? generateTemporaryPassword();
   const passwordHash = await hashPassword(temporaryPassword);
   await db.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id }, select: { id: true } });
