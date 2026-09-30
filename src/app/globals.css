@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+/*
+ * JurisTrack design tokens — Juris LPO identity: deep navy with a restrained
+ * brass accent. Every color used by components is a token below; dark mode
+ * redefines the tokens (its own validated steps, not an automatic inversion).
+ */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --surface-3: #eef1f5;
+  --border: #e3e7ed;
+  --border-strong: #cfd6e0;
+  --ink: #111a2b;
+  --ink-2: #445066;
+  --ink-3: #6b7689;
+  --brand: #13294b;
+  --brand-2: #1d3a66;
+  --brand-ink: #ffffff;
+  --accent: #a8792f;
+  --accent-soft: #f6efe2;
+  --focus: #3b6fd1;
+
+  /* Timeline / chart marks (validated: see dataviz palette check) */
+  --mark-work: #2f5d9e;
+  --mark-break: #e0a526;
+  --mark-grid: #e8ecf1;
+
+  /* Status (always paired with an icon + label) */
+  --st-working: #0f7a3d;
+  --st-working-bg: #e6f4ec;
+  --st-break: #9a5b00;
+  --st-break-bg: #fdf2dc;
+  --st-idle: #5b6577;
+  --st-idle-bg: #eef0f3;
+  --st-ended: #2a4f8f;
+  --st-ended-bg: #e7eef9;
+  --danger: #b42318;
+  --danger-bg: #fdecea;
+  --success: #0f7a3d;
+  --success-bg: #e6f4ec;
+  --warning: #9a5b00;
+  --warning-bg: #fdf2dc;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1219;
+    --surface: #141a24;
+    --surface-2: #19212d;
+    --surface-3: #1f2835;
+    --border: #273142;
+    --border-strong: #354155;
+    --ink: #e8ecf2;
+    --ink-2: #b3bccb;
+    --ink-3: #8a94a6;
+    --brand: #cfd9ea;
+    --brand-2: #b7c5dc;
+    --brand-ink: #0d1219;
+    --accent: #d0a45a;
+    --accent-soft: #2a2417;
+    --focus: #7aa2ea;
+    --mark-work: #5b8ad6;
+    --mark-break: #b87d14;
+    --mark-grid: #222b39;
+    --st-working: #5fd08f;
+    --st-working-bg: #12291d;
+    --st-break: #f0b74d;
+    --st-break-bg: #2c2210;
+    --st-idle: #a2abba;
+    --st-idle-bg: #1f2835;
+    --st-ended: #8fb3f0;
+    --st-ended-bg: #162238;
+    --danger: #f28b82;
+    --danger-bg: #2d1614;
+    --success: #5fd08f;
+    --success-bg: #12291d;
+    --warning: #f0b74d;
+    --warning-bg: #2c2210;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-brand-ink: var(--brand-ink);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-focus: var(--focus);
+  --color-mark-work: var(--mark-work);
+  --color-mark-break: var(--mark-break);
+  --color-mark-grid: var(--mark-grid);
+  --color-st-working: var(--st-working);
+  --color-st-working-bg: var(--st-working-bg);
+  --color-st-break: var(--st-break);
+  --color-st-break-bg: var(--st-break-bg);
+  --color-st-idle: var(--st-idle);
+  --color-st-idle-bg: var(--st-idle-bg);
+  --color-st-ended: var(--st-ended);
+  --color-st-ended-bg: var(--st-ended-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+dialog::backdrop {
+  background: rgb(10 16 28 / 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

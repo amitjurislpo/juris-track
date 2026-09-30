@@ -1,0 +1,1043 @@
+Build a complete, production-ready internal web application called **JurisTrack** for **Juris LPO**.
+
+JurisTrack is an employee time-tracking and productive-hours management platform. The primary purpose is to accurately track how much time each employee spends working during the day, how much time they spend on breaks, and calculate their total productive hours. The system must support dynamic team creation, employee management, independent employee timers, break/resume functionality, and manager dashboards.
+
+Do not create a Phase 1 / Phase 2 / Phase 3 implementation. Treat everything below as the complete product requirement and build the application cohesively in one development effort.
+
+## Core Product Concept
+
+Every employee has their own independent work timer.
+
+When an employee starts working, their timer runs continuously and their productive time increases.
+
+When the employee takes a break:
+
+* The productive timer must stop.
+* The break period must be recorded.
+* The employee can see that they are currently on break.
+* When the employee clicks **Back to Work / Resume Work**, the productive timer starts again.
+* Productive time must not increase while the employee is on break.
+* The employee's timer must be completely independent from every other employee's timer.
+* One employee starting, stopping, resuming, or ending their day must never affect another employee's timer.
+* The system must calculate productive hours from actual recorded work sessions rather than relying only on a frontend counter.
+
+The application must persist all important time-tracking information in **PostgreSQL**.
+
+## Technology
+
+Use a modern production-ready full-stack architecture.
+
+Preferred stack:
+
+* Next.js with App Router
+* TypeScript
+* Tailwind CSS
+* PostgreSQL
+* Prisma ORM
+* Server-side APIs/actions for all important data operations
+* Authentication with role-based authorization
+* Responsive UI for desktop and laptop use
+* Clean component architecture
+* Proper validation and error handling
+
+Keep the architecture scalable so the platform can eventually support a large number of employees and multiple managers.
+
+Use environment variables for database credentials, authentication secrets, and other sensitive configuration.
+
+Create a proper `.env.example`.
+
+Do not hardcode credentials or secrets.
+
+## User Roles
+
+Support at least these roles:
+
+### Admin
+
+Admin can:
+
+* Create teams
+* Rename teams
+* Delete/deactivate teams where appropriate
+* Add employees
+* Edit employee information
+* Activate/deactivate employees
+* Assign employees to teams
+* Move employees between teams
+* View all teams
+* View all employees
+* View individual employee time records
+* View productive hours
+* View break hours
+* View attendance/work-session history
+* View organization-wide productivity information
+
+### Manager
+
+Manager can:
+
+* View the teams they are responsible for
+* View employees in those teams
+* View current employee work status
+* See which employees are working
+* See which employees are on break
+* See which employees have finished their day
+* View today's productive hours
+* View break duration
+* View total worked time
+* View historical productive hours
+* Filter employee records by date
+* View individual employee details
+
+Manager permissions must not allow unauthorized access to employees or teams outside their permitted scope.
+
+### Employee
+
+Employee can:
+
+* Log in
+* See their own dashboard
+* Start their workday
+* See their active work timer
+* Take a break
+* Resume work
+* End their workday
+* See today's productive hours
+* See today's break duration
+* See their work-session history
+* See their own previous days' productive hours
+
+Employees must never be able to modify another employee's time records.
+
+## Authentication
+
+Implement secure authentication.
+
+After login, route users according to their role.
+
+Employees should see the employee dashboard.
+
+Managers should see the manager dashboard.
+
+Admins should see the administration dashboard.
+
+Protect server-side routes and API endpoints as well as frontend routes.
+
+Do not rely only on hiding UI elements for authorization.
+
+## Employee Workday Flow
+
+The primary employee workflow should be extremely simple.
+
+When an employee begins their day:
+
+**Start Work**
+
+The system creates an active work session.
+
+The dashboard should immediately display something similar to:
+
+**Working**
+
+`02:37:14`
+
+with a prominent **Take Break** button.
+
+The timer should continue accurately even if:
+
+* The page is refreshed
+* The browser is minimized
+* The employee navigates within the application
+* The computer remains idle from the frontend perspective
+
+Do not implement the timer as a simple `setInterval` whose value is stored only in React state.
+
+The source of truth must be timestamps stored in PostgreSQL.
+
+Calculate the displayed elapsed time from timestamps so that refreshing the page does not reset the timer.
+
+## Break Workflow
+
+When the employee clicks:
+
+**Take Break**
+
+the current work session should be closed/paused and a break session should begin.
+
+The UI should clearly change to:
+
+**On Break**
+
+`00:18:42`
+
+and show:
+
+**Back to Work**
+
+While the employee is on break:
+
+* Productive hours must not increase.
+* Break duration must increase.
+* The employee status must be `ON_BREAK`.
+
+When the employee clicks **Back to Work**:
+
+* Close the current break session.
+* Create/resume a new work session.
+* Employee status becomes `WORKING`.
+* Productive time begins increasing again.
+
+An employee may take multiple breaks during one workday.
+
+Every break must be individually recorded.
+
+For example:
+
+Work:
+09:00 → 11:15
+
+Break:
+11:15 → 11:30
+
+Work:
+11:30 → 13:00
+
+Break:
+13:00 → 13:45
+
+Work:
+13:45 → 18:00
+
+The system should calculate:
+
+Total span:
+09:00 → 18:00 = 9 hours
+
+Break:
+1 hour
+
+Productive:
+8 hours
+
+Do not calculate productive hours merely as "current time minus login time." Use actual work and break intervals.
+
+## End Workday
+
+Provide an obvious:
+
+**End Workday**
+
+button.
+
+When clicked:
+
+* Close the current active work session.
+* Mark the employee's workday as completed.
+* Calculate final productive hours.
+* Calculate final break hours.
+* Store the final state.
+* Prevent accidental duplicate work sessions for the same day.
+
+If the employee is currently on a break, define sensible behavior and prevent inconsistent records. Prefer requiring the employee to resume work before ending the workday, or clearly handle the break as an ended interval if the product design requires it.
+
+After ending the day, display a summary:
+
+**Today's Summary**
+
+* Workday start
+* Workday end
+* Total worked span
+* Productive hours
+* Break hours
+* Number of breaks
+
+## Independent Employee Timers
+
+This is a critical requirement.
+
+Every employee's work state must be completely independent.
+
+For example:
+
+Employee A:
+WORKING — 05:23:10 productive
+
+Employee B:
+ON BREAK — 03:41:22 productive
+
+Employee C:
+WORKING — 06:12:05 productive
+
+Employee D:
+DAY ENDED — 07:45:33 productive
+
+Changing Employee B's status must never modify Employee A, C, or D.
+
+Never create one global timer for all employees.
+
+Each employee must have their own work-session and break-session records associated with their own employee/user ID.
+
+## Database Design
+
+Use PostgreSQL with Prisma.
+
+Create a normalized relational schema.
+
+At minimum, support entities similar to:
+
+### User
+
+Fields should include appropriate identifiers and fields such as:
+
+* id
+* name
+* email
+* password/authentication identifier as appropriate
+* role
+* active status
+* createdAt
+* updatedAt
+
+### Team
+
+Fields:
+
+* id
+* name
+* description if useful
+* active status
+* createdAt
+* updatedAt
+
+Teams must be dynamically created.
+
+Do not hardcode teams such as Paralegal, Sales, or Tech.
+
+The administrator should be able to create arbitrary teams.
+
+Examples could include:
+
+* Paralegal
+* Sales
+* Technology
+* Accounting
+* Operations
+* HR
+
+but these should be database records, not hardcoded application logic.
+
+### EmployeeTeam / Team Membership
+
+Support employees belonging to teams.
+
+Design the relationship so the system can enforce the intended team membership rules cleanly.
+
+### Workday
+
+Represent an employee's workday/attendance record.
+
+Useful fields:
+
+* id
+* employeeId
+* date
+* startedAt
+* endedAt
+* status
+* createdAt
+* updatedAt
+
+Ensure there cannot be accidental duplicate active workdays for the same employee.
+
+### WorkSession
+
+Store actual productive work intervals.
+
+Useful fields:
+
+* id
+* employeeId
+* workdayId
+* startedAt
+* endedAt
+* createdAt
+
+Every time an employee resumes work, a new work session may be created.
+
+### BreakSession
+
+Store actual break intervals.
+
+Useful fields:
+
+* id
+* employeeId
+* workdayId
+* startedAt
+* endedAt
+* createdAt
+
+Multiple break sessions per workday must be supported.
+
+Use database constraints/indexes appropriately.
+
+Add indexes for frequently queried fields such as employeeId, teamId, date, startedAt, endedAt, and status where appropriate.
+
+## Productive Hours Calculation
+
+Productive hours should be calculated from WorkSession records.
+
+For a completed workday:
+
+Productive Time =
+sum of all completed work-session durations.
+
+Break Time =
+sum of all completed break-session durations.
+
+Total Workday Span =
+workday endedAt - workday startedAt.
+
+Do not rely on manually entered productive-hour values.
+
+For an active workday, calculate current productive time using the active work session's `startedAt` and the current server/client time while keeping PostgreSQL timestamps as the source of truth.
+
+Handle timezone consistently.
+
+The organization should have a clearly defined timezone configuration rather than assuming the browser timezone.
+
+## Dashboard
+
+Create a polished professional dashboard.
+
+The UI should feel like a modern SaaS workforce-management platform rather than a basic CRUD application.
+
+Use a clean, premium Juris LPO visual identity.
+
+Avoid excessive gradients, excessive glowing effects, or gimmicky animations.
+
+Focus on clarity, information hierarchy, and professional enterprise UX.
+
+### Employee Dashboard
+
+Show:
+
+* Current status
+* Live productive timer
+* Current session
+* Today's productive hours
+* Today's break hours
+* Number of breaks
+* Workday start time
+* Current/last activity
+* Start Work / Take Break / Back to Work / End Workday controls
+* Today's timeline
+* Historical daily productivity
+
+Create a visual timeline showing work and break periods.
+
+Example:
+
+09:00 ━━━━━ WORK ━━━━━ 11:15
+11:15 ─ BREAK ─ 11:30
+11:30 ━━━━━ WORK ━━━━━ 13:00
+13:00 ─ BREAK ─ 13:45
+13:45 ━━━━━ WORK ━━━━━ NOW
+
+### Manager Dashboard
+
+Create a manager-focused overview.
+
+Show employee cards/table with:
+
+* Employee name
+* Team
+* Current status
+* Today's productive hours
+* Today's break hours
+* Workday start
+* Workday end if completed
+* Number of breaks
+* Last activity
+
+Statuses should be visually obvious:
+
+* Working
+* On Break
+* Not Started
+* Day Ended
+
+Provide filters:
+
+* Team
+* Employee
+* Date
+* Status
+
+Allow managers to open an employee's detailed productivity view.
+
+Include summary metrics such as:
+
+* Employees working
+* Employees on break
+* Employees not started
+* Employees who completed their day
+* Total productive hours
+* Total break hours
+
+Do not turn this into a simplistic "employee ranking" system. The primary purpose is accurate time visibility and management reporting.
+
+### Admin Dashboard
+
+Provide:
+
+* Total employees
+* Active employees
+* Teams
+* Employees currently working
+* Employees currently on break
+* Completed workdays
+* Organization productive hours
+* Organization break hours
+
+Also provide administration interfaces for:
+
+**Teams**
+
+* Create
+* Rename
+* Activate/deactivate
+* View members
+
+**Employees**
+
+* Add
+* Edit
+* Activate/deactivate
+* Assign team
+* View profile
+* View time history
+
+## Team Management
+
+Teams must be fully dynamic.
+
+Admin should have an **Add Team** action.
+
+The form can include:
+
+* Team name
+* Description
+* Manager assignment if manager functionality supports team ownership
+
+After creating a team, the admin should be able to click:
+
+**Add Employee**
+
+and select an existing employee or create a new employee.
+
+Employees should be easily assignable to teams.
+
+Provide team detail pages showing:
+
+* Team name
+* Manager
+* Number of employees
+* Employee list
+* Current employee statuses
+* Today's productive hours
+* Today's break hours
+
+## Add Employee
+
+Provide a dedicated employee creation flow.
+
+Fields should include at minimum:
+
+* First name
+* Last name
+* Email
+* Employee ID if useful
+* Team
+* Role
+* Active/inactive status
+
+Generate or configure authentication credentials securely.
+
+Do not expose passwords in the employee management table.
+
+Add validation for duplicate email addresses and other unique fields.
+
+## Employee Detail
+
+Managers/Admins should be able to open an employee profile.
+
+Display:
+
+* Name
+* Email
+* Employee ID
+* Team
+* Current status
+* Today's productive time
+* Today's break time
+* Workday history
+* Work/break timeline
+* Historical daily totals
+
+Provide date filtering.
+
+For example:
+
+Today
+
+Yesterday
+
+This Week
+
+This Month
+
+Custom Date Range
+
+## Reporting
+
+Create useful reporting views.
+
+Allow managers/admins to inspect productive hours by:
+
+* Employee
+* Team
+* Date
+* Date range
+
+Show:
+
+* Productive hours
+* Break hours
+* Total work span
+* Number of breaks
+* Start time
+* End time
+
+Make the reporting layer extensible so CSV/Excel export can be added later without redesigning the database.
+
+## Time Tracking Integrity
+
+This is one of the most important aspects of the platform.
+
+The backend must validate all state transitions.
+
+Do not trust the frontend.
+
+For example:
+
+An employee cannot:
+
+* Start a second active workday while one is already active
+* Start a break while already on break
+* Resume work when not on break
+* End a workday multiple times
+* Modify another employee's records
+* Manipulate productive hours through client-side state
+
+Use server-side validation and database transactions where necessary.
+
+Handle race conditions so double-clicking buttons does not create duplicate sessions.
+
+Disable buttons while requests are processing and make the backend idempotent where appropriate.
+
+## Timer Accuracy
+
+Do not store an incrementing counter such as:
+
+`productiveSeconds = productiveSeconds + 1`
+
+as the authoritative database value.
+
+Store timestamps.
+
+For an active work session:
+
+`productive duration = current time - startedAt`
+
+For completed work sessions:
+
+`productive duration = endedAt - startedAt`
+
+Then aggregate all sessions.
+
+The frontend timer should derive its display from timestamps and periodically synchronize with the server.
+
+Refreshing the browser must not reset the timer.
+
+Opening the same employee account in another browser should show the same underlying work state rather than creating a separate timer.
+
+## Real-Time Manager Visibility
+
+Managers should be able to see employee status and current productive time without manually rebuilding records.
+
+Implement a sensible refresh/synchronization mechanism.
+
+It can use polling or another appropriate mechanism depending on the chosen architecture.
+
+Do not over-engineer this with unnecessary infrastructure.
+
+The important requirement is that manager dashboards accurately reflect:
+
+* Working
+* On Break
+* Day Ended
+* Not Started
+
+and current productive time.
+
+## Navigation
+
+Create a clear application layout.
+
+Suggested navigation:
+
+### Employee
+
+Dashboard
+My Time
+My History
+Profile
+
+### Manager
+
+Dashboard
+My Teams
+Employees
+Time Reports
+
+### Admin
+
+Dashboard
+Teams
+Employees
+Time Tracking
+Reports
+Settings
+
+Only show navigation items appropriate to the authenticated user's role.
+
+## UX Requirements
+
+Make the application intuitive enough that an employee can understand what to do immediately after login.
+
+The most important action on the employee dashboard should always be obvious.
+
+Use clear status indicators and large timer typography.
+
+Example states:
+
+WORKING
+
+`04:32:18`
+
+**Take Break**
+
+or
+
+ON BREAK
+
+`00:17:43`
+
+**Back to Work**
+
+or
+
+DAY ENDED
+
+`Today's productive time: 07:48:21`
+
+Avoid unnecessary complexity.
+
+Use confirmation dialogs for destructive actions such as deactivating employees or deleting teams.
+
+Use toast/inline notifications for successful actions and errors.
+
+Provide loading states and empty states throughout the application.
+
+Make the application responsive, but optimize primarily for desktop/laptop because this is an employee workplace platform.
+
+## Security
+
+Implement:
+
+* Secure authentication
+* Password hashing if password authentication is used
+* Role-based authorization
+* Server-side authorization
+* Input validation
+* SQL injection protection through Prisma
+* CSRF-safe architecture where applicable
+* Secure session handling
+* No sensitive information in client-side logs
+* Environment variables for secrets
+
+Employees must only access their own time records.
+
+Managers must only access employees/teams within their authorization scope.
+
+Admins can access organization-wide information.
+
+## Auditability
+
+Because this platform tracks employee working time, make the underlying records auditable.
+
+Avoid silently overwriting historical time records.
+
+When possible, preserve the original work/break sessions.
+
+Consider adding an audit-log model for important administrative actions such as:
+
+* Employee created
+* Employee deactivated
+* Team created
+* Team changed
+* Employee moved between teams
+* Time record manually adjusted by an authorized administrator
+
+If a manual correction mechanism is implemented, record:
+
+* Who made the change
+* What changed
+* Previous value
+* New value
+* Timestamp
+* Reason
+
+Do not allow ordinary employees to manually edit their productive hours.
+
+## Edge Cases
+
+Handle:
+
+* Employee refreshes browser during work
+* Employee closes browser during work
+* Employee reconnects after temporary network loss
+* Employee double-clicks Start Work
+* Employee double-clicks Take Break
+* Employee double-clicks Back to Work
+* Employee double-clicks End Workday
+* Employee logs in from another device
+* Employee remains on break for a long period
+* Employee starts a workday but does not end it
+* Browser sleeps/backgrounds
+* Server/client clock differences
+* Midnight/date boundary
+* Employee deactivation
+* Team deletion/deactivation
+* Manager reassignment
+* Duplicate employee email
+* Concurrent requests
+
+Do not silently create corrupted time records.
+
+## API / Backend Structure
+
+Create clean backend endpoints/server actions for:
+
+Authentication
+Teams
+Employees
+Workdays
+Work sessions
+Break sessions
+Dashboard statistics
+Reports
+Audit logs
+
+Use consistent response/error handling.
+
+Validate request data using a schema-validation library such as Zod.
+
+Keep database operations in a maintainable service/repository structure instead of putting all business logic directly into UI components.
+
+## Seed Data
+
+Create a development seed script with realistic demo data.
+
+Include teams such as:
+
+* Paralegal
+* Sales
+* Technology
+
+and several demo employees with different current states so the dashboard can be tested.
+
+Do not hardcode these teams into the application. They should be inserted through the seed/database layer.
+
+Include sample completed workdays and work/break sessions so historical reporting can be tested.
+
+Clearly mark seeded accounts as development/demo accounts.
+
+## UI Pages
+
+At minimum build:
+
+### Public
+
+/login
+
+### Employee
+
+/dashboard
+/my-time
+/my-history
+/profile
+
+### Manager
+
+/manager
+/manager/teams
+/manager/employees
+/manager/employees/[id]
+/manager/reports
+
+### Admin
+
+/admin
+/admin/teams
+/admin/teams/[id]
+/admin/employees
+/admin/employees/[id]
+/admin/reports
+/admin/settings
+
+Adjust the routing structure if a better architecture is appropriate.
+
+## Database and Migration
+
+Set up Prisma properly.
+
+Create:
+
+* Prisma schema
+* migrations
+* seed script
+* database connection configuration
+* `.env.example`
+
+The application should be able to initialize a fresh PostgreSQL database using documented commands.
+
+## Production Quality
+
+Do not build this as a throwaway prototype.
+
+Use:
+
+* Strong TypeScript typing
+* Reusable components
+* Clean folder structure
+* Reusable tables/cards/modals/forms
+* Proper server/client boundaries
+* Error boundaries where appropriate
+* Loading states
+* Empty states
+* Validation
+* Authorization
+* Database indexes
+* Transaction handling
+* Accessible UI
+* Responsive design
+
+Avoid unnecessary dependencies.
+
+## Important Product Principle
+
+The system should treat the database timestamps and work/break sessions as the source of truth.
+
+The visible timer is only a representation of the underlying timestamps.
+
+For example, if an employee starts working at 9:00 AM, takes a break at 11:00 AM, returns at 11:30 AM, and ends work at 6:00 PM:
+
+Work session 1:
+09:00 → 11:00 = 2 hours
+
+Break:
+11:00 → 11:30 = 30 minutes
+
+Work session 2:
+11:30 → 18:00 = 6.5 hours
+
+Final productive time:
+8.5 hours
+
+Final break time:
+30 minutes
+
+This calculation must remain correct after browser refreshes, navigation, reconnection, and manager viewing.
+
+## Visual Direction
+
+Create a polished internal enterprise product for Juris LPO.
+
+Design characteristics:
+
+* Premium
+* Clean
+* Professional
+* Modern SaaS
+* Minimal
+* Data-focused
+* Excellent typography
+* Strong spacing
+* Clear cards and tables
+* Subtle motion only where useful
+* Responsive
+* Accessible
+
+Use the Juris LPO brand identity without making the interface overly decorative.
+
+The timer should be a major visual element.
+
+The manager dashboard should make it immediately obvious who is:
+
+WORKING
+ON BREAK
+NOT STARTED
+DAY ENDED
+
+Use charts/timelines only where they improve understanding.
+
+## Deliverables
+
+Build the actual working application, not just mockups.
+
+Create all required source files, database schema, migrations, seed data, authentication, APIs/server actions, UI components, pages, validation, authorization, and documentation.
+
+After implementation:
+
+1. Run the project locally.
+2. Run TypeScript checks.
+3. Run linting.
+4. Run database validation/migrations.
+5. Run the seed process.
+6. Test the main employee workflow.
+7. Test multiple employees simultaneously.
+8. Test manager visibility.
+9. Test admin team and employee management.
+10. Test browser refresh during an active work session.
+11. Test break/resume calculations.
+12. Test duplicate button clicks and race-condition-sensitive actions.
+13. Fix errors found during testing.
+
+Do not stop after creating the UI. Complete the backend and PostgreSQL integration.
+
+At the end, provide a concise implementation report containing:
+
+* Tech stack used
+* Database schema/models created
+* Authentication approach
+* Role/permission model
+* Main routes
+* Environment variables required
+* Database setup commands
+* Seed/demo credentials
+* How to run locally
+* Any remaining limitations or assumptions
+
+Most importantly, ensure the application is genuinely functional end-to-end: an employee can log in, start work, take breaks, resume work, end the workday, and have their productive hours accurately stored and visible to the appropriate manager/admin independently of every other employee.
