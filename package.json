@@ -1,0 +1,50 @@
+{
+  "name": "juristrack",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JurisTrack — employee time tracking and productive-hours management for Juris LPO",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d db",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
+    "db:reset-data": "tsx prisma/bootstrap.ts --wipe",
+    "db:seed": "prisma db seed",
+    "db:seed:demo": "tsx prisma/seed.ts",
+    "db:reset": "prisma migrate reset",
+    "db:validate": "prisma validate",
+    "db:studio": "prisma studio",
+    "test:flows": "tsx scripts/verify-flows.ts",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "bcryptjs": "^3.0.3",
+    "next": "16.3.8",
+    "pg": "^8.16.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22",
+    "@types/pg": "^8.15.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.2.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.8",
+    "prisma": "7.10.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3"
+  }
+}
