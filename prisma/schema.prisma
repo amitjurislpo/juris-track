@@ -1,0 +1,216 @@
+// JurisTrack data model.
+//
+// Source-of-truth principle: productive and break time are derived from the
+// timestamps on WorkSession / BreakSession rows. The cached totals on Workday
+// are recomputed from those sessions whenever a workday is completed or
+// corrected, and are never incremented directly.
+//
+// "Only one open X" invariants are enforced by nullable UNIQUE "active key"
+// columns: the column holds the owner id while the record is open and is set
+// to NULL when it closes. PostgreSQL allows many NULLs in a unique column, so
+// this gives a partial-unique guarantee without raw SQL indexes.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum WorkdayStatus {
+  WORKING
+  ON_BREAK
+  COMPLETED
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  employeeCode       String?   @unique
+  firstName          String
+  lastName           String
+  email              String    @unique
+  passwordHash       String
+  role               Role      @default(EMPLOYEE)
+  isActive           Boolean   @default(true)
+  isDemo             Boolean   @default(false)
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  sessions      Session[]
+  memberships   TeamMembership[] @relation("MembershipEmployee")
+  assignedBy    TeamMembership[] @relation("MembershipAssignedBy")
+  managedTeams  Team[]           @relation("TeamManager")
+  workdays      Workday[]
+  workSessions  WorkSession[]    @relation("WorkEmployee")
+  breakSessions BreakSession[]   @relation("BreakEmployee")
+  auditActions  AuditLog[]       @relation("AuditActor")
+  auditSubjects AuditLog[]       @relation("AuditSubject")
+
+  @@index([role, isActive])
+  @@index([lastName, firstName])
+}
+
+model Session {
+  // HMAC-SHA256 of the random cookie token; the raw token is never stored.
+  id         String   @id
+  userId     String
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  // Lower-cased, trimmed name used to enforce case-insensitive uniqueness.
+  nameKey     String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  managerId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  manager     User?            @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  memberships TeamMembership[]
+  workdays    Workday[]
+
+  @@index([isActive])
+  @@index([managerId])
+}
+
+// Membership history. An employee has at most one current team; moving teams
+// closes the current membership (endedAt) and opens a new one, preserving
+// history for auditing and historical reporting.
+model TeamMembership {
+  id               String    @id @default(cuid())
+  teamId           String
+  employeeId       String
+  // Equals employeeId while current, NULL once ended (one current team max).
+  activeEmployeeId String?   @unique
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  assignedById     String?
+
+  team       Team  @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  employee   User  @relation("MembershipEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  assignedBy User? @relation("MembershipAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@index([teamId, endedAt])
+  @@index([employeeId, endedAt])
+}
+
+model Workday {
+  id               String        @id @default(cuid())
+  employeeId       String
+  // Team at the time the workday started (historical reporting snapshot).
+  teamId           String?
+  // Calendar date in the organization timezone at the moment work started.
+  date             DateTime      @db.Date
+  timezone         String
+  startedAt        DateTime
+  endedAt          DateTime?
+  status           WorkdayStatus @default(WORKING)
+  // Equals employeeId while the workday is open, NULL once completed.
+  activeEmployeeId String?       @unique
+  // Derived cache, recomputed from sessions on completion / correction.
+  productiveSeconds Int?
+  breakSeconds      Int?
+  breakCount        Int?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  employee      User           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  team          Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  workSessions  WorkSession[]
+  breakSessions BreakSession[]
+
+  @@unique([employeeId, date])
+  @@index([date, status])
+  @@index([teamId, date])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model WorkSession {
+  id            String    @id @default(cuid())
+  employeeId    String
+  workdayId     String
+  startedAt     DateTime
+  endedAt       DateTime?
+  // Equals workdayId while open, NULL once closed (one open session per day).
+  openWorkdayId String?   @unique
+  createdAt     DateTime  @default(now())
+
+  employee User    @relation("WorkEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  workday  Workday @relation(fields: [workdayId], references: [id], onDelete: Cascade)
+
+  @@index([workdayId, startedAt])
+  @@index([employeeId, startedAt])
+  @@index([endedAt])
+}
+
+model BreakSession {
+  id            String    @id @default(cuid())
+  employeeId    String
+  workdayId     String
+  startedAt     DateTime
+  endedAt       DateTime?
+  openWorkdayId String?   @unique
+  createdAt     DateTime  @default(now())
+
+  employee User    @relation("BreakEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  workday  Workday @relation(fields: [workdayId], references: [id], onDelete: Cascade)
+
+  @@index([workdayId, startedAt])
+  @@index([employeeId, startedAt])
+  @@index([endedAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  subjectId  String?
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  actor   User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  subject User? @relation("AuditSubject", fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([subjectId])
+  @@index([action])
+}
+
+// Single-row organization configuration (id is always 1).
+model OrganizationSetting {
+  id                Int      @id @default(1)
+  organizationName  String   @default("Juris LPO")
+  timezone          String   @default("Asia/Kolkata")
+  staleWorkdayHours Int      @default(14)
+  // IANA zones viewers may switch the display to (the org timezone is always offered).
+  displayTimezones  String[] @default(["Asia/Kolkata", "America/New_York"])
+  updatedAt         DateTime @updatedAt
+}
