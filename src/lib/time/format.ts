@@ -9,15 +9,16 @@ export function formatClock(totalSeconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
-/** 7h 48m — used for totals in tables and cards. */
+/** 7h 48m 05s · 3m 09s · 42s — used for totals in tables and cards (second precision). */
 export function formatDuration(totalSeconds: number | null | undefined): string {
   if (totalSeconds == null) return "—";
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (h === 0 && m === 0) return s > 0 ? "<1m" : "0m";
-  if (h === 0) return `${m}m`;
-  return `${h}h ${String(m).padStart(2, "0")}m`;
+  const sec = String(s % 60).padStart(2, "0");
+  if (h === 0 && m === 0) return `${s}s`;
+  if (h === 0) return `${m}m ${sec}s`;
+  return `${h}h ${String(m).padStart(2, "0")}m ${sec}s`;
 }
 
 /** Decimal hours (e.g. 8.50) for reports and exports. */
