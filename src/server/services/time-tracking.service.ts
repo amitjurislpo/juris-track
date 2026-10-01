@@ -18,7 +18,7 @@ import { getSettings } from "./settings.service";
  * Time-tracking state machine.
  *
  *   NOT_STARTED --start--> WORKING --break--> ON_BREAK --resume--> WORKING
- *                          WORKING --end----> DAY_ENDED
+ *                          WORKING --end----> DAY_ENDED --start--> WORKING (same day)
  *
  * Every transition:
  *  - runs in a transaction that first takes a row lock on the employee
@@ -184,7 +184,17 @@ async function start(employeeId: string): Promise<boolean> {
       select: { id: true },
     });
     if (existing) {
-      throw new AppError("INVALID_STATE", "You have already ended your workday for today.");
+      // Today's workday was already ended: reopen it with a new work session.
+      // The gap since it ended counts as neither productive nor break time.
+      await tx.workday.update({
+        where: { id: existing.id },
+        data: { status: "WORKING", endedAt: null, activeEmployeeId: employeeId },
+      });
+      await tx.workSession.create({
+        data: { employeeId, workdayId: existing.id, startedAt: now, openWorkdayId: existing.id },
+      });
+      await recomputeWorkdayTotals(tx, existing.id);
+      return false;
     }
 
     const membership = await tx.teamMembership.findUnique({

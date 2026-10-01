@@ -192,10 +192,20 @@ export function TimerPanel({ initialState, displayTimezone }: { initialState: Em
               </>
             )}
             {status === "DAY_ENDED" && (
-              <div className="rounded-xl border border-border bg-surface-2 px-4 py-3 text-center text-sm text-ink-2">
-                <Icon name="check" className="mx-auto mb-1 size-5 text-st-ended" />
-                Your workday is complete. See you tomorrow.
-              </div>
+              <>
+                <div className="rounded-xl border border-border bg-surface-2 px-4 py-3 text-center text-sm text-ink-2">
+                  <Icon name="check" className="mx-auto mb-1 size-5 text-st-ended" />
+                  Your workday is complete.
+                </div>
+                {wd?.date === state.today && (
+                  <>
+                    <Button variant="success" size="lg" onClick={() => run("start")} loading={pending === "start"} disabled={!!pending}>
+                      <Icon name="play" className="size-4" /> Start Work Again
+                    </Button>
+                    <p className="text-center text-xs text-ink-3">Time since you ended isn&apos;t counted.</p>
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -267,7 +277,7 @@ export function TimerPanel({ initialState, displayTimezone }: { initialState: Em
         loading={pending === "end"}
         tone="primary"
         title="End your workday?"
-        description="Your final productive and break hours will be recorded. You can't start another workday today."
+        description="Your final productive and break hours will be recorded. You can start work again later today if needed."
         confirmLabel="End Workday"
       >
         {live && (
