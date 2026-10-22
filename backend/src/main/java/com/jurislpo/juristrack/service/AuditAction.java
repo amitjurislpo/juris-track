@@ -112,7 +112,11 @@ public enum AuditAction {
     /** Access: a manager or the owner opened one person's history (the date range is recorded). */
     TEAM_MEMBER_WORKDAYS_VIEWED("access.team_member_workdays_viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS),
     /** Access: a manager or the owner opened one workday of somebody else. */
-    WORKDAY_VIEWED("access.workday_viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS);
+    WORKDAY_VIEWED("access.workday_viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS),
+    /** A manager or the owner read a report on other people's workdays (one entry per request; filters in {@code after}). */
+    REPORT_VIEWED("reports.viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS),
+    /** A manager or the owner downloaded the workday report as CSV (filters, rows and display time zone in {@code after}). */
+    REPORT_EXPORTED("reports.exported", AuditCategory.ACCESS, AuditOutcome.SUCCESS);
 
     private final String storedName;
     private final AuditCategory category;
