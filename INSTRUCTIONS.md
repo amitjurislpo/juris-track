@@ -29,7 +29,7 @@ Add new lines at the bottom of the right section. Hindi, Hinglish or English are
 
 - The repo must stay clean: no unused files, no dead code, no leftover references to removed things (Next.js, Prisma, `.env`).
 - Configuration is one file per environment: `backend/src/main/resources/application.properties` and `application-dev|sqe|uat|prd.properties`. Do not add `.env` files or separate templates. Secrets of sqe/uat/prd are `${ENV_VARS}` from the server and are never committed.
-- Config files live under `src/` (resources), not in the repository root. Generated and uploaded files live outside the project (`jurisone.storage-dir`).
+- Config files live under `src/` (resources), not in the repository root. JurisTrack stores no uploaded or generated files.
 - The backend is a pure Java project: no Node, no `package.json`.
 - Verify before saying "done": backend `./mvnw test` (in `backend/`); frontend `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e` for anything the UI or API contract touches.
 

@@ -16,6 +16,8 @@ public final class Problems {
 
     public static final String VALIDATION_FAILED = "VALIDATION_FAILED";
     public static final String UNAUTHENTICATED = "UNAUTHENTICATED";
+    /** 401 because the access token ran out: refresh the session and retry. */
+    public static final String TOKEN_EXPIRED = "TOKEN_EXPIRED";
     public static final String FORBIDDEN = "FORBIDDEN";
     public static final String NOT_FOUND = "NOT_FOUND";
     public static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";

@@ -21,6 +21,7 @@ class EnvironmentGuardTest {
         configuration.put("juristrack.mail.host", "smtp.example.com");
         configuration.put("juristrack.seed.super-admin-email", "admin@jurislpo.com");
         configuration.put("juristrack.app-url", "https://track.example.com");
+        configuration.put("juristrack.security.cookie-secure", "true");
         configuration.put("juristrack.security.jwt-secret", "x".repeat(64));
         configuration.put("spring.datasource.password", "database-password");
         configuration.put("juristrack.integration.enabled", "false");
@@ -91,6 +92,19 @@ class EnvironmentGuardTest {
         configuration.put("juristrack.mail.host", "");
         configuration.put("juristrack.app-url", "http://track.example.com");
         assertThat(problemsOf(configuration)).hasSize(3);
+    }
+
+    @Test
+    void sessionCookiesMustBeSecureInProduction() {
+        for (String environmentName : List.of("uat", "prd")) {
+            Map<String, String> configuration = completeConfiguration(environmentName);
+            configuration.put("juristrack.security.cookie-secure", "false");
+            assertThat(problemsOf(configuration)).as(environmentName).singleElement().asString().contains("juristrack.security.cookie-secure");
+        }
+        // sqe is served over http and may keep plain cookies
+        Map<String, String> sqeConfiguration = completeConfiguration("sqe");
+        sqeConfiguration.put("juristrack.security.cookie-secure", "false");
+        assertThat(problemsOf(sqeConfiguration)).isEmpty();
     }
 
     @Test

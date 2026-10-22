@@ -24,6 +24,23 @@ Open (defaults used until the owner says otherwise): D6 display zone as a per-br
 
 ---
 
+## Progress
+
+| Phase | Status |
+|---|---|
+| 0 Inventory | done |
+| 1 Repos and docs | done |
+| 2 Skeleton (Maven project, 4 env files, Flyway V1, entities, tenancy, seed/reset, Docker) | done |
+| 3 Time engines (interval math, calendar and time zones, date ranges, reporting-line scope) in Java and TypeScript, checked against golden fixtures from the Node code | done |
+| 4 Auth: emailed-code sign-in (`/api/auth/otp-requests`, `/api/auth/sessions`, `/api/auth/sessions/current`, `/api/auth/session-refreshes`), `/api/me`, cookies `jt_at` / `jt_rt`, Origin check, audit service, embedded Bearer token verification with just-in-time provisioning; e2e `auth.spec.ts` | done |
+| 5 Modules: organization and employees, time tracking, corrections, reports and CSV, audit log page | next |
+| 5b Roster sync `PUT /api/integration/employees`, jti replay guard | not built yet |
+| 6 Jobs/seed polish, 7 cleanup, naming sweep, parity checklist | later |
+
+Notes from Phase 4: the mail properties are `juristrack.mail.username` / `password` (env `${SMTP_USER}` / `${SMTP_PASS}`); signed-out API calls answer 401 problem+json (defect 4 below is fixed); sign-in limits follow JurisOne's (defect 3 below is addressed, still in memory per instance).
+
+---
+
 # Phase 0 inventory (read-only)
 
 Output of Phase 0 of `MIGRATION-GUIDE-BACKEND.md` / `MIGRATION-GUIDE-FRONTEND.md`. Source: `C:\JurisLPO\JurisTrack`, branch

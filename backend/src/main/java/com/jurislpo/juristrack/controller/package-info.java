@@ -1,2 +1,2 @@
-/** HTTP endpoints: each maps a request to one service call and shapes the response ({@code ApiResult} or problem+json). The first endpoints come with the auth and module phases. */
+/** HTTP endpoints: each checks the caller ({@code security.Auth}), maps the request to one service call and shapes the response ({@code ApiResult} or problem+json). */
 package com.jurislpo.juristrack.controller;

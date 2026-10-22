@@ -12,7 +12,10 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 
-/** A signed-out request to a protected endpoint: 401 as {@code application/problem+json} with code {@code UNAUTHENTICATED}. */
+/**
+ * A signed-out request to a protected endpoint: 401 as {@code application/problem+json} with code {@code UNAUTHENTICATED}, or
+ * {@code TOKEN_EXPIRED} when the access token has merely run out (the client should refresh the session and retry).
+ */
 @Component
 public class JsonAuthEntryPoint implements AuthenticationEntryPoint {
 
@@ -24,9 +27,10 @@ public class JsonAuthEntryPoint implements AuthenticationEntryPoint {
 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException e) throws IOException {
+        boolean hasExpiredToken = Boolean.TRUE.equals(request.getAttribute(RequestAuthenticationFilter.TOKEN_EXPIRED_ATTRIBUTE));
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        objectMapper.writeValue(response.getOutputStream(),
-                Problems.of(HttpStatus.UNAUTHORIZED, Problems.UNAUTHENTICATED, UnauthenticatedException.MESSAGE, request.getRequestURI()));
+        objectMapper.writeValue(response.getOutputStream(), Problems.of(HttpStatus.UNAUTHORIZED,
+                hasExpiredToken ? Problems.TOKEN_EXPIRED : Problems.UNAUTHENTICATED, UnauthenticatedException.MESSAGE, request.getRequestURI()));
     }
 }

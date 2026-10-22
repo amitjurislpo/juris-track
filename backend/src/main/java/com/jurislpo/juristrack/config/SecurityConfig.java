@@ -1,6 +1,13 @@
 package com.jurislpo.juristrack.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jurislpo.juristrack.repository.SessionRepository;
+import com.jurislpo.juristrack.security.AccessTokenService;
+import com.jurislpo.juristrack.security.IntegrationTokenVerifier;
 import com.jurislpo.juristrack.security.JsonAuthEntryPoint;
+import com.jurislpo.juristrack.security.OriginCheckFilter;
+import com.jurislpo.juristrack.security.RequestAuthenticationFilter;
+import com.jurislpo.juristrack.service.IntegrationProvisioningService;
 import java.util.List;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
@@ -9,23 +16,31 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * Stateless: no JSESSIONID, no form or basic login. Only the health endpoint is open; every {@code /api/**} call needs a
- * signed-in user and answers 401 problem+json without one. The sign-in filters (own emailed-code session cookies, and
- * JurisOne's bearer token when embedded) come with the auth phase. Spring's CSRF token is off because the defence is
- * SameSite=Lax cookies + an Origin check on writes, as in JurisOne.
- * Not loaded for the one-shot CLI commands, which run without a web server.
+ * Stateless: no JSESSIONID, no form or basic login. The caller is authenticated by {@link RequestAuthenticationFilter}: the
+ * {@code jt_at} session cookie (standalone sign-in by emailed code), or JurisOne's Bearer token when embedded. Only the health
+ * endpoint and the sign-in endpoints are open; every other {@code /api/**} call needs a signed-in user and answers 401
+ * problem+json without one. Spring's CSRF token is off because the defence is SameSite=Lax cookies + the
+ * {@link OriginCheckFilter} on writes, as in JurisOne. Spring Security's default security headers stay on
+ * ({@code X-Content-Type-Options: nosniff}, {@code X-Frame-Options: DENY}, no-cache, HSTS over https).
+ * Roles are checked in the controllers ({@code Auth.requireRole}). Not loaded for the one-shot CLI commands, which run without a web server.
  */
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain apiFilterChain(HttpSecurity http, JsonAuthEntryPoint entryPoint) throws Exception {
+    SecurityFilterChain apiFilterChain(HttpSecurity http, JsonAuthEntryPoint entryPoint, JuristrackProperties properties,
+            AccessTokenService accessTokenService, SessionRepository sessionRepository, IntegrationTokenVerifier integrationTokenVerifier,
+            IntegrationProvisioningService integrationProvisioningService, ObjectMapper objectMapper) throws Exception {
+        RequestAuthenticationFilter authenticationFilter = new RequestAuthenticationFilter(accessTokenService, sessionRepository,
+                integrationTokenVerifier, integrationProvisioningService, objectMapper);
+        OriginCheckFilter originCheckFilter = new OriginCheckFilter(properties.frontendOrigin(), objectMapper);
         http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> {})
@@ -34,9 +49,14 @@ public class SecurityConfig {
             .formLogin(form -> form.disable())
             .logout(logout -> logout.disable())
             .requestCache(cache -> cache.disable())
+            .addFilterBefore(authenticationFilter, AnonymousAuthenticationFilter.class)
+            .addFilterAfter(originCheckFilter, RequestAuthenticationFilter.class)
             .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint))
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                // signing in, renewing and ending a session work without a valid access token
+                .requestMatchers(HttpMethod.POST, "/api/auth/otp-requests", "/api/auth/sessions", "/api/auth/session-refreshes").permitAll()
+                .requestMatchers(HttpMethod.DELETE, "/api/auth/sessions/current").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll());
         return http.build();

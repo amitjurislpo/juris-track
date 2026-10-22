@@ -46,15 +46,18 @@ leaves the JurisOne backend, JurisOne keeps control of who may use the module (p
 | `sub` | JurisOne employee id (stable) |
 | `email`, `name` | for provisioning and display |
 | `businessId`, `businessName` | JurisOne business id and name |
-| `managerId` | JurisOne employee id of this employee's assigned manager (null if none): JurisTrack keeps it as `manager_id` and refreshes it on every token |
-| `trackRole` | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` (optional `ADMIN` only if JurisOne wants an owner-type user). Sent on **every** token; JurisTrack follows it, so granting or removing the role in JurisOne takes effect on the next call |
+| `managerId` (optional) | JurisOne employee id of this employee's assigned manager (null if none): JurisTrack keeps it as `manager_id` and refreshes it on every token |
+| `trackRole` (optional) | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` (optional `ADMIN` only if JurisOne wants an owner-type user). Sent on **every** token; JurisTrack follows it, so granting or removing the role in JurisOne takes effect on the next call |
 | `exp`, `iat`, `jti` | expiry (short), issue time, unique id (replay guard) |
 
-**Just-in-time provisioning:** on a valid token, find the business by `businesses.jurisone_business_id` (create it with the JurisOne business name and the default
-time zone if new), then the user by `users.jurisone_employee_id`; if not found, match by email (this links a user who first used JurisTrack standalone), else
-create the user with `trackRole` (default `EMPLOYEE`). After that the user's JurisTrack role and team are managed inside JurisTrack (admin screens), unless the
-owner decides JurisOne is the source of truth for roles (open question 3). Deactivating an employee in JurisOne means JurisOne no longer issues tokens for them;
-JurisTrack's own `is_active` flag can also be switched by an admin.
+**Just-in-time provisioning (implemented):** on a valid token, in system mode inside one transaction: find the business by `businesses.jurisone_business_id` (create it
+with the JurisOne business name and defaults if new, refresh the name otherwise), then the user by `users.jurisone_employee_id`; if not found, match by email (this
+links a user who first used JurisTrack standalone), else create the user. **The token is authoritative on every call** for name, email, role (`MANAGER` or
+`EMPLOYEE`; `ADMIN` only when sent; a downgrade takes effect on the next call) and manager (`manager_id` is resolved by the manager's `jurisone_employee_id` in
+the same business; null when the manager is not known yet; never the user themself). Granting or removing the JurisTrack manager role in JurisOne therefore needs
+no action in JurisTrack. An unchanged user writes no audit entry. Rules: if the token's JurisOne business is not known yet and the email belongs to a standalone
+user whose business is not linked, that business is adopted (it gets the `jurisone_business_id`); an email that belongs to a user of another linked business, or to
+the `SUPER_ADMIN`, is refused with 403; a deactivated user is refused with 403; any invalid token answers 401 without details and is never logged.
 
 **Roster sync (part of the first version):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the
 roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees
@@ -68,7 +71,7 @@ rule or mTLS); never log tokens; optionally refuse a `jti` that was already used
 ## 3. Standalone: how a direct user signs in
 
 Same flow as JurisOne's own sign-in: `POST /api/auth/otp-requests` (email), then `POST /api/auth/sessions` (email + code); cookies `jt_at` / `jt_rt`; fixed code
-`000000` only in dev; rate limits per IP and per email. Email addresses are globally unique, so the business is resolved from the email. The first super admin comes from the `seed` command; the super admin then creates
+`000000` only in dev. Settings (all in `application-<env>.properties`): `juristrack.otp.code-ttl-minutes` (10), `max-attempts` (5, then the code is burnt), `requests-per-ip` (10) and `requests-per-email` (5) per `window-minutes` (15), `failed-sign-ins-per-ip` (20); `juristrack.security.access-token-ttl-seconds` (300), `session-ttl-days`, `short-session-hours` (12, when "keep me signed in" is off), `refresh-reuse-grace-seconds`, `cookie-secure` (true in uat/prd). Limits are in memory (one instance). Inactive or unknown emails get the same generic answer and no code. Email addresses are globally unique, so the business is resolved from the email. The first super admin comes from the `seed` command; the super admin then creates
 businesses and their owners (open question 2), and owners add their employees.
 
 ## 3b. Why JurisTrack is integrated, and who sees what (same in both modes)

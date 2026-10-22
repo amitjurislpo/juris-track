@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 /**
  * Refuses to start a shared environment with development shortcuts or unfilled placeholders. Only dev may use the fixed
  * sign-in code; sqe, uat and prd must send real codes by email (SMTP set), name the platform super admin and, when
- * embedded in JurisOne, hold JurisOne's public key. uat and prd are also checked for demo data, an http:// public URL and secrets still written as
+ * embedded in JurisOne, hold JurisOne's public key. uat and prd are also checked for demo data, an http:// public URL, cookies without the Secure flag and secrets still written as
  * {@code <...>} or missing. The environment name is {@code juristrack.env} (dev | sqe | uat | prd), set by each
  * application-&lt;env&gt;.properties.
  */
@@ -67,6 +67,9 @@ public class EnvironmentGuard {
         }
         if (!valueOrDefault(property.apply("juristrack.app-url"), "").startsWith("https://")) {
             problems.add("juristrack.app-url must be an https:// URL");
+        }
+        if (!"true".equalsIgnoreCase(valueOrDefault(property.apply("juristrack.security.cookie-secure"), "false"))) {
+            problems.add("juristrack.security.cookie-secure must be true (session cookies over https only)");
         }
         for (String secretName : SECRETS) {
             String value = valueOrDefault(property.apply(secretName), "");
