@@ -103,7 +103,7 @@ No HR, Finance or other functional roles exist in JurisTrack. "Individual" (smal
 interval, close a forgotten workday), **never their own**. A reason of at least 5 characters is mandatory, overlaps/future/inverted intervals are rejected, and
 the change is written to the audit log in the same transaction. When a manager's own time needs correcting, their manager (or the owner) does it.
 
-**UI structure for every user:** a personal **section** (Dashboard, My time, My history, Profile) that is always there, even for a manager; a manager additionally
+**UI structure for every user:** a personal **section** (Dashboard, My time, My history, Profile; endpoints `/api/me/time`, `/api/me/time-events`, `/api/workdays/mine`, `/api/workdays/{id}`) that is always there, even for a manager; a manager additionally
 gets the **Team tab** (live board with working / on break / not started / day ended, productive time per person, reports, each report's history, the indirect-reports
 switch). The same pages in both modes, so the design is identical when embedded.
 

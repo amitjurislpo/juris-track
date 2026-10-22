@@ -40,8 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>A manager must be an active MANAGER or ADMIN of the same business, not the employee, and not someone who reports
  *       (directly or further down) to the employee (422 {@code MANAGER_*}).</li>
  *   <li>A MANAGER or ADMIN with active reports cannot become an EMPLOYEE (422 {@code MANAGER_HAS_REPORTS}): move the reports first.</li>
- *   <li>Deactivating ends every session of the person at once (they also get no new sign-in codes); the owner cannot deactivate
- *       themself, and the last active owner of the business cannot be deactivated.</li>
+ *   <li>Deactivating ends every session of the person at once (they also get no new sign-in codes) and closes their open workday
+ *       at the current time; the owner cannot deactivate themself, and the last active owner of the business cannot be deactivated.</li>
  * </ul>
  */
 @Service
@@ -80,13 +80,15 @@ public class EmployeeService {
     private final EmployeeQueryRepository employeeQueryRepository;
     private final SessionService sessionService;
     private final AuditService auditService;
+    private final TimeTrackingService timeTrackingService;
 
     public EmployeeService(UserRepository userRepository, EmployeeQueryRepository employeeQueryRepository, SessionService sessionService,
-            AuditService auditService) {
+            AuditService auditService, TimeTrackingService timeTrackingService) {
         this.userRepository = userRepository;
         this.employeeQueryRepository = employeeQueryRepository;
         this.sessionService = sessionService;
         this.auditService = auditService;
+        this.timeTrackingService = timeTrackingService;
     }
 
     /**
@@ -239,6 +241,11 @@ public class EmployeeService {
             if (employee.getRole() == Role.ADMIN && employeeQueryRepository.countOtherActiveOwners(owner.businessId(), employeeId) == 0) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.LAST_ACTIVE_OWNER, "The business must keep at least one active owner.");
             }
+        }
+        if (!isActive) {
+            // no record is left running for a deactivated account: the open workday ends now (audited as workday.closed)
+            timeTrackingService.closeOpenWorkdayOfDeactivatedEmployee(owner.businessId(), owner.userId(), employeeId, reason)
+                    .ifPresent(workdayId -> after.put("closedWorkdayId", workdayId.toString()));
         }
         employee.setActive(isActive);
         userRepository.saveAndFlush(employee);

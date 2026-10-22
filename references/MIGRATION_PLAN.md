@@ -22,6 +22,21 @@
 
 Open (defaults used until the owner says otherwise): D6 display zone as a per-browser cookie in the frontend, D10 scope (keep everything except Next.js-specific parts; demo seed as the `seed` command), D11 names (`com.jurislpo.juristrack`, artifact `juristrack-backend`, cookies `jt_at` / `jt_rt`).
 
+## Audit policy (owner decision 2026-10-23: a complete audit of every movement)
+
+Every movement is recorded in `audit_logs`, in the same transaction as the change wherever there is one. Nothing is left out because it is "too small".
+
+| Area | What is recorded |
+|---|---|
+| Time tracking | every start, break, resume, end and reopen (`time.*`), every correction and forced close of a workday (reason mandatory), the workday closed by a deactivation |
+| People and organization | business created / updated / suspended / reactivated; employee created / updated (every changed field with before and after, including role and manager) / deactivated / reactivated; business settings changes |
+| Sign-in and sessions | code requested (also for unknown or inactive emails: recorded without revealing it to the caller), sign-in success, wrong or expired code, code burnt, rate limit hit, sign-out, refresh-token reuse, embedded token provisioning, embedded token rejected (reason, no token content) |
+| Access to other people's data | a manager, owner or super admin opening somebody else's workday, history, report or export (who looked at whom, which range), every CSV export |
+| Security refusals | 403 for a role or scope violation, a suspended business hitting the API |
+| Integration | roster sync calls and what they changed, key or configuration problems |
+
+Each entry carries: when (UTC), actor (user id, role, business), subject (the person the entry is about), action, entity type and id, before and after (JSON), reason, source (`STANDALONE` or `INTEGRATION`), IP address, user agent and request id. The audit log is **append-only**: the application never updates or deletes a row, and the database refuses `UPDATE` and `DELETE` on `audit_logs` (trigger or revoked rights). The owner sees the audit log of their business (`admin/audit-log`), the super admin sees the platform log (`platform/audit`), both with filters (date range, actor, subject, action, entity) and CSV export; nobody can edit or delete entries from the UI. A test proves that every write endpoint produces an audit entry. High-volume entries (reads of others' data, sign-in attempts) are stored in the same table; indexes and a retention note are part of the audit module.
+
 ---
 
 ## Progress
@@ -34,11 +49,14 @@ Open (defaults used until the owner says otherwise): D6 display zone as a per-br
 | 3 Time engines (interval math, calendar and time zones, date ranges, reporting-line scope) in Java and TypeScript, checked against golden fixtures from the Node code | done |
 | 4 Auth: emailed-code sign-in (`/api/auth/otp-requests`, `/api/auth/sessions`, `/api/auth/sessions/current`, `/api/auth/session-refreshes`), `/api/me`, cookies `jt_at` / `jt_rt`, Origin check, audit service, embedded Bearer token verification with just-in-time provisioning; e2e `auth.spec.ts` | done |
 | 5.1 Organization and employees: businesses (super admin), business settings, employees with reporting line, suspension, V2 migration; contract in `API.md` | done: backend 674 tests, frontend 915 unit tests, e2e 25/25, browser sweep of every role (desktop and mobile) |
-| 5.2 Time tracking (start / break / resume / end day, reopen after end, per-employee lock; deactivation must also close an open workday) | next |
-| 5.3 Manager Team tab (live board, indirect switch), corrections | later |
-| 5.4 Reports and CSV, audit log page | later |
+| 5.2 Time tracking: `GET /api/me/time`, `POST /api/me/time-events`, `GET /api/workdays/mine`, `GET /api/workdays/{id}`; state machine with reopen after End Day (D5, implemented), per-employee row lock, idempotent repeats, manager snapshot, deactivation closes the open workday | backend done (739 tests); frontend and e2e next |
+| 5.3 Complete audit: the audit policy above (append-only table, access-to-others and security events, request context), the audit log pages for the owner and the super admin with filters and CSV export, and the endpoint-coverage test | next, before corrections |
+| 5.4 Manager Team tab (live board, indirect switch), corrections | later |
+| 5.5 Reports and CSV | later |
 | 5b Roster sync `PUT /api/integration/employees`, jti replay guard | not built yet |
 | 6 Jobs/seed polish, 7 cleanup, naming sweep, parity checklist | later |
+
+Notes from module 5.2: the old proposal `POST /api/time/commands` became `POST /api/me/time-events` and the old `GET /api/me/status` became `GET /api/me/time`; history is `/api/workdays/mine` (the own collection is `/mine`). Every applied time event writes an audit entry (`time.*`; the old app audited only admin changes: the owner may drop this). Four of the old 23 verify-flows checks belong to module 5.3 and are not ported yet: manager board scope, non-admins cannot adjust, overlapping adjustment rejected, audited adjustment recomputes totals.
 
 Notes from module 5.1: teams are dropped, so `assignTeamAction` becomes `PATCH /api/employees/{id}` with `managerId`; `updateSettingsAction` / `createOrganizationAction` become `GET`/`PATCH /api/business` (owner) and `/api/businesses/{id}` (super admin, who also creates businesses and suspends them); the migrations are V1 and V2.
 

@@ -50,6 +50,10 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 | GET | `/api/employees/{employeeId}` | ADMIN | One employee |
 | PATCH | `/api/employees/{employeeId}` | ADMIN | Change an employee |
 | PUT | `/api/employees/{employeeId}/status` | ADMIN | Deactivate / reactivate |
+| GET | `/api/me/time` | ADMIN, MANAGER, EMPLOYEE | My current time state (timer, today's timeline) |
+| POST | `/api/me/time-events` | ADMIN, MANAGER, EMPLOYEE | Start work, break, resume, end the day |
+| GET | `/api/workdays/mine` | ADMIN, MANAGER, EMPLOYEE | My history: workdays of a date range, totals, daily series |
+| GET | `/api/workdays/{workdayId}` | ADMIN, MANAGER, EMPLOYEE | One of my workdays with its work and break intervals |
 
 ## Sign-in (standalone)
 
@@ -160,8 +164,74 @@ Audit: `employee.updated` with the record before and after (only when something 
 ### PUT /api/employees/{employeeId}/status
 Body `{ isActive: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Employee deactivated." | "Employee is active.", data: <employee> }`.
 Deactivating ends every session of the person at once (their next request is 401) and they get no new sign-in codes until reactivated. Their reports keep
-them as manager. Errors: 400 (`isActive`, `reason`), 404, 422 `CANNOT_DEACTIVATE_SELF`, 422 `LAST_ACTIVE_OWNER` (the business must keep one active ADMIN).
-Audit: `employee.deactivated` (after includes `endedSessions`) / `employee.reactivated`, with the reason.
+them as manager. In the same transaction their open workday (if any) is closed at that moment: the running work or break interval ends, the day is
+completed and its totals are recomputed. Errors: 400 (`isActive`, `reason`), 404, 422 `CANNOT_DEACTIVATE_SELF`, 422 `LAST_ACTIVE_OWNER` (the business must
+keep one active ADMIN). Audit: `employee.deactivated` (after includes `endedSessions`, and `closedWorkdayId` when a workday was closed) /
+`employee.reactivated`, with the reason; a closed workday also writes `workday.closed` (before `{ status, endedAt: null }`, after
+`{ status: "COMPLETED", endedAt }`, the reason given, else "Employee deactivated.").
+
+## Time tracking (own)
+
+Every user of a business (ADMIN, MANAGER, EMPLOYEE) tracks their own time; the SUPER_ADMIN gets 403 `FORBIDDEN` on every endpoint below. The employee is
+always the signed-in user (an id in the body is ignored). A suspended business answers 403 `BUSINESS_SUSPENDED`, a deactivated user is signed out (401; 403 with a JurisOne token).
+All times are UTC instants; dates (`YYYY-MM-DD`) are calendar dates in the business time zone; durations are whole seconds computed from the recorded
+intervals (closed: end - start; running: now - start). Labels and formatting are the client's.
+
+**States**: `NOT_STARTED` -> `START` -> `WORKING` <-> (`BREAK` / `RESUME`) `ON_BREAK`; `WORKING` -> `END` -> `DAY_ENDED`. A workday belongs to the date on
+which it started in the business time zone and may run past midnight (a night shift keeps its start date). One workday per person and date. `START` after
+the day ended on the same date **reopens** that workday with a new work session; the gap between the end and the new start counts as neither productive
+nor break time (it stays inside `spanSeconds`). A break must be ended with `RESUME` before `END`.
+
+**Workday** (snapshot; `GET /api/me/time` as `workday`, `GET /api/workdays/{workdayId}` as `data`):
+`{ id, date, status: "WORKING" | "ON_BREAK" | "DAY_ENDED", startedAt, endedAt | null, isStale, closedProductiveSeconds, closedBreakSeconds,
+activeWorkStartedAt | null, activeBreakStartedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount,
+lastActivity: { type: "STARTED_WORK" | "STARTED_BREAK" | "RESUMED_WORK" | "ENDED_DAY", at }, segments: [{ id, type: "WORK" | "BREAK", startedAt, endedAt | null }] }`.
+`productiveSeconds` / `breakSeconds` include the running interval up to `serverTime`; a client keeps a timer running with
+`closedProductiveSeconds + (now - activeWorkStartedAt)` and `closedBreakSeconds + (now - activeBreakStartedAt)`. `spanSeconds` = start of the day to its end
+(or now). `breakCount` counts the running break too. `isStale` ("not ended") = the day is still open and `spanSeconds` is more than the business's
+`staleWorkdayHours` (computed when read). `segments` are oldest first.
+
+### GET /api/me/time
+`data = { employeeId, serverTime, today, businessTimeZone, staleWorkdayHours, displayTimeZones: string[], status: "NOT_STARTED" | "WORKING" | "ON_BREAK" |
+"DAY_ENDED", workday | null }`. `displayTimeZones` is the business's configured list (IANA ids, as stored; see `GET /api/business`) for every signed-in
+user's time-zone switcher; the business time zone is always offered as well (the client adds it). It is returned only here and in the `state` of
+`POST /api/me/time-events`; the history and workday endpoints do not repeat it.
+`workday` is the open workday (whatever its date), else today's ended workday, else null (`status` NOT_STARTED). `serverTime` lets the client measure its
+clock offset. After a night shift ended past midnight, today has no workday yet: the state is NOT_STARTED again.
+
+### POST /api/me/time-events
+Body `{ type: "START" | "BREAK" | "RESUME" | "END" }` (any case). Answer `data = { type, alreadyApplied, workdayId, state: <as GET /api/me/time> }`:
+- **201** when the event changed the state, with `message` "Workday started. Have a productive day." / "Break started. Your productive timer is paused." /
+  "Welcome back. Your productive timer is running." / "Workday ended. Your summary is ready." (`alreadyApplied` false);
+- **200** without `message` when the person already is where the event leads (a double click, a retry, another device): nothing is created or changed
+  and `alreadyApplied` is true. Repeats: `START` while working or on a break, `BREAK` while on a break, `RESUME` while working, `END` after the day ended.
+
+`workdayId` = the workday the event applied to (for a repeat the current one, null when there is none); after a night shift ends past midnight it is the
+ended day while `state.workday` is null. Requests of one person are serialized (row lock on the user), so parallel requests never create a second
+workday or a second open interval; exactly one of them answers 201.
+Errors: 400 `VALIDATION_FAILED` (field `type`: missing or unknown); 409 `WORKDAY_NOT_STARTED` (`BREAK` or `END` before the day started: "Start your
+workday before taking a break." / "You have not started a workday."; also `BREAK` after the day ended); 409 `NOT_ON_BREAK` (`RESUME` without a break:
+"You are not on a break."); 409 `BREAK_IN_PROGRESS` (`END` while on a break: "You are on a break. Select Back to Work before ending your workday.");
+403 `FORBIDDEN` ("This account is deactivated.", when the account was deactivated while the request was waiting); 500 `TIME_RECORD_INCONSISTENT`
+(the open workday's intervals do not match its status; an administrator has to correct it).
+Audit (applied events only, actor = subject = the person, entity `workday`): `time.workday_started`, `time.workday_reopened`, `time.break_started`,
+`time.work_resumed`, `time.workday_ended`, each with before `{ status }` and after `{ status, at }`.
+
+### GET /api/workdays/mine
+The signed-in person's workdays dated in a range. Query: `range` = `today` | `yesterday` | `week` (Monday to today) | `month` (default; the 1st to today) |
+`custom` with `from` / `to` (`YYYY-MM-DD`; a missing `from` is this week's Monday, a missing `to` today, reversed ends are swapped, at most 366 days: an
+earlier `from` is moved up); `sort` = `date` (default) | `startedAt` | `endedAt` (open days last when ascending) | `productiveSeconds` | `breakSeconds` |
+`spanSeconds` | `breakCount`; `sortDirection` (**default `desc` here**: newest first), `page`, `pageSize` (list parameters; `search` is ignored).
+"Today" is the date in the business time zone. 400 for an unknown `range`, a malformed `from` / `to` or a bad list parameter.
+`data = { rows, total, page, pageSize, range, from, to, totals, dailySeries }`:
+- row `{ id, date, status, isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount }` (an open day's figures run to
+  `now`; an ended day's come from the totals stored when it ended);
+- `totals = { workdays, productiveSeconds, breakSeconds, spanSeconds, breakCount }` over the whole range (every page);
+- `dailySeries = [{ date, productiveSeconds, breakSeconds, workdays }]`, one point for every date from `from` to `to` (zero when nothing was recorded).
+
+### GET /api/workdays/{workdayId}
+`data = <workday>` with every work and break interval. Only the person's own workdays: anybody else's (also their manager or the owner, for now) and
+another business's answer 404 `NOT_FOUND` ("Workday not found."); 400 for a malformed id.
 
 ## Not an endpoint yet
 

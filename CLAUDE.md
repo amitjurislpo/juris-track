@@ -2,6 +2,7 @@
 
 # JurisTrack — backend notes
 
+- Audit: a complete, append-only audit of every movement (see the audit policy in `references/MIGRATION_PLAN.md`); every write endpoint writes its audit entry in the same transaction and has a test.
 - API contract: `references/API.md` (every endpoint with roles, fields and error codes; keep it exactly in sync with the code).
 - Source of truth: `references/MIGRATION_PLAN.md` (inventory of the old Next.js app, decisions, order of work) and `references/timetrack.txt` (the original product brief). The old app is the reference for behaviour only.
 - This repo is the **backend** (Spring Boot API in `backend/`, Java 17, Maven Wrapper; Postgres via docker-compose). The web app lives in its own repo, `juris-track-frontend` (React + Vite). It proxies `/api/*` to this API, so the API and the app share one origin in every environment.
@@ -12,6 +13,7 @@
 - Multi-business: every business-owned table has `business_id` + row-level security; `TenantContext` is applied to each DB connection (pattern: `tenancy/` in the JurisOne backend). Sign-in is by email only (emailed code).
 - Every API endpoint: permission check in the controller. Managers see only the employees who report to them (`manager_id`); out-of-scope records answer 404.
 - REST: nouns in paths, ids in the path, GET never writes, POST creates (201), PUT sets, PATCH partial, DELETE removes; success bodies are `{ ok, message?, data? }`, errors are `application/problem+json` with a `code`.
+- "Now" for time tracking comes from an injected `java.time.Clock` (tests use `AdjustableClock`). Time events are audited (`time.*`); list endpoints return newest first by default.
 - Time = timestamps UTC (`Instant`); a workday's date is the calendar date in the business time zone when it started. Durations come from the recorded intervals, never from a counter.
 - Backend tests: `./mvnw test` in `backend/` (JUnit 5 + Testcontainers; Docker must be running). The browser tests live in the frontend repo.
 - This is a pure Java project: no Node, no `package.json`. Never run Maven in this folder while the dev API runs; test in a fresh copy (see the migration guides).

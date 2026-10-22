@@ -37,7 +37,19 @@ public enum AuditAction {
     /** An employee was deactivated (their sessions were ended). */
     EMPLOYEE_DEACTIVATED("employee.deactivated"),
     /** A deactivated employee was activated again. */
-    EMPLOYEE_REACTIVATED("employee.reactivated");
+    EMPLOYEE_REACTIVATED("employee.reactivated"),
+    /** The employee started their workday (a new workday with its first work session). */
+    WORKDAY_STARTED("time.workday_started"),
+    /** The employee started work again after ending the day: the same workday was reopened with a new work session. */
+    WORKDAY_REOPENED("time.workday_reopened"),
+    /** The employee started a break. */
+    BREAK_STARTED("time.break_started"),
+    /** The employee ended a break and is working again. */
+    WORK_RESUMED("time.work_resumed"),
+    /** The employee ended their workday. */
+    WORKDAY_ENDED("time.workday_ended"),
+    /** Somebody else closed an employee's open workday (so far only when the employee is deactivated); the reason says why. */
+    WORKDAY_CLOSED("workday.closed");
 
     private final String storedName;
 

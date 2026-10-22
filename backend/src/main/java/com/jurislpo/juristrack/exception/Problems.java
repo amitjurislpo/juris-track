@@ -50,6 +50,14 @@ public final class Problems {
     public static final String CANNOT_DEACTIVATE_SELF = "CANNOT_DEACTIVATE_SELF";
     /** 422: the business must keep at least one active owner (ADMIN). */
     public static final String LAST_ACTIVE_OWNER = "LAST_ACTIVE_OWNER";
+    /** 409: a break or the end of the day before the workday started (a break also after the day ended). */
+    public static final String WORKDAY_NOT_STARTED = "WORKDAY_NOT_STARTED";
+    /** 409: resume work without a break to end. */
+    public static final String NOT_ON_BREAK = "NOT_ON_BREAK";
+    /** 409: end the day while on a break; the break must be ended (resume) first. */
+    public static final String BREAK_IN_PROGRESS = "BREAK_IN_PROGRESS";
+    /** 500: the open workday's intervals do not match its status (an administrator has to correct it). */
+    public static final String TIME_RECORD_INCONSISTENT = "TIME_RECORD_INCONSISTENT";
 
     public record FieldError(String field, String message) {}
 
