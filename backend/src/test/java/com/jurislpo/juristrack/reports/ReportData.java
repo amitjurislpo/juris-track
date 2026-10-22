@@ -47,12 +47,13 @@ final class ReportData {
         return workdayId;
     }
 
-    /** The report audit entries written for {@code actorId}, oldest first: {@code action|subject|entityId|after}. */
+    /** The report audit entries written for {@code actorId}, oldest first: {@code action|subject|entityType|entityId|category|after}. */
     List<String> reportAuditEntries(UUID actorId) {
-        return jdbcTemplate.query("SELECT action, subject_id, entity_type, entity_id, \"after\"::text AS details FROM audit_logs "
+        return jdbcTemplate.query("SELECT action, subject_id, entity_type, entity_id, category, \"after\"::text AS details FROM audit_logs "
                 + "WHERE actor_id = ? AND action LIKE 'reports.%' ORDER BY created_at, id",
                 (resultSet, rowNumber) -> resultSet.getString("action") + "|" + resultSet.getString("subject_id") + "|"
-                        + resultSet.getString("entity_type") + "|" + resultSet.getString("entity_id") + "|" + resultSet.getString("details"),
+                        + resultSet.getString("entity_type") + "|" + resultSet.getString("entity_id") + "|" + resultSet.getString("category") + "|"
+                        + resultSet.getString("details"),
                 actorId);
     }
 

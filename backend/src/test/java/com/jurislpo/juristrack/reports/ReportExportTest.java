@@ -139,8 +139,8 @@ class ReportExportTest extends ReportTestBase {
         csv(manager, "scope=indirect&timeZone=America/New_York").andExpect(status().isOk());
         List<String> entries = reportData.reportAuditEntries(managerId);
         assertThat(entries).hasSize(1);
-        assertThat(entries.get(0)).startsWith("reports.exported|null|report|workdays|")
-                .contains("\"category\": \"export\"", "\"scope\": \"indirect\"", "\"timeZone\": \"America/New_York\"",
+        assertThat(entries.get(0)).startsWith("reports.exported|null|report|workdays|access|").doesNotContain("\"category\"")
+                .contains("\"scope\": \"indirect\"", "\"timeZone\": \"America/New_York\"",
                         "\"fileName\": \"juristrack-2026-10-19-to-2026-10-21.csv\"", "\"rowCount\": 5");
         csv(manager, "employeeId=" + employeeId).andExpect(status().isOk());
         assertThat(reportData.reportAuditEntries(managerId).get(1)).startsWith("reports.exported|" + employeeId + "|");

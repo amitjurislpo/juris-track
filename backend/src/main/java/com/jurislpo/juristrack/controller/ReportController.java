@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The reports of managers (their reports) and owners (everybody in the business): {@code GET /api/reports/workdays} (JSON, or the CSV
  * file when the request accepts {@code text/csv}) and {@code GET /api/reports/summaries}. EMPLOYEE and the platform SUPER_ADMIN get
- * 403. Rules: {@link ReportService}; contract: references/API-reports.md.
+ * 403. Rules: {@link ReportService}; contract: references/API.md.
  */
 @RestController
 public class ReportController {

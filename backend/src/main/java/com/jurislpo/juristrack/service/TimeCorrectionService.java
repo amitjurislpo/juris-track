@@ -33,9 +33,12 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Corrections of somebody else's time by their manager or the owner (decision D16; ported from the old app's
@@ -53,7 +56,8 @@ import org.springframework.transaction.annotation.Transactional;
  *       COMPLETED.</li>
  *   <li>Each correction runs in one transaction that first locks the employee's row (as the time events do), so it never races
  *       with the employee's own start, break, resume or end; the state is read after the lock.</li>
- *   <li>Every applied correction writes its audit entry in the same transaction ({@link TimeCorrectionAudit}).</li>
+ *   <li>Every applied correction writes its audit entry in the same transaction ({@link TimeCorrectionAudit}); a correction that a
+ *       business rule refuses (422) writes {@code time.correction_refused} on its own after the rollback.</li>
  * </ul>
  */
 @Service
@@ -91,11 +95,13 @@ public class TimeCorrectionService {
     private final BreakSessionRepository breakSessionRepository;
     private final TeamAccessPolicy teamAccessPolicy;
     private final TimeCorrectionAudit timeCorrectionAudit;
+    private final TransactionTemplate writeTransaction;
 
     public TimeCorrectionService(Clock clock, TeamQueryRepository teamQueryRepository, EmployeeLockRepository employeeLockRepository,
             WorkdayRepository workdayRepository, WorkSessionRepository workSessionRepository, BreakSessionRepository breakSessionRepository,
-            TeamAccessPolicy teamAccessPolicy, TimeCorrectionAudit timeCorrectionAudit) {
+            TeamAccessPolicy teamAccessPolicy, TimeCorrectionAudit timeCorrectionAudit, PlatformTransactionManager transactionManager) {
         this.clock = clock;
+        this.writeTransaction = new TransactionTemplate(transactionManager);
         this.teamQueryRepository = teamQueryRepository;
         this.employeeLockRepository = employeeLockRepository;
         this.workdayRepository = workdayRepository;
@@ -110,8 +116,14 @@ public class TimeCorrectionService {
      * (BREAK): body {@code startedAt?}, {@code endedAt?} (left out: unchanged; {@code null} only for the running interval) and
      * {@code reason}.
      */
-    @Transactional
     public CorrectionResult adjustInterval(CurrentUser actor, UUID workdayId, SegmentType type, UUID intervalId, PatchBody body) {
+        String operation = type == SegmentType.WORK ? "adjust_work_session" : "adjust_break_session";
+        return auditRefusals(actor, workdayId, operation, employeeIdHolder -> adjustIntervalInTransaction(actor, workdayId, type, intervalId, body,
+                employeeIdHolder));
+    }
+
+    private CorrectionResult adjustIntervalInTransaction(CurrentUser actor, UUID workdayId, SegmentType type, UUID intervalId, PatchBody body,
+            AtomicReference<UUID> employeeIdHolder) {
         InputValidator validator = new InputValidator();
         Optional<String> startedAtText = body.field("startedAt", String.class);
         Optional<String> endedAtText = body.field("endedAt", String.class);
@@ -126,7 +138,7 @@ public class TimeCorrectionService {
         Instant requestedEnd = endedAtText == null || endedAtText.isEmpty() ? null : readInstant("endedAt", endedAtText.get(), validator);
         validator.throwIfInvalid();
 
-        LockedEmployee employee = lockWorkdayOwner(actor, workdayId);
+        LockedEmployee employee = lockWorkdayOwner(actor, workdayId, employeeIdHolder);
         Instant now = now();
         Workday workday = workdayRepository.findById(workdayId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, WORKDAY_NOT_FOUND));
         List<WorkSession> workSessions = workSessionRepository.findByWorkdayIdOrderByStartedAtAsc(workdayId);
@@ -183,8 +195,13 @@ public class TimeCorrectionService {
      * {@code endedAt}, by default now when an interval is still running (otherwise the end of its last interval). The running work
      * or break interval ends then. A workday that has already ended is left as it is (idempotent, nothing written).
      */
-    @Transactional
     public CorrectionResult closeWorkday(CurrentUser actor, UUID workdayId, WorkdayStatusInput input) {
+        return auditRefusals(actor, workdayId, "close_workday", employeeIdHolder -> closeWorkdayInTransaction(actor, workdayId, input,
+                employeeIdHolder));
+    }
+
+    private CorrectionResult closeWorkdayInTransaction(CurrentUser actor, UUID workdayId, WorkdayStatusInput input,
+            AtomicReference<UUID> employeeIdHolder) {
         InputValidator validator = new InputValidator();
         WorkdayStatusInput body = input == null ? new WorkdayStatusInput(null, null, null) : input;
         if (body.status() == null || !body.status().trim().toUpperCase(Locale.ROOT).equals(STATUS_DAY_ENDED)) {
@@ -194,7 +211,7 @@ public class TimeCorrectionService {
         Instant requestedEnd = body.endedAt() == null || body.endedAt().isBlank() ? null : readInstant("endedAt", body.endedAt(), validator);
         validator.throwIfInvalid();
 
-        LockedEmployee employee = lockWorkdayOwner(actor, workdayId);
+        LockedEmployee employee = lockWorkdayOwner(actor, workdayId, employeeIdHolder);
         Instant now = now();
         Workday workday = workdayRepository.findById(workdayId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, WORKDAY_NOT_FOUND));
         List<WorkSession> workSessions = workSessionRepository.findByWorkdayIdOrderByStartedAtAsc(workdayId);
@@ -241,13 +258,31 @@ public class TimeCorrectionService {
     }
 
     /**
+     * Runs one correction in its own transaction; a refusal by a business rule (422) is then audited on its own (the correction's
+     * transaction has rolled back and its connection is back in the pool) and answered as before.
+     */
+    private CorrectionResult auditRefusals(CurrentUser actor, UUID workdayId, String operation,
+            Function<AtomicReference<UUID>, CorrectionResult> correction) {
+        AtomicReference<UUID> employeeIdHolder = new AtomicReference<>();
+        try {
+            return writeTransaction.execute(transactionStatus -> correction.apply(employeeIdHolder));
+        } catch (ApiException e) {
+            if (e.status() == HttpStatus.UNPROCESSABLE_ENTITY && employeeIdHolder.get() != null) {
+                timeCorrectionAudit.recordRefused(actor, employeeIdHolder.get(), workdayId, operation, e.code());
+            }
+            throw e;
+        }
+    }
+
+    /**
      * Finds whose workday it is, checks that the actor may correct it (403 own time, 404 unknown or out of scope) and locks that
      * employee's row until the transaction ends. Nothing of the workday is loaded before the lock.
      */
-    private LockedEmployee lockWorkdayOwner(CurrentUser actor, UUID workdayId) {
+    private LockedEmployee lockWorkdayOwner(CurrentUser actor, UUID workdayId, AtomicReference<UUID> employeeIdHolder) {
         UUID employeeId = teamQueryRepository.findWorkdayEmployeeId(actor.businessId(), workdayId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, WORKDAY_NOT_FOUND));
         teamAccessPolicy.requireCanCorrect(actor, employeeId, WORKDAY_NOT_FOUND);
+        employeeIdHolder.set(employeeId);
         return employeeLockRepository.lockEmployee(employeeId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, WORKDAY_NOT_FOUND));
     }
 

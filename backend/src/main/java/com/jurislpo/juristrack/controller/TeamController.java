@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/team/members}: the manager's Team tab (live board, one person's state, one person's history). MANAGER and the owner
- * (ADMIN); everybody else 403. Rules: {@link TeamService}; contract: references/API-team-and-corrections.md.
+ * (ADMIN); everybody else 403. Rules: {@link TeamService}; contract: references/API.md.
  */
 @RestController
 @RequestMapping("/api/team/members")

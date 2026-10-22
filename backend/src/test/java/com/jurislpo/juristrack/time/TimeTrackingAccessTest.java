@@ -145,6 +145,9 @@ class TimeTrackingAccessTest extends IntegrationTest {
         otherManager.workday(workdayId).andExpect(status().isNotFound());
         TimeTracker owner = signInNew(businessId, "ADMIN", null);
         owner.workday(workdayId).andExpect(status().isOk());
+        // only the owner's read happened: one access entry, none for the refused ones
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'access.workday_viewed' AND entity_id = ?", Integer.class,
+                workdayId)).isEqualTo(1);
         colleague.history("").andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(0));
         report.workday(UUID.randomUUID()).andExpect(status().isNotFound());
         report.workday("not-a-uuid").andExpect(status().isBadRequest());

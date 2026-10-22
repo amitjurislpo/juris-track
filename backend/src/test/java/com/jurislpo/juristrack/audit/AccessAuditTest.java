@@ -123,4 +123,47 @@ class AccessAuditTest extends IntegrationTest {
         mockMvc.perform(detailTrace.on(get("/api/audit-logs/" + auditLogId)).cookie(ownerCookie)).andExpect(status().isOk());
         assertThat(detailTrace.entries()).isEmpty();
     }
+
+    /** One read of somebody else's time data and the one access entry it must write. */
+    private record AccessRead(String path, String accept, String action, UUID subjectId, String entityType, String entityId) {}
+
+    @Test
+    void aManagerOrTheOwnerReadingSomebodysTimeWritesExactlyOneAccessEntryPerRequest() throws Exception {
+        String managerEmail = TestData.uniqueEmail("access.manager");
+        UUID managerId = testData.createUser(businessId, "MANAGER", managerEmail, ownerId, "Mona", "Manager", null);
+        String reportEmail = TestData.uniqueEmail("access.report");
+        UUID reportId = testData.createUser(businessId, "EMPLOYEE", reportEmail, managerId, "Ravi", "Report", null);
+        Cookie managerCookie = SignIn.session(mockMvc, managerEmail).accessCookie();
+        Cookie reportCookie = SignIn.session(mockMvc, reportEmail).accessCookie();
+        String workdayId = JsonPath.read(mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(reportCookie).content("{\"type\":\"START\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.data.workdayId");
+
+        List<AccessRead> reads = List.of(
+                new AccessRead("/api/team/members/" + reportId, null, "access.team_member_viewed", reportId, "user", reportId.toString()),
+                new AccessRead("/api/team/members/" + reportId + "/workdays?range=week", null, "access.team_member_workdays_viewed", reportId, "user",
+                        reportId.toString()),
+                new AccessRead("/api/workdays/" + workdayId, null, "access.workday_viewed", reportId, "workday", workdayId),
+                new AccessRead("/api/reports/workdays", null, "reports.viewed", null, "report", "workdays"),
+                new AccessRead("/api/reports/workdays?employeeId=" + reportId, null, "reports.viewed", reportId, "report", "workdays"),
+                new AccessRead("/api/reports/summaries?groupBy=date", null, "reports.viewed", null, "report", "summaries"),
+                new AccessRead("/api/reports/workdays", "text/csv", "reports.exported", null, "report", "workdays"));
+        for (Map.Entry<UUID, Cookie> viewer : Map.of(managerId, managerCookie, ownerId, ownerCookie).entrySet()) {
+            for (AccessRead read : reads) {
+                AuditTrace trace = new AuditTrace(jdbcTemplate);
+                var request = trace.on(get(read.path())).cookie(viewer.getValue());
+                if (read.accept() != null) request.header("Accept", read.accept());
+                mockMvc.perform(request).andExpect(status().isOk());
+                assertThat(trace.entries()).as(read.path()).hasSize(1);
+                Map<String, Object> entry = trace.entry(read.action());
+                assertThat(entry).as(read.path()).containsEntry("actor_id", viewer.getKey()).containsEntry("subject_id", read.subjectId())
+                        .containsEntry("business_id", businessId).containsEntry("category", "access").containsEntry("outcome", "SUCCESS")
+                        .containsEntry("entity_type", read.entityType()).containsEntry("entity_id", read.entityId())
+                        .containsEntry("http_method", "GET").containsEntry("source", "STANDALONE");
+            }
+        }
+        // the live board refreshes every few seconds and is not recorded
+        AuditTrace boardTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(boardTrace.on(get("/api/team/members")).cookie(managerCookie)).andExpect(status().isOk());
+        assertThat(boardTrace.entries()).isEmpty();
+    }
 }

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.jurislpo.juristrack.AdjustableClock;
 import com.jurislpo.juristrack.IntegrationTest;
 import com.jurislpo.juristrack.SignIn;
 import com.jurislpo.juristrack.SignIn.SessionCookies;
@@ -17,6 +18,9 @@ import com.jurislpo.juristrack.service.AuditAction;
 import com.jurislpo.juristrack.service.AuditAggregation;
 import com.jurislpo.juristrack.service.RateLimiter;
 import jakarta.servlet.http.Cookie;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +64,10 @@ class AuditEndpointCoverageTest extends IntegrationTest {
             Map.entry("PUT /api/employees/{employeeId}/status", List.of("employee.deactivated", "workday.closed", "employee.reactivated",
                     "employee.change_refused")),
             Map.entry("POST /api/me/time-events", List.of("time.workday_started", "time.break_started", "time.work_resumed", "time.workday_ended",
-                    "time.workday_reopened")));
+                    "time.workday_reopened")),
+            Map.entry("PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
+            Map.entry("PATCH /api/workdays/{workdayId}/break-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
+            Map.entry("PUT /api/workdays/{workdayId}/status", List.of("time.workday_closed")));
 
     private static final Set<RequestMethod> WRITE_METHODS = Set.of(RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE);
 
@@ -68,11 +75,13 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired RateLimiter rateLimiter;
     @Autowired AuditAggregation auditAggregation;
+    @Autowired AdjustableClock clock;
     @Autowired @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlerMapping;
     TestData testData;
     UUID businessId;
     UUID ownerId;
     UUID managerId;
+    String managerEmail;
     Cookie ownerCookie;
     Cookie superAdminCookie;
     UUID superAdminId;
@@ -85,7 +94,8 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         businessId = testData.createBusiness("Coverage Co " + UUID.randomUUID());
         String ownerEmail = TestData.uniqueEmail("coverage.owner");
         ownerId = testData.createUser(businessId, "ADMIN", ownerEmail, null, "Olivia", "Owner", null);
-        managerId = testData.createUser(businessId, "MANAGER", TestData.uniqueEmail("coverage.manager"), ownerId, "Manish", "Manager", null);
+        managerEmail = TestData.uniqueEmail("coverage.manager");
+        managerId = testData.createUser(businessId, "MANAGER", managerEmail, ownerId, "Manish", "Manager", null);
         ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
         String superAdminEmail = TestData.uniqueEmail("coverage.platform");
         superAdminId = testData.createUser(null, "SUPER_ADMIN", superAdminEmail, null);
@@ -327,5 +337,86 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         mockMvc.perform(repeatTrace.on(SignIn.fromWebApp(post("/api/me/time-events"))).cookie(employeeCookie).content("{\"type\":\"START\"}"))
                 .andExpect(status().isOk());
         assertThat(repeatTrace.entries()).isEmpty();
+    }
+
+    @Test
+    void correctingAWorkOrBreakIntervalIsAuditedAndARefusalToo() throws Exception {
+        String email = TestData.uniqueEmail("covered.corrected");
+        UUID employeeId = testData.createUser(businessId, "EMPLOYEE", email, managerId);
+        Cookie employeeCookie = SignIn.session(mockMvc, email).accessCookie();
+        Cookie managerCookie = SignIn.session(mockMvc, managerEmail).accessCookie();
+        Instant dayStart = Instant.now().minus(Duration.ofHours(4)).truncatedTo(ChronoUnit.SECONDS);
+        String workdayId;
+        try {
+            clock.setTo(dayStart);
+            workdayId = JsonPath.read(timeEvent(employeeCookie, "START"), "$.data.workdayId");
+            clock.advance(Duration.ofHours(1));
+            timeEvent(employeeCookie, "BREAK");
+            clock.advance(Duration.ofMinutes(30));
+            timeEvent(employeeCookie, "RESUME");
+            clock.advance(Duration.ofHours(1));
+            timeEvent(employeeCookie, "END");
+        } finally {
+            clock.followSystemTime();
+        }
+        UUID firstWorkSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid ORDER BY started_at LIMIT 1",
+                UUID.class, workdayId);
+        UUID breakSessionId = jdbcTemplate.queryForObject("SELECT id FROM break_sessions WHERE workday_id = ?::uuid", UUID.class, workdayId);
+
+        AuditTrace workTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(workTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/work-sessions/" + firstWorkSessionId))).cookie(managerCookie)
+                .content("{\"startedAt\":\"" + dayStart.plus(Duration.ofMinutes(5)) + "\",\"reason\":\"Started later\"}")).andExpect(status().isOk());
+        assertThat(workTrace.entry("time.session_adjusted")).containsEntry("actor_id", managerId).containsEntry("actor_role", "MANAGER")
+                .containsEntry("subject_id", employeeId).containsEntry("business_id", businessId).containsEntry("category", "time")
+                .containsEntry("outcome", "SUCCESS").containsEntry("entity_type", "work_session").containsEntry("entity_id", firstWorkSessionId.toString())
+                .containsEntry("reason", "Started later").containsEntry("http_method", "PATCH");
+
+        AuditTrace breakTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(breakTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/break-sessions/" + breakSessionId))).cookie(managerCookie)
+                .content("{\"endedAt\":\"" + dayStart.plus(Duration.ofMinutes(80)) + "\",\"reason\":\"Short break\"}")).andExpect(status().isOk());
+        assertThat(breakTrace.entry("time.session_adjusted")).containsEntry("entity_type", "break_session").containsEntry("subject_id", employeeId);
+
+        // the break would come before any work: refused (422), nothing changed, the refusal recorded
+        AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/break-sessions/" + breakSessionId))).cookie(managerCookie)
+                .content("{\"startedAt\":\"" + dayStart.minus(Duration.ofMinutes(10)) + "\",\"endedAt\":\"" + dayStart.minus(Duration.ofMinutes(5))
+                        + "\",\"reason\":\"Wrong break\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(refusedTrace.entry("time.correction_refused")).containsEntry("outcome", "DENIED").containsEntry("category", "time")
+                .containsEntry("reason", "WORKDAY_MUST_START_WITH_WORK").containsEntry("actor_id", managerId).containsEntry("subject_id", employeeId)
+                .containsEntry("entity_type", "workday").containsEntry("entity_id", workdayId);
+        assertThat(refusedTrace.count("time.session_adjusted")).isZero();
+
+        AuditTrace refusedWorkTrace = new AuditTrace(jdbcTemplate);
+        UUID secondWorkSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid ORDER BY started_at DESC LIMIT 1",
+                UUID.class, workdayId);
+        mockMvc.perform(refusedWorkTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/work-sessions/" + secondWorkSessionId)))
+                .cookie(managerCookie).content("{\"startedAt\":\"" + dayStart.plus(Duration.ofMinutes(30)) + "\",\"reason\":\"Overlapping\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(refusedWorkTrace.entry("time.correction_refused")).containsEntry("reason", "TIME_INTERVAL_OVERLAP");
+    }
+
+    @Test
+    void endingSomebodysOpenWorkdayIsAudited() throws Exception {
+        String email = TestData.uniqueEmail("covered.forgotten");
+        UUID employeeId = testData.createUser(businessId, "EMPLOYEE", email, managerId);
+        Cookie employeeCookie = SignIn.session(mockMvc, email).accessCookie();
+        String workdayId = JsonPath.read(timeEvent(employeeCookie, "START"), "$.data.workdayId");
+        AuditTrace trace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/workdays/" + workdayId + "/status"))).cookie(ownerCookie)
+                .content("{\"status\":\"DAY_ENDED\",\"reason\":\"Forgot to end\"}")).andExpect(status().isOk());
+        assertThat(trace.entry("time.workday_closed")).containsEntry("actor_id", ownerId).containsEntry("actor_role", "ADMIN")
+                .containsEntry("subject_id", employeeId).containsEntry("category", "time").containsEntry("outcome", "SUCCESS")
+                .containsEntry("entity_type", "workday").containsEntry("entity_id", workdayId).containsEntry("reason", "Forgot to end");
+        // ending it again changes nothing and writes nothing
+        AuditTrace repeatTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(repeatTrace.on(SignIn.fromWebApp(put("/api/workdays/" + workdayId + "/status"))).cookie(ownerCookie)
+                .content("{\"status\":\"DAY_ENDED\",\"reason\":\"Forgot to end\"}")).andExpect(status().isOk());
+        assertThat(repeatTrace.entries()).isEmpty();
+    }
+
+    private String timeEvent(Cookie cookie, String type) throws Exception {
+        return mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie).content("{\"type\":\"" + type + "\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
     }
 }

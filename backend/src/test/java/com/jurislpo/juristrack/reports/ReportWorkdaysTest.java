@@ -275,8 +275,8 @@ class ReportWorkdaysTest extends ReportTestBase {
         workdays(manager, "scope=all").andExpect(status().isForbidden());
         List<String> entries = reportData.reportAuditEntries(managerId);
         assertThat(entries).hasSize(2);
-        assertThat(entries.get(0)).startsWith("reports.viewed|null|report|workdays|")
-                .contains("\"category\": \"access\"", "\"report\": \"workdays\"", "\"scope\": \"indirect\"", "\"status\": [\"DAY_ENDED\"]",
+        assertThat(entries.get(0)).startsWith("reports.viewed|null|report|workdays|access|").doesNotContain("\"category\"")
+                .contains("\"report\": \"workdays\"", "\"scope\": \"indirect\"", "\"status\": [\"DAY_ENDED\"]",
                         "\"search\": \"esha\"", "\"from\": \"2026-10-19\"", "\"to\": \"2026-10-21\"", "\"rowCount\": 2");
         // one entry for the request, whatever the page: the subject is the employee filtered on
         assertThat(entries.get(1)).startsWith("reports.viewed|" + employeeId + "|report|workdays|").contains("\"rowCount\": 3");

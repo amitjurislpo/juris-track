@@ -138,7 +138,7 @@ class ReportSummariesTest extends ReportTestBase {
         summaries(owner, "groupBy=manager").andExpect(status().isOk());
         List<String> entries = reportData.reportAuditEntries(ownerId);
         assertThat(entries).hasSize(1);
-        assertThat(entries.get(0)).startsWith("reports.viewed|null|report|summaries|")
-                .contains("\"category\": \"access\"", "\"groupBy\": \"manager\"", "\"scope\": \"all\"", "\"rowCount\": 4");
+        assertThat(entries.get(0)).startsWith("reports.viewed|null|report|summaries|access|").doesNotContain("\"category\"")
+                .contains("\"groupBy\": \"manager\"", "\"scope\": \"all\"", "\"rowCount\": 4");
     }
 }

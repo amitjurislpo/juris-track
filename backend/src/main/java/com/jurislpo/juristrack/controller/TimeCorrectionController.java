@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Corrections of somebody else's time by their manager or the owner: move a work or break interval
  * ({@code PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}}, {@code .../break-sessions/{sessionId}}) and end an open workday
  * ({@code PUT /api/workdays/{workdayId}/status}). MANAGER and ADMIN; everybody else 403. Rules: {@link TimeCorrectionService};
- * contract: references/API-team-and-corrections.md.
+ * contract: references/API.md.
  */
 @RestController
 public class TimeCorrectionController {

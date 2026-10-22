@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code users.manager_id} and resolved by the {@link ReportingLine} engine. Depth 1 = direct reports (the default), depth 2 = also
  * the reports of the direct reports ("Include indirect reports"). The manager is never in their own scope. Deactivated users stay
  * in the reporting line (their history stays visible to their manager); callers filter by status where they need to.
- * Not wired to an endpoint yet: the Team tab (module 3) uses it.
+ * Used by the Team tab, the time corrections ({@link TeamAccessPolicy}) and the reports.
  */
 @Service
 public class ReportingScopeService {

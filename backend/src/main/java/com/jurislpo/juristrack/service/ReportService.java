@@ -54,7 +54,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The reports of managers and owners (contract: references/API-reports.md): the workdays of the people the caller may see for a date
+ * The reports of managers and owners (contract: references/API.md): the workdays of the people the caller may see for a date
  * range ({@code GET /api/reports/workdays}, also as CSV), and the same workdays added up per employee, per manager or per date
  * ({@code GET /api/reports/summaries}). Ported from the old app's {@code reports.service.ts} ({@code getWorkdayRecords},
  * {@code totalsOf}, {@code aggregate}, {@code dailySeries}) and {@code api/reports/export/route.ts}; teams became the reporting line.
