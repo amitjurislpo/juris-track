@@ -21,7 +21,23 @@ public enum AuditAction {
     /** Embedded in JurisOne: an existing user (same email) was linked to its JurisOne employee. */
     USER_LINKED("integration.user_linked"),
     /** Embedded in JurisOne: name, role or manager changed because the token said so. */
-    USER_UPDATED_FROM_TOKEN("integration.user_updated");
+    USER_UPDATED_FROM_TOKEN("integration.user_updated"),
+    /** The super admin created a business (together with its owner, see {@link #EMPLOYEE_CREATED}). */
+    BUSINESS_CREATED("business.created"),
+    /** Business settings changed (name, time zone, stale workday hours, display time zones), by the super admin or the owner. */
+    BUSINESS_UPDATED("business.updated"),
+    /** The super admin suspended a business. */
+    BUSINESS_SUSPENDED("business.suspended"),
+    /** The super admin lifted a business's suspension. */
+    BUSINESS_REACTIVATED("business.reactivated"),
+    /** A user was added to a business (an employee by the owner, or the owner by the super admin). */
+    EMPLOYEE_CREATED("employee.created"),
+    /** An employee's details, role or manager changed. */
+    EMPLOYEE_UPDATED("employee.updated"),
+    /** An employee was deactivated (their sessions were ended). */
+    EMPLOYEE_DEACTIVATED("employee.deactivated"),
+    /** A deactivated employee was activated again. */
+    EMPLOYEE_REACTIVATED("employee.reactivated");
 
     private final String storedName;
 

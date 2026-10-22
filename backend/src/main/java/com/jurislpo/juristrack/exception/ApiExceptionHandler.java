@@ -43,6 +43,11 @@ public class ApiExceptionHandler {
         return respond(Problems.of(e.status(), e.code(), e.getMessage(), request.getRequestURI()));
     }
 
+    @ExceptionHandler(ValidationException.class)
+    ResponseEntity<ProblemDetail> handleValidation(ValidationException e, HttpServletRequest request) {
+        return respond(Problems.withErrors(Problems.of(e.status(), e.code(), e.getMessage(), request.getRequestURI()), e.errors()));
+    }
+
     /** {@code @PreAuthorize} denial: 401 when signed out, 403 otherwise. */
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {

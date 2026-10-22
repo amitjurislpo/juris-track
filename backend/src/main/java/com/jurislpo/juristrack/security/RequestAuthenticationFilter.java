@@ -1,6 +1,7 @@
 package com.jurislpo.juristrack.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jurislpo.juristrack.exception.BusinessSuspendedException;
 import com.jurislpo.juristrack.exception.ForbiddenException;
 import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.exception.UnauthenticatedException;
@@ -47,6 +48,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class RequestAuthenticationFilter extends OncePerRequestFilter {
 
     public static final String TOKEN_EXPIRED_ATTRIBUTE = "juristrack.accessTokenExpired";
+    /**
+     * Set when the session is valid but the user's business is suspended: the request stays signed out (so signing out still works)
+     * and a protected endpoint answers 403 {@code BUSINESS_SUSPENDED} instead of 401 (JsonAuthEntryPoint). The session is not ended,
+     * so it works again once the business is reactivated.
+     */
+    public static final String BUSINESS_SUSPENDED_ATTRIBUTE = "juristrack.businessSuspended";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Duration TOUCH_EVERY = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(RequestAuthenticationFilter.class);
@@ -93,7 +100,15 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
             log.info("Rejected an integration token: {}", e.getMessage()); // the reason only, never the token
             writeProblem(request, response, HttpStatus.UNAUTHORIZED, Problems.UNAUTHENTICATED, UnauthenticatedException.MESSAGE);
             return false;
-        } catch (AccessRefusedException | DataIntegrityViolationException e) {
+        } catch (AccessRefusedException e) {
+            log.info("Refused an integration user: {}", e.getMessage());
+            if (e.isBusinessSuspended()) {
+                writeProblem(request, response, HttpStatus.FORBIDDEN, Problems.BUSINESS_SUSPENDED, BusinessSuspendedException.MESSAGE);
+            } else {
+                writeProblem(request, response, HttpStatus.FORBIDDEN, Problems.FORBIDDEN, ForbiddenException.MESSAGE);
+            }
+            return false;
+        } catch (DataIntegrityViolationException e) {
             log.info("Refused an integration user: {}", e.getMessage());
             writeProblem(request, response, HttpStatus.FORBIDDEN, Problems.FORBIDDEN, ForbiddenException.MESSAGE);
             return false;
@@ -116,7 +131,7 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
         if (token == null || token.isEmpty()) return;
         try {
             AccessTokenService.AccessClaims claims = accessTokenService.verify(token);
-            CurrentUser currentUser = loadSessionUser(claims);
+            CurrentUser currentUser = loadSessionUser(claims, request);
             if (currentUser != null) authenticate(currentUser);
         } catch (AccessTokenService.ExpiredTokenException e) {
             request.setAttribute(TOKEN_EXPIRED_ATTRIBUTE, Boolean.TRUE);
@@ -125,11 +140,15 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private CurrentUser loadSessionUser(AccessTokenService.AccessClaims claims) {
+    private CurrentUser loadSessionUser(AccessTokenService.AccessClaims claims, HttpServletRequest request) {
         SessionUser sessionUser = sessionRepository.findSessionUser(claims.sessionId()).orElse(null);
         Instant now = Instant.now();
         if (sessionUser == null || !claims.userId().equals(sessionUser.sessionUserId())) return null;
         if (sessionUser.revokedAt() != null || !sessionUser.expiresAt().isAfter(now) || !sessionUser.isActive()) return null;
+        if (sessionUser.isBusinessSuspended()) {
+            request.setAttribute(BUSINESS_SUSPENDED_ATTRIBUTE, Boolean.TRUE);
+            return null;
+        }
         if (Duration.between(sessionUser.lastSeenAt(), now).compareTo(TOUCH_EVERY) >= 0) {
             try {
                 sessionRepository.updateLastSeen(claims.sessionId(), now);

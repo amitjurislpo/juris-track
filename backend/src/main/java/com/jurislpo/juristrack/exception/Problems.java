@@ -26,6 +26,30 @@ public final class Problems {
     public static final String BUSINESS_RULE = "BUSINESS_RULE";
     public static final String RATE_LIMITED = "RATE_LIMITED";
     public static final String INTERNAL = "INTERNAL_ERROR";
+    /** 403: the user's business was suspended by the platform super admin. */
+    public static final String BUSINESS_SUSPENDED = "BUSINESS_SUSPENDED";
+    /** 409: the email belongs to another user (emails are unique across every business). */
+    public static final String EMAIL_IN_USE = "EMAIL_IN_USE";
+    /** 409: another user of the business has this employee code. */
+    public static final String EMPLOYEE_CODE_IN_USE = "EMPLOYEE_CODE_IN_USE";
+    /** 422: the manager is unknown in this business (also a user of another business). */
+    public static final String MANAGER_NOT_FOUND = "MANAGER_NOT_FOUND";
+    /** 422: the manager is deactivated. */
+    public static final String MANAGER_INACTIVE = "MANAGER_INACTIVE";
+    /** 422: the manager's role is EMPLOYEE (a manager must be a MANAGER or the owner, ADMIN). */
+    public static final String MANAGER_ROLE_REQUIRED = "MANAGER_ROLE_REQUIRED";
+    /** 422: an employee cannot be their own manager. */
+    public static final String MANAGER_IS_SELF = "MANAGER_IS_SELF";
+    /** 422: the manager reports (directly or further down) to the employee, so the reporting line would be a loop. */
+    public static final String MANAGER_CYCLE = "MANAGER_CYCLE";
+    /** 422: a MANAGER (or the owner) who still has active reports cannot become an EMPLOYEE. */
+    public static final String MANAGER_HAS_REPORTS = "MANAGER_HAS_REPORTS";
+    /** 422: this role cannot be given (or taken away) here: ADMIN and SUPER_ADMIN are created by the platform only. */
+    public static final String ROLE_NOT_ASSIGNABLE = "ROLE_NOT_ASSIGNABLE";
+    /** 422: the owner cannot deactivate their own account. */
+    public static final String CANNOT_DEACTIVATE_SELF = "CANNOT_DEACTIVATE_SELF";
+    /** 422: the business must keep at least one active owner (ADMIN). */
+    public static final String LAST_ACTIVE_OWNER = "LAST_ACTIVE_OWNER";
 
     public record FieldError(String field, String message) {}
 

@@ -57,7 +57,7 @@ links a user who first used JurisTrack standalone), else create the user. **The 
 the same business; null when the manager is not known yet; never the user themself). Granting or removing the JurisTrack manager role in JurisOne therefore needs
 no action in JurisTrack. An unchanged user writes no audit entry. Rules: if the token's JurisOne business is not known yet and the email belongs to a standalone
 user whose business is not linked, that business is adopted (it gets the `jurisone_business_id`); an email that belongs to a user of another linked business, or to
-the `SUPER_ADMIN`, is refused with 403; a deactivated user is refused with 403; any invalid token answers 401 without details and is never logged.
+the `SUPER_ADMIN`, is refused with 403; a deactivated user is refused with 403; a user of a **suspended business** is refused with 403 `BUSINESS_SUSPENDED` (the super admin suspends businesses); any invalid token answers 401 without details and is never logged.
 
 **Roster sync (part of the first version):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the
 roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees

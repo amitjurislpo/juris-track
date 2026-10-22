@@ -3,7 +3,7 @@ package com.jurislpo.juristrack.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -184,10 +184,11 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
 
     @Test
     void bearerRequestsNeedNoOriginAndHaveNoSession() throws Exception {
-        Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
+        Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "ADMIN");
         String token = IntegrationTokens.tokenFor(employee);
-        mockMvc.perform(post("/api/test-probes/writes").header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/business").header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"staleWorkdayHours\": 10}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.staleWorkdayHours").value(10));
         mockMvc.perform(delete("/api/auth/sessions/current").header("Authorization", "Bearer " + token)).andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id = ?", Integer.class, userRow(employee.employeeId()).get("id")))
                 .isZero();
@@ -195,13 +196,21 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
 
     @Test
     void anIntegrationUserSeesOnlyTheirOwnBusiness() throws Exception {
-        Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "MANAGER");
+        Employee owner = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "ADMIN");
         Employee colleague = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
         callMe(IntegrationTokens.tokenFor(colleague)).andExpect(status().isOk());
         UUID otherBusinessUserId = testData.createUser(testData.createBusiness("Other " + UUID.randomUUID()), "EMPLOYEE", TestData.uniqueEmail("other"), null);
-        String token = IntegrationTokens.tokenFor(employee);
-        mockMvc.perform(get("/api/test-probes/users/" + userRow(colleague.employeeId()).get("id")).header("Authorization", "Bearer " + token))
+        String token = IntegrationTokens.tokenFor(owner);
+        mockMvc.perform(get("/api/employees/" + userRow(colleague.employeeId()).get("id")).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/api/test-probes/users/" + otherBusinessUserId).header("Authorization", "Bearer " + token)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/employees/" + otherBusinessUserId).header("Authorization", "Bearer " + token)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aSuspendedBusinessIsRefusedWith403BusinessSuspended() throws Exception {
+        Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
+        callMe(IntegrationTokens.tokenFor(employee)).andExpect(status().isOk());
+        testData.suspendBusiness((UUID) userRow(employee.employeeId()).get("business_id"));
+        callMe(IntegrationTokens.tokenFor(employee)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"));
     }
 }

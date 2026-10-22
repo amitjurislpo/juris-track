@@ -1,0 +1,169 @@
+# JurisTrack API
+
+The contract between this backend and its clients (the `juris-track-frontend` web app and, embedded, the JurisOne gateway). Keep it exactly in
+sync with the code: an endpoint, parameter or field is added, renamed or removed here in the same change as in the controller.
+
+## Conventions (every endpoint)
+
+- **Base path** `/api`. JSON in and out (`Content-Type: application/json`).
+- **Authentication**: standalone, the `jt_at` / `jt_rt` cookies set by `POST /api/auth/sessions`; embedded in JurisOne, `Authorization: Bearer <JurisOne token>`
+  (see `INTEGRATION.md`). Both produce the same signed-in user and the same rules.
+- **Origin check**: a cookie-authenticated `POST`, `PUT`, `PATCH` or `DELETE` must carry `Origin` equal to the web app's URL, else 403 `CROSS_SITE_BLOCKED`.
+  Bearer requests are exempt.
+- **Success body**: `{ "ok": true, "message"?: string, "data"?: ... }`. Empty `message` / `data` are left out; `null` inside `data` is kept.
+- **Errors**: `application/problem+json` (RFC 7807): `{ type, title, status, detail, instance, code, errors? }`. `detail` is the message to show,
+  `code` is stable for programs, `errors` = `[{ field, message }]` on 400 validation errors (the first one is `detail`).
+- **Common codes**: 400 `VALIDATION_FAILED` (also malformed JSON, a malformed id in the path or a wrong type), 401 `UNAUTHENTICATED` / `TOKEN_EXPIRED`
+  (refresh the session and retry), 403 `FORBIDDEN` (signed in, wrong role), 403 `BUSINESS_SUSPENDED` (the user's business is suspended; signing out still
+  works), 403 `CROSS_SITE_BLOCKED`, 404 `NOT_FOUND` (also a record of another business), 409 `CONFLICT` (a duplicate the specific codes below do not
+  cover), 422 business rule (specific codes below), 429 `RATE_LIMITED`, 500 `INTERNAL_ERROR`.
+- **Types**: ids are UUID strings; timestamps are ISO-8601 UTC strings (`2026-10-22T09:30:00.123456Z`); time zones are IANA ids; roles are `SUPER_ADMIN`,
+  `ADMIN` (the business owner), `MANAGER`, `EMPLOYEE`.
+- **Lists** (`GET` on a collection): query parameters `search` (text, cut to 100 characters), `sort` (one of the endpoint's keys), `sortDirection`
+  (`asc` default | `desc`), `page` (from 1, default 1), `pageSize` (1 to 100, default 25) plus the endpoint's filters. An unknown value is 400 with the
+  parameter as `field`. Answer: `data = { rows: [...], total, page, pageSize }` (`total` = rows on all pages).
+- **PATCH**: a field that is left out stays as it is; a field sent as `null` is cleared where that is allowed (else 400). `PUT .../status` is idempotent:
+  setting the state a record already has changes nothing and writes no audit entry.
+- **Audit**: every write below is written to the audit log (actor, action, subject, record before/after, reason) in the same transaction.
+
+Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, signed out 401.
+
+## Endpoint list
+
+| Method | Path | Roles | Purpose |
+|---|---|---|---|
+| GET | `/actuator/health` | public | Health (`{"status":"UP"}`) |
+| POST | `/api/auth/otp-requests` | public | Email a sign-in code |
+| POST | `/api/auth/sessions` | public | Sign in with the code |
+| POST | `/api/auth/session-refreshes` | public (refresh cookie) | Renew the session |
+| DELETE | `/api/auth/sessions/current` | public | Sign out |
+| GET | `/api/me` | any signed-in user | Who is signed in |
+| GET | `/api/businesses` | SUPER_ADMIN | List businesses |
+| POST | `/api/businesses` | SUPER_ADMIN | Create a business and its owner |
+| GET | `/api/businesses/{businessId}` | SUPER_ADMIN | One business |
+| PATCH | `/api/businesses/{businessId}` | SUPER_ADMIN | Change a business's settings |
+| PUT | `/api/businesses/{businessId}/status` | SUPER_ADMIN | Suspend / reactivate |
+| GET | `/api/business` | ADMIN | The owner's business settings |
+| PATCH | `/api/business` | ADMIN | Change the owner's business settings |
+| GET | `/api/employees` | ADMIN | List the business's people |
+| POST | `/api/employees` | ADMIN | Add an employee |
+| GET | `/api/employees/{employeeId}` | ADMIN | One employee |
+| PATCH | `/api/employees/{employeeId}` | ADMIN | Change an employee |
+| PUT | `/api/employees/{employeeId}/status` | ADMIN | Deactivate / reactivate |
+
+## Sign-in (standalone)
+
+### POST /api/auth/otp-requests
+Body `{ email: string }`. Always 200 `{ ok, message: "If that account exists and is active, a 6-digit code is on its way to the email." }`; no code is sent
+to an unknown or deactivated account or to a user of a suspended business. 400 missing/invalid email; 429 too many requests (per IP and per email).
+
+### POST /api/auth/sessions
+Body `{ email: string, otp: string (6 digits), remember?: boolean }` (`remember` = keep me signed in). 201 with the `jt_at` / `jt_rt` cookies and
+`data = { id, firstName, lastName, email, role, businessName }` (`businessName` null for the SUPER_ADMIN). 400 malformed code; 401 wrong, expired or used
+code, unknown or deactivated account, or suspended business (always the same message); 429 after too many failures from one IP.
+
+### POST /api/auth/session-refreshes
+No body; uses the `jt_rt` cookie. 201 with new cookies. 401 (cookies cleared) when the session ended, expired, the user was deactivated or the refresh
+token was used twice.
+
+### DELETE /api/auth/sessions/current
+No body. Always 200; ends this device's session and clears the cookies.
+
+## GET /api/me
+Any signed-in user. `data = { id, firstName, lastName, email, role, businessName, employeeCode, managerName, businessTimeZone }`.
+`businessName` and `businessTimeZone` are null for the SUPER_ADMIN; `employeeCode` and `managerName` ("First Last" of the reporting manager) are null when
+not set. 401 signed out, 403 `BUSINESS_SUSPENDED`.
+
+## Businesses (platform super admin)
+
+The SUPER_ADMIN belongs to no business; these requests see every business. A business's **owner** is its earliest-created ADMIN.
+
+### GET /api/businesses
+Query: list parameters, `sort` = `name` (default) | `createdAt` | `employeeCount` | `status` (active first when ascending), `status` = `all` (default) |
+`active` | `suspended`. `search` matches the business name, the owner's name and the owner's email.
+Row: `{ id, name, timeZone, isSuspended, isLinkedToJurisone, ownerId, ownerName, ownerEmail, employeeCount, activeEmployeeCount, createdAt }`
+(`owner*` null when the business has no ADMIN, possible for a JurisOne business; `employeeCount` counts every user of the business, owner included).
+
+### POST /api/businesses
+Body:
+```json
+{ "name": "string, 1-80", "timeZone": "IANA id, optional (default Asia/Kolkata)",
+  "owner": { "firstName": "1-60", "lastName": "1-60", "email": "valid, at most 200", "employeeCode": "optional, letters/digits/-/_, at most 32" } }
+```
+Creates the business (stale workday hours 14, display time zones `Asia/Kolkata`, `America/New_York`) and its owner (role ADMIN, active, no manager) in one
+transaction. 201 `{ ok, message: "Business created.", data: { id, ownerId } }`. The owner signs in with an emailed code.
+Errors: 400 (fields `name`, `timeZone`, `owner.firstName`, `owner.lastName`, `owner.email`, `owner.employeeCode`), 409 `EMAIL_IN_USE` (the email belongs to
+any user of any business or to the super admin; compared lower-cased). Audit: `business.created` and `employee.created` (the owner).
+
+### GET /api/businesses/{businessId}
+`data = { id, name, timeZone, staleWorkdayHours, displayTimeZones: string[], isSuspended, isLinkedToJurisone, createdAt, updatedAt,
+owner: { id, employeeCode, firstName, lastName, email, isActive, lastLoginAt } | null, employeeCount, activeEmployeeCount }`. 404 unknown.
+
+### PATCH /api/businesses/{businessId}
+Body (each optional): `{ name: string 1-80, timeZone: string, staleWorkdayHours: integer 1-48, displayTimeZones: string[] (at most 8) }`. None may be
+`null` (send `[]` for no display zones). Time zones are checked against the IANA database (any case, links such as `Asia/Calcutta`, three-letter ids such
+as `IST`, offsets such as `+05:30`) and stored in canonical form; duplicate display zones are dropped. A new time zone applies to workdays started from
+then on. 200 `{ ok, message: "Business saved.", data: <as GET /api/businesses/{businessId}> }`. 400 (field names as above, `displayTimeZones[i]` for one
+zone), 404. Audit: `business.updated` (only when something changed).
+
+### PUT /api/businesses/{businessId}/status
+Body `{ isSuspended: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Business suspended." | "Business is active.", data: <detail> }`.
+While suspended the business's users get no sign-in codes, cannot sign in, and every request of theirs with an existing session (or JurisOne token) answers
+403 `BUSINESS_SUSPENDED`; sessions are not ended, so they work again after reactivation. 400 (`isSuspended`, `reason`), 404.
+Audit: `business.suspended` / `business.reactivated` with the reason.
+
+## Business settings (owner)
+
+### GET /api/business
+ADMIN. The owner's own business: `data = { id, name, timeZone, staleWorkdayHours, displayTimeZones, createdAt, updatedAt }`. `displayTimeZones` is stored as
+is; the business time zone is always offered for display as well (the client adds it).
+
+### PATCH /api/business
+ADMIN. Body and rules as `PATCH /api/businesses/{businessId}`. 200 `{ ok, message: "Settings saved.", data: <as GET /api/business> }`. 400. Audit:
+`business.updated`.
+
+## Employees (owner)
+
+Every user of the owner's business, the owner included (never the SUPER_ADMIN). A user of another business answers 404 everywhere.
+
+Employee (rows of the list and the single employee):
+`{ id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName, lastLoginAt, createdAt, activeReportCount }`
+(`managerName` = "First Last" of the manager, `lastLoginAt` null before the first sign-in, `activeReportCount` = active users whose manager this is).
+
+### GET /api/employees
+Query: list parameters, `sort` = `name` (default; first then last name) | `employeeCode` (empty codes last) | `email` | `role` (ADMIN, MANAGER, EMPLOYEE
+when ascending) | `status` (active first when ascending) | `lastLoginAt` (never signed in last); filters `status` = `active` (default) | `inactive` | `all`,
+`role` = one or more of `EMPLOYEE`, `MANAGER`, `ADMIN` comma-separated (any case; e.g. `role=MANAGER,ADMIN` for a manager picker), `managerId` = only the
+direct reports of that user. `search` matches first name, last name, "first last", email and employee code (`%` and `_` are literal).
+
+### POST /api/employees
+Body: `{ firstName: 1-60, lastName: 1-60, email: valid, at most 200, employeeCode?: letters/digits/-/_, at most 32, role?: "EMPLOYEE" (default) | "MANAGER",
+managerId?: uuid }`. The employee is active at once and signs in with an emailed code. 201 `{ ok, message: "Employee added.", data: { id } }`.
+Errors: 400 (fields `firstName`, `lastName`, `email`, `employeeCode`; an unknown role or malformed `managerId` is a 400 without field), 409 `EMAIL_IN_USE`
+(any business), 409 `EMPLOYEE_CODE_IN_USE` (this business), 422 `ROLE_NOT_ASSIGNABLE` (role ADMIN or SUPER_ADMIN), 422 manager rules (below).
+Audit: `employee.created`.
+
+### GET /api/employees/{employeeId}
+`data = <employee>`. 404.
+
+### PATCH /api/employees/{employeeId}
+Body (each optional): `{ employeeCode: string | null, firstName: string, lastName: string, email: string, role: "EMPLOYEE" | "MANAGER", managerId: uuid | null }`.
+`null` clears `employeeCode` or `managerId`; `null` for a name, the email or the role is a 400. 200 `{ ok, message: "Employee saved.", data: <employee> }`.
+Errors: 400, 404, 409 `EMAIL_IN_USE`, 409 `EMPLOYEE_CODE_IN_USE`, 422 `ROLE_NOT_ASSIGNABLE` (giving ADMIN / SUPER_ADMIN, or changing an ADMIN's role),
+422 `MANAGER_HAS_REPORTS` (a MANAGER with active reports cannot become an EMPLOYEE: give the reports another manager first), 422 manager rules.
+Audit: `employee.updated` with the record before and after (only when something changed). A role change applies on the user's next request.
+
+**Manager rules** (create and edit, whenever `managerId` is set to a new value): 422 `MANAGER_NOT_FOUND` (unknown, or a user of another business),
+`MANAGER_INACTIVE` (deactivated), `MANAGER_ROLE_REQUIRED` (the manager's role is EMPLOYEE; it must be MANAGER or ADMIN), `MANAGER_IS_SELF`,
+`MANAGER_CYCLE` (the chosen manager reports, directly or further down, to this employee).
+
+### PUT /api/employees/{employeeId}/status
+Body `{ isActive: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Employee deactivated." | "Employee is active.", data: <employee> }`.
+Deactivating ends every session of the person at once (their next request is 401) and they get no new sign-in codes until reactivated. Their reports keep
+them as manager. Errors: 400 (`isActive`, `reason`), 404, 422 `CANNOT_DEACTIVATE_SELF`, 422 `LAST_ACTIVE_OWNER` (the business must keep one active ADMIN).
+Audit: `employee.deactivated` (after includes `endedSessions`) / `employee.reactivated`, with the reason.
+
+## Not an endpoint yet
+
+`ReportingScopeService.visibleEmployeeIds(businessId, managerId, depth)`: the users a manager may see, depth 1 (direct reports) or 2 (also their reports);
+never the manager, nobody above or beside them; deactivated reports included. The Team tab endpoints (module 3) will use it.

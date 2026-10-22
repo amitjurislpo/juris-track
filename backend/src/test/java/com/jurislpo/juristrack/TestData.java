@@ -26,6 +26,18 @@ public final class TestData {
         return userId;
     }
 
+    /** A user with the given names and employee code; returns the id. */
+    public UUID createUser(UUID businessId, String role, String email, UUID managerId, String firstName, String lastName, String employeeCode) {
+        UUID userId = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO users (id, business_id, first_name, last_name, email, role, manager_id, employee_code) "
+                + "VALUES (?, ?, ?, ?, ?, ?::user_role, ?, ?)", userId, businessId, firstName, lastName, email, role, managerId, employeeCode);
+        return userId;
+    }
+
+    public void suspendBusiness(UUID businessId) {
+        jdbcTemplate.update("UPDATE businesses SET is_suspended = true WHERE id = ?", businessId);
+    }
+
     /** A unique lower-case email such as {@code employee.1a2b3c4d@test.juristrack.test}. */
     public static String uniqueEmail(String prefix) {
         return prefix + "." + UUID.randomUUID().toString().substring(0, 8) + "@test.juristrack.test";

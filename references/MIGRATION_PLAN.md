@@ -33,9 +33,14 @@ Open (defaults used until the owner says otherwise): D6 display zone as a per-br
 | 2 Skeleton (Maven project, 4 env files, Flyway V1, entities, tenancy, seed/reset, Docker) | done |
 | 3 Time engines (interval math, calendar and time zones, date ranges, reporting-line scope) in Java and TypeScript, checked against golden fixtures from the Node code | done |
 | 4 Auth: emailed-code sign-in (`/api/auth/otp-requests`, `/api/auth/sessions`, `/api/auth/sessions/current`, `/api/auth/session-refreshes`), `/api/me`, cookies `jt_at` / `jt_rt`, Origin check, audit service, embedded Bearer token verification with just-in-time provisioning; e2e `auth.spec.ts` | done |
-| 5 Modules: organization and employees, time tracking, corrections, reports and CSV, audit log page | next |
+| 5.1 Organization and employees: businesses (super admin), business settings, employees with reporting line, suspension, V2 migration; contract in `API.md` | done: backend 674 tests, frontend 915 unit tests, e2e 25/25, browser sweep of every role (desktop and mobile) |
+| 5.2 Time tracking (start / break / resume / end day, reopen after end, per-employee lock; deactivation must also close an open workday) | next |
+| 5.3 Manager Team tab (live board, indirect switch), corrections | later |
+| 5.4 Reports and CSV, audit log page | later |
 | 5b Roster sync `PUT /api/integration/employees`, jti replay guard | not built yet |
 | 6 Jobs/seed polish, 7 cleanup, naming sweep, parity checklist | later |
+
+Notes from module 5.1: teams are dropped, so `assignTeamAction` becomes `PATCH /api/employees/{id}` with `managerId`; `updateSettingsAction` / `createOrganizationAction` become `GET`/`PATCH /api/business` (owner) and `/api/businesses/{id}` (super admin, who also creates businesses and suspends them); the migrations are V1 and V2.
 
 Notes from Phase 4: the mail properties are `juristrack.mail.username` / `password` (env `${SMTP_USER}` / `${SMTP_PASS}`); signed-out API calls answer 401 problem+json (defect 4 below is fixed); sign-in limits follow JurisOne's (defect 3 below is addressed, still in memory per instance).
 

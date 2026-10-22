@@ -30,17 +30,29 @@ import org.springframework.transaction.annotation.Transactional;
  *       and the reporting manager from {@code managerId}, resolved through the manager's {@code jurisone_employee_id} inside the
  *       same business (null while that manager has not been seen yet; never the user themselves).</li>
  * </ol>
- * A deactivated user is refused ({@link AccessRefusedException}, 403), and so is a token whose email belongs to a user of
+ * A deactivated user or a suspended business is refused ({@link AccessRefusedException}, 403), and so is a token whose email belongs to a user of
  * another business or to the platform super admin. Changes are written to the audit log; an unchanged user writes nothing.
  */
 @Service
 public class IntegrationProvisioningService {
 
-    /** The token is valid but this person may not use JurisTrack (deactivated, or the email belongs to someone else). */
+    /**
+     * The token is valid but this person may not use JurisTrack (deactivated, the email belongs to someone else, or the business is
+     * suspended: {@link #isBusinessSuspended()}, answered as 403 {@code BUSINESS_SUSPENDED}).
+     */
     public static class AccessRefusedException extends RuntimeException {
+        private final boolean isBusinessSuspended;
+
         AccessRefusedException(String reason) {
-            super(reason);
+            this(reason, false);
         }
+
+        AccessRefusedException(String reason, boolean isBusinessSuspended) {
+            super(reason);
+            this.isBusinessSuspended = isBusinessSuspended;
+        }
+
+        public boolean isBusinessSuspended() { return isBusinessSuspended; }
     }
 
     private static final String BUSINESS_ENTITY = "business";
@@ -63,6 +75,7 @@ public class IntegrationProvisioningService {
         Optional<User> userByEmployeeId = userRepository.findByJurisoneEmployeeId(claims.jurisoneEmployeeId());
         User userByEmail = userByEmployeeId.isPresent() ? null : userRepository.findByEmail(claims.email()).orElse(null);
         Business business = provisionBusiness(claims, userByEmail);
+        if (business.isSuspended()) throw new AccessRefusedException("business suspended", true);
 
         User user = userByEmployeeId.orElse(userByEmail);
         if (user != null && !user.isActive()) throw new AccessRefusedException("user deactivated");

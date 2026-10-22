@@ -78,7 +78,7 @@ public class AuthService {
         RateLimiter.Result byIpAddress = rateLimiter.checkAndHit("otp-ip:" + ipAddress, settings.requestsPerIp(), windowMillis());
         RateLimiter.Result byEmail = rateLimiter.checkAndHit("otp-email:" + email, settings.requestsPerEmail(), windowMillis());
         if (byIpAddress.isLimited() || byEmail.isLimited()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, TOO_MANY_CODE_REQUESTS);
-        TenantContext.run(null, () -> userRepository.findByEmail(email).filter(User::isActive).ifPresent(user -> {
+        TenantContext.run(null, () -> userRepository.findByEmail(email).filter(this::maySignIn).ifPresent(user -> {
             otpService.issue(email, user.getFirstName(), requestMetadata.ipAddress());
             auditService.record(new AuditEntry(user.getBusinessId(), user.getId(), user.getId(), AuditAction.SIGN_IN_CODE_REQUESTED, SESSION_ENTITY,
                     null, null, null, null));
@@ -98,11 +98,11 @@ public class AuthService {
         return TenantContext.call(null, () -> {
             User user = userRepository.findByEmail(email).orElse(null);
             boolean isCodeRight = otpService.verify(email, code);
-            if (user == null || !user.isActive() || !isCodeRight) {
+            if (user == null || !maySignIn(user) || !isCodeRight) {
                 rateLimiter.hit(failedSignInKey, windowMillis());
                 Map<String, Object> details = new LinkedHashMap<>();
                 details.put("email", AuditService.maskEmail(email));
-                details.put("reason", user == null ? "unknown_email" : !user.isActive() ? "inactive" : "wrong_code");
+                details.put("reason", user == null ? "unknown_email" : !user.isActive() ? "inactive" : !maySignIn(user) ? "business_suspended" : "wrong_code");
                 auditService.record(new AuditEntry(user != null ? user.getBusinessId() : null, null, user != null ? user.getId() : null,
                         AuditAction.SIGN_IN_FAILED, SESSION_ENTITY, null, null, details, null));
                 throw new ApiException(HttpStatus.UNAUTHORIZED, WRONG_CODE);
@@ -147,6 +147,12 @@ public class AuthService {
                 sessionService.revokeByRefreshToken(refreshToken);
             }
         }));
+    }
+
+    /** Active, and their business (if any: the super admin has none) is not suspended. */
+    private boolean maySignIn(User user) {
+        if (!user.isActive()) return false;
+        return user.getBusinessId() == null || businessRepository.findById(user.getBusinessId()).map(business -> !business.isSuspended()).orElse(false);
     }
 
     private CurrentUser currentUserOf(User user, String sessionId) {

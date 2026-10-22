@@ -112,6 +112,12 @@ public class SessionService {
         sessionRepository.revoke(sessionId, REVOKED_FOR_SIGN_OUT, Instant.now().truncatedTo(ChronoUnit.MICROS));
     }
 
+    /** Ends every session of a user who was deactivated (in the caller's transaction); returns how many were ended. */
+    @Transactional
+    public int revokeAllOfUser(UUID userId) {
+        return sessionRepository.revokeAllOfUser(userId, REVOKED_FOR_INACTIVE_USER, Instant.now().truncatedTo(ChronoUnit.MICROS));
+    }
+
     /** Sign-out with only the refresh cookie (the access token had run out): the session it belongs to, if any. */
     @Transactional
     public String revokeByRefreshToken(String refreshToken) {

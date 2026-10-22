@@ -41,6 +41,10 @@ public class Business {
     @Column(name = "jurisone_business_id")
     private UUID jurisoneBusinessId;
 
+    /** Set by the platform super admin: the business's users get no sign-in codes and their requests are refused (V2). */
+    @Column(name = "is_suspended", nullable = false)
+    private boolean isSuspended;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -72,6 +76,8 @@ public class Business {
     public void setDisplayTimeZones(List<String> displayTimeZones) { this.displayTimeZones = displayTimeZones; }
     public UUID getJurisoneBusinessId() { return jurisoneBusinessId; }
     public void setJurisoneBusinessId(UUID jurisoneBusinessId) { this.jurisoneBusinessId = jurisoneBusinessId; }
+    public boolean isSuspended() { return isSuspended; }
+    public void setSuspended(boolean isSuspended) { this.isSuspended = isSuspended; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
