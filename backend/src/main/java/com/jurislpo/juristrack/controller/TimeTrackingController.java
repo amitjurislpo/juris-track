@@ -24,7 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The signed-in user's own time tracking: {@code /api/me/time} (current state), {@code /api/me/time-events} (start, break, resume,
- * end), {@code /api/workdays/mine} (history) and {@code /api/workdays/{workdayId}} (one workday). Every business user (ADMIN,
+ * end), {@code /api/workdays/mine} (history) and {@code /api/workdays/{workdayId}} (one workday; also one of somebody a manager
+ * or the owner may see, see {@code TeamAccessPolicy}). Every business user (ADMIN,
  * MANAGER, EMPLOYEE) tracks their own time; the platform SUPER_ADMIN does not (403). Rules: {@link TimeTrackingService},
  * {@link WorkdayHistoryService}; contract: references/API.md.
  */
@@ -70,6 +71,6 @@ public class TimeTrackingController {
 
     @GetMapping("/api/workdays/{workdayId}")
     public ApiResult<WorkdaySnapshot> findWorkday(@PathVariable UUID workdayId) {
-        return ApiResult.success(workdayHistoryService.findOwnWorkday(auth.requireRole(TRACKING_ROLES), workdayId));
+        return ApiResult.success(workdayHistoryService.findWorkday(auth.requireRole(TRACKING_ROLES), workdayId));
     }
 }

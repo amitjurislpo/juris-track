@@ -39,10 +39,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The signed-in user's own workdays: the history for a date range (rows, totals and a daily series for the chart) and one
- * workday with its work and break intervals. Ported from the old app's {@code getWorkdayRecords}, {@code totalsOf} and
- * {@code dailySeries} as used by the "My history" and dashboard pages. A completed workday shows its cached totals; an open one is
- * computed live from its intervals.
+ * Workdays: the history of a date range (rows, totals and a daily series for the chart) and one workday with its work and break
+ * intervals, for the signed-in user's own workdays and (Team tab) for the people a manager or the owner may see
+ * ({@link TeamAccessPolicy}). Ported from the old app's {@code getWorkdayRecords}, {@code totalsOf} and {@code dailySeries} as used
+ * by the "My history" and dashboard pages. A completed workday shows its cached totals; an open one is computed live from its
+ * intervals.
  */
 @Service
 public class WorkdayHistoryService {
@@ -105,15 +106,20 @@ public class WorkdayHistoryService {
     private final BreakSessionRepository breakSessionRepository;
     private final BusinessRepository businessRepository;
     private final WorkdaySnapshots workdaySnapshots;
+    private final TeamAccessPolicy teamAccessPolicy;
+    private final TeamAccessAudit teamAccessAudit;
 
     public WorkdayHistoryService(Clock clock, WorkdayRepository workdayRepository, WorkSessionRepository workSessionRepository,
-            BreakSessionRepository breakSessionRepository, BusinessRepository businessRepository, WorkdaySnapshots workdaySnapshots) {
+            BreakSessionRepository breakSessionRepository, BusinessRepository businessRepository, WorkdaySnapshots workdaySnapshots,
+            TeamAccessPolicy teamAccessPolicy, TeamAccessAudit teamAccessAudit) {
         this.clock = clock;
         this.workdayRepository = workdayRepository;
         this.workSessionRepository = workSessionRepository;
         this.breakSessionRepository = breakSessionRepository;
         this.businessRepository = businessRepository;
         this.workdaySnapshots = workdaySnapshots;
+        this.teamAccessPolicy = teamAccessPolicy;
+        this.teamAccessAudit = teamAccessAudit;
     }
 
     /**
@@ -124,6 +130,14 @@ public class WorkdayHistoryService {
      */
     @Transactional(readOnly = true)
     public WorkdayHistory listOwnWorkdays(CurrentUser currentUser, Map<String, String> queryParameters) {
+        return listWorkdays(currentUser.userId(), currentUser.businessId(), queryParameters);
+    }
+
+    /**
+     * The history of {@code employeeId}, a user of {@code businessId}, with the parameters and answer of
+     * {@link #listOwnWorkdays}. The caller checks that it may be seen (inside its own transaction).
+     */
+    WorkdayHistory listWorkdays(UUID employeeId, UUID businessId, Map<String, String> queryParameters) {
         Map<String, String> parameters = new HashMap<>(queryParameters);
         parameters.putIfAbsent("sortDirection", "desc");
         InputValidator validator = new InputValidator();
@@ -138,12 +152,12 @@ public class WorkdayHistoryService {
         if (!toText.isEmpty() && !BusinessCalendar.isDateKey(toText)) validator.reject("to", "The end date is a date (YYYY-MM-DD).");
         validator.throwIfInvalid();
 
-        Business business = loadBusiness(currentUser);
+        Business business = loadBusiness(businessId);
         Instant now = now();
         LocalDate today = BusinessCalendar.toDateKey(now, BusinessCalendar.zoneOf(business.getTimeZone()));
         DateRange range = DateRanges.resolveRange(rangeKey, fromText, toText, today, RangePreset.MONTH);
 
-        List<Workday> workdays = workdayRepository.findByEmployeeIdAndWorkDateBetween(currentUser.userId(), range.from(), range.to());
+        List<Workday> workdays = workdayRepository.findByEmployeeIdAndWorkDateBetween(employeeId, range.from(), range.to());
         List<WorkdayRow> rows = rowsOf(workdays, now, business.getStaleWorkdayHours());
         Comparator<WorkdayRow> order = SORT_ORDERS.get(listQuery.sort());
         if (!listQuery.isAscending()) order = order.reversed();
@@ -155,12 +169,20 @@ public class WorkdayHistoryService {
                 range.preset().key(), range.from(), range.to(), totalsOf(rows), dailySeries(rows, range.from(), range.to()));
     }
 
-    /** One of the signed-in user's workdays with every work and break interval; 404 for anybody else's (or another business's). */
-    @Transactional(readOnly = true)
-    public WorkdaySnapshot findOwnWorkday(CurrentUser currentUser, UUID workdayId) {
-        Workday workday = workdayRepository.findById(workdayId).filter(day -> day.getEmployeeId().equals(currentUser.userId()))
+    /**
+     * One workday with every work and break interval: one of the signed-in user's own, or one of somebody a manager or the owner may
+     * see ({@link TeamAccessPolicy}; audited as access). 404 for anybody else's and for another business's, so existence is not
+     * revealed. Not read-only: reading somebody else's workday writes its access audit entry.
+     */
+    @Transactional
+    public WorkdaySnapshot findWorkday(CurrentUser currentUser, UUID workdayId) {
+        Workday workday = workdayRepository.findById(workdayId).filter(day -> day.getBusinessId().equals(currentUser.businessId()))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
-        return workdaySnapshots.snapshotOf(workday, now(), loadBusiness(currentUser).getStaleWorkdayHours());
+        if (!workday.getEmployeeId().equals(currentUser.userId())) {
+            if (!teamAccessPolicy.canView(currentUser, workday.getEmployeeId())) throw new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND);
+            teamAccessAudit.recordWorkdayViewed(currentUser, workday.getEmployeeId(), workday.getId(), workday.getWorkDate());
+        }
+        return workdaySnapshots.snapshotOf(workday, now(), loadBusiness(currentUser.businessId()).getStaleWorkdayHours());
     }
 
     /** Completed workdays with cached totals use them; the others are computed from their intervals as of {@code now}. */
@@ -211,8 +233,8 @@ public class WorkdayHistoryService {
         return List.copyOf(points.values());
     }
 
-    private Business loadBusiness(CurrentUser currentUser) {
-        return businessRepository.findById(currentUser.businessId()).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Business not found."));
+    private Business loadBusiness(UUID businessId) {
+        return businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Business not found."));
     }
 
     private Instant now() {

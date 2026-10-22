@@ -60,6 +60,14 @@ public final class Problems {
     public static final String EXPORT_TOO_LARGE = "EXPORT_TOO_LARGE";
     /** 500: the open workday's intervals do not match its status (an administrator has to correct it). */
     public static final String TIME_RECORD_INCONSISTENT = "TIME_RECORD_INCONSISTENT";
+    /** 403: nobody corrects their own time; their own manager or the owner does it. */
+    public static final String CANNOT_CORRECT_OWN_TIME = "CANNOT_CORRECT_OWN_TIME";
+    /** 422: the corrected interval would overlap another work or break interval of the same workday. */
+    public static final String TIME_INTERVAL_OVERLAP = "TIME_INTERVAL_OVERLAP";
+    /** 422: a running interval keeps running (only its start moves); the workday is closed instead. */
+    public static final String INTERVAL_STILL_RUNNING = "INTERVAL_STILL_RUNNING";
+    /** 422: the first interval of a workday must be a work interval. */
+    public static final String WORKDAY_MUST_START_WITH_WORK = "WORKDAY_MUST_START_WITH_WORK";
 
     public record FieldError(String field, String message) {}
 

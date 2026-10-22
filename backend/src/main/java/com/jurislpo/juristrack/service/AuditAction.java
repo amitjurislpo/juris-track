@@ -102,7 +102,17 @@ public enum AuditAction {
     /** A time event could not be applied because the open workday's intervals do not match its status (500 TIME_RECORD_INCONSISTENT). */
     TIME_EVENT_FAILED("time.event_failed", AuditCategory.TIME, AuditOutcome.FAILED),
     /** Somebody else closed an employee's open workday (so far only when the employee is deactivated); the reason says why. */
-    WORKDAY_CLOSED("workday.closed", AuditCategory.TIME, AuditOutcome.SUCCESS);
+    WORKDAY_CLOSED("workday.closed", AuditCategory.TIME, AuditOutcome.SUCCESS),
+    /** A manager or the owner corrected a work or break interval of somebody in their scope (reason mandatory). */
+    TIME_SESSION_ADJUSTED("time.session_adjusted", AuditCategory.TIME, AuditOutcome.SUCCESS),
+    /** A manager or the owner ended somebody's open (forgotten) workday (reason mandatory). */
+    TIME_WORKDAY_CLOSED("time.workday_closed", AuditCategory.TIME, AuditOutcome.SUCCESS),
+    /** Access: a manager or the owner opened one person's live state on the Team tab. */
+    TEAM_MEMBER_VIEWED("access.team_member_viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS),
+    /** Access: a manager or the owner opened one person's history (the date range is recorded). */
+    TEAM_MEMBER_WORKDAYS_VIEWED("access.team_member_workdays_viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS),
+    /** Access: a manager or the owner opened one workday of somebody else. */
+    WORKDAY_VIEWED("access.workday_viewed", AuditCategory.ACCESS, AuditOutcome.SUCCESS);
 
     private final String storedName;
     private final AuditCategory category;
