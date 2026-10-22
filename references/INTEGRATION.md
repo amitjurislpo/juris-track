@@ -64,6 +64,8 @@ roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scop
 { id, code, name, email, managerId, isActive } and creates/updates/deactivates users accordingly (idempotent, whole roster or a batch of changes). JurisOne calls
 it when employees or manager assignments change and on a schedule. Just-in-time provisioning from the user token still works as a fallback.
 
+**Audit of the integration:** Bearer requests are audited with source `INTEGRATION`; the gateway may pass an `X-Request-Id` that is stored with the entries; refused tokens (`integration.token_rejected`, reason code only, never the token) and refused users (`integration.user_refused`) are audited, and a renamed linked business is audited as `integration.business_updated`.
+
 **Security rules:** accept the Bearer token only when `juristrack.integration.enabled=true`; reject unsigned, expired or wrong `iss`/`aud` tokens; allow a small
 clock skew (`juristrack.integration.clock-skew-seconds`); in embedded deployments the JurisTrack API port is reachable only from the JurisOne backend (network
 rule or mTLS); never log tokens; optionally refuse a `jti` that was already used within its lifetime.

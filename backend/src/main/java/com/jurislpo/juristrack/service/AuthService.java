@@ -10,6 +10,7 @@ import com.jurislpo.juristrack.repository.UserRepository;
 import com.jurislpo.juristrack.security.AuthenticationSource;
 import com.jurislpo.juristrack.security.CurrentUser;
 import com.jurislpo.juristrack.service.AuditService.AuditEntry;
+import com.jurislpo.juristrack.service.OtpService.CodeCheck;
 import com.jurislpo.juristrack.service.SessionService.IssuedSession;
 import com.jurislpo.juristrack.service.SessionService.RefreshRefusedException;
 import com.jurislpo.juristrack.tenancy.TenantContext;
@@ -18,6 +19,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -42,6 +44,10 @@ public class AuthService {
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Pattern CODE_PATTERN = Pattern.compile("^[0-9]{6}$");
     private static final String SESSION_ENTITY = "session";
+    /** The rate limits as {@code auth.rate_limited} names them. */
+    static final String CODE_REQUESTS_PER_IP_LIMIT = "code_requests_per_ip";
+    static final String CODE_REQUESTS_PER_EMAIL_LIMIT = "code_requests_per_email";
+    static final String FAILED_SIGN_INS_PER_IP_LIMIT = "failed_sign_ins_per_ip";
 
     /** A successful sign-in: the session (with its cookies) and who signed in. */
     public record SignInResult(IssuedSession session, CurrentUser user) {}
@@ -71,72 +77,108 @@ public class AuthService {
         return settings.windowMinutes() * 60_000L;
     }
 
-    /** Emails a sign-in code to an active account. Always the same answer (unknown and inactive accounts get no code). */
+    /**
+     * Emails a sign-in code to an active account. Always the same answer (unknown and inactive accounts get no code). Every request is
+     * audited: {@code auth.sign_in_code_requested} with outcome SUCCESS when a code was sent, DENIED with the reason otherwise (the
+     * caller never learns which); a rate limit hit is recorded once per limit, key and window ({@code auth.rate_limited}).
+     */
     public String requestCode(String rawEmail, RequestMetadata requestMetadata) {
         String email = normalizeEmail(rawEmail);
         String ipAddress = requestMetadata.ipAddress() != null ? requestMetadata.ipAddress() : "unknown";
         RateLimiter.Result byIpAddress = rateLimiter.checkAndHit("otp-ip:" + ipAddress, settings.requestsPerIp(), windowMillis());
         RateLimiter.Result byEmail = rateLimiter.checkAndHit("otp-email:" + email, settings.requestsPerEmail(), windowMillis());
+        if (byIpAddress.isLimited()) recordRateLimit(CODE_REQUESTS_PER_IP_LIMIT, ipAddress, email, settings.requestsPerIp());
+        if (byEmail.isLimited()) recordRateLimit(CODE_REQUESTS_PER_EMAIL_LIMIT, email, email, settings.requestsPerEmail());
         if (byIpAddress.isLimited() || byEmail.isLimited()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, TOO_MANY_CODE_REQUESTS);
-        TenantContext.run(null, () -> userRepository.findByEmail(email).filter(this::maySignIn).ifPresent(user -> {
-            otpService.issue(email, user.getFirstName(), requestMetadata.ipAddress());
-            auditService.record(new AuditEntry(user.getBusinessId(), user.getId(), user.getId(), AuditAction.SIGN_IN_CODE_REQUESTED, SESSION_ENTITY,
-                    null, null, null, null));
-        }));
+        TenantContext.run(null, () -> {
+            User user = userRepository.findByEmail(email).orElse(null);
+            String refusal = refusalReason(user);
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("email", AuditService.maskEmail(email));
+            if (refusal != null) details.put("reason", refusal);
+            if (refusal == null) otpService.issue(email, user.getFirstName(), requestMetadata.ipAddress());
+            auditService.record(new AuditEntry(user != null ? user.getBusinessId() : null, null, user != null ? user.getId() : null,
+                    AuditAction.SIGN_IN_CODE_REQUESTED, SESSION_ENTITY, null, null, details, refusal,
+                    refusal == null ? AuditOutcome.SUCCESS : AuditOutcome.DENIED));
+        });
         return CODE_REQUESTED;
     }
 
-    /** Signs in with the emailed code: a new session, {@code last_login_at} and an audit entry, in one transaction. */
+    /**
+     * Signs in with the emailed code: a new session, {@code last_login_at} and an audit entry, in one transaction. A refusal is audited
+     * as {@code auth.sign_in_failed} with the reason (and {@code auth.sign_in_code_burnt} for the try that used up a code); the caller
+     * always gets the same 401.
+     */
     public SignInResult signIn(String rawEmail, String rawCode, boolean isRemembered, RequestMetadata requestMetadata) {
         String email = normalizeEmail(rawEmail);
         String code = rawCode == null ? "" : rawCode.trim();
         if (!CODE_PATTERN.matcher(code).matches()) throw new ApiException(HttpStatus.BAD_REQUEST, CODE_INVALID);
-        String failedSignInKey = "sign-in-ip:" + (requestMetadata.ipAddress() != null ? requestMetadata.ipAddress() : "unknown");
+        String ipAddress = requestMetadata.ipAddress() != null ? requestMetadata.ipAddress() : "unknown";
+        String failedSignInKey = "sign-in-ip:" + ipAddress;
         if (rateLimiter.check(failedSignInKey, settings.failedSignInsPerIp()).isLimited()) {
+            recordRateLimit(FAILED_SIGN_INS_PER_IP_LIMIT, ipAddress, email, settings.failedSignInsPerIp());
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, TOO_MANY_FAILED_SIGN_INS);
         }
         return TenantContext.call(null, () -> {
             User user = userRepository.findByEmail(email).orElse(null);
-            boolean isCodeRight = otpService.verify(email, code);
-            if (user == null || !maySignIn(user) || !isCodeRight) {
+            CodeCheck codeCheck = otpService.verify(email, code);
+            String accountRefusal = refusalReason(user);
+            String refusal = accountRefusal != null ? accountRefusal : codeRefusalReason(codeCheck);
+            if (refusal != null) {
                 rateLimiter.hit(failedSignInKey, windowMillis());
                 Map<String, Object> details = new LinkedHashMap<>();
                 details.put("email", AuditService.maskEmail(email));
-                details.put("reason", user == null ? "unknown_email" : !user.isActive() ? "inactive" : !maySignIn(user) ? "business_suspended" : "wrong_code");
-                auditService.record(new AuditEntry(user != null ? user.getBusinessId() : null, null, user != null ? user.getId() : null,
-                        AuditAction.SIGN_IN_FAILED, SESSION_ENTITY, null, null, details, null));
+                details.put("reason", refusal);
+                UUID businessId = user != null ? user.getBusinessId() : null;
+                UUID subjectId = user != null ? user.getId() : null;
+                auditService.record(new AuditEntry(businessId, null, subjectId, AuditAction.SIGN_IN_FAILED, SESSION_ENTITY, null, null, details, refusal));
+                if (codeCheck == CodeCheck.WRONG_CODE_BURNT_NOW) {
+                    auditService.record(new AuditEntry(businessId, null, subjectId, AuditAction.SIGN_IN_CODE_BURNT, SESSION_ENTITY, null, null,
+                            Map.of("email", AuditService.maskEmail(email), "maximumAttempts", settings.maxAttempts()), "too_many_wrong_codes"));
+                }
                 throw new ApiException(HttpStatus.UNAUTHORIZED, WRONG_CODE);
             }
             return transactionTemplate.execute(transactionStatus -> {
                 User signingInUser = userRepository.findById(user.getId()).orElseThrow();
                 signingInUser.setLastLoginAt(Instant.now().truncatedTo(ChronoUnit.MICROS));
                 IssuedSession session = sessionService.create(signingInUser.getId(), isRemembered, requestMetadata);
-                Map<String, Object> details = new LinkedHashMap<>();
-                details.put("ipAddress", requestMetadata.ipAddress());
-                details.put("userAgent", requestMetadata.userAgent());
-                details.put("isRemembered", isRemembered);
                 auditService.record(new AuditEntry(signingInUser.getBusinessId(), signingInUser.getId(), signingInUser.getId(), AuditAction.SIGNED_IN,
-                        SESSION_ENTITY, session.sessionId(), null, details, null));
+                        SESSION_ENTITY, session.sessionId(), null, Map.of("isRemembered", isRemembered), null));
                 return new SignInResult(session, currentUserOf(signingInUser, session.sessionId()));
             });
         });
     }
 
-    /** Renews the session cookies; a reused refresh token ends the session and is audited. */
+    /**
+     * Renews the session cookies. A successful refresh is not audited (it happens every few minutes); a reused refresh token ends the
+     * session and is audited, and any other refusal (unknown, revoked or expired session, deactivated user) is recorded once per reason,
+     * IP address, user and window ({@code auth.session_refresh_failed}). A request without a refresh cookie is not recorded.
+     */
     public IssuedSession refresh(String refreshToken, RequestMetadata requestMetadata) {
         try {
             return TenantContext.call(null, () -> sessionService.refresh(refreshToken, requestMetadata));
         } catch (RefreshRefusedException e) {
-            if (e.wasReused()) {
-                TenantContext.run(null, () -> userRepository.findById(e.userId()).ifPresent(user -> auditService.record(new AuditEntry(
-                        user.getBusinessId(), null, user.getId(), AuditAction.SESSION_REVOKED_FOR_REFRESH_REUSE, SESSION_ENTITY, null, null,
-                        Map.of("ipAddress", String.valueOf(requestMetadata.ipAddress())), null))));
-            }
+            TenantContext.run(null, () -> recordRefusedRefresh(e, requestMetadata));
             throw e;
         }
     }
 
-    /** Ends this device's session: the one in the access token, else the refresh cookie's. Always succeeds. */
+    private void recordRefusedRefresh(RefreshRefusedException refusal, RequestMetadata requestMetadata) {
+        if (SessionService.REFRESH_MISSING.equals(refusal.getMessage())) return;
+        User user = refusal.userId() == null ? null : userRepository.findById(refusal.userId()).orElse(null);
+        UUID businessId = user != null ? user.getBusinessId() : null;
+        UUID subjectId = user != null ? user.getId() : null;
+        if (refusal.wasReused()) {
+            auditService.record(new AuditEntry(businessId, null, subjectId, AuditAction.SESSION_REVOKED_FOR_REFRESH_REUSE, SESSION_ENTITY, null, null,
+                    Map.of("ipAddress", String.valueOf(requestMetadata.ipAddress())), SessionService.REVOKED_FOR_REFRESH_REUSE));
+            return;
+        }
+        auditService.recordOncePerWindow(refusal.getMessage() + "|" + requestMetadata.ipAddress() + "|" + subjectId, new AuditEntry(businessId, null,
+                subjectId, AuditAction.SESSION_REFRESH_FAILED, SESSION_ENTITY, null, null, Map.of("reason", refusal.getMessage(),
+                        "aggregationWindowMinutes", AuditAggregation.WINDOW.toMinutes()), refusal.getMessage()));
+    }
+
+    /** Ends this device's session: the one in the access token, else the refresh cookie's. Always succeeds; an ended session is audited. */
     public void signOut(CurrentUser currentUser, String refreshToken) {
         TenantContext.run(null, () -> transactionTemplate.executeWithoutResult(transactionStatus -> {
             if (currentUser != null && currentUser.sessionId() != null) {
@@ -144,9 +186,39 @@ public class AuthService {
                 auditService.record(new AuditEntry(currentUser.businessId(), currentUser.userId(), currentUser.userId(), AuditAction.SIGNED_OUT,
                         SESSION_ENTITY, currentUser.sessionId(), null, null, null));
             } else {
-                sessionService.revokeByRefreshToken(refreshToken);
+                sessionService.revokeByRefreshToken(refreshToken).flatMap(userRepository::findById).ifPresent(user -> auditService.record(new AuditEntry(
+                        user.getBusinessId(), user.getId(), user.getId(), AuditAction.SIGNED_OUT, SESSION_ENTITY, null, null,
+                        Map.of("withRefreshCookieOnly", true), null)));
             }
         }));
+    }
+
+    /** One entry per limit, key and window: who was limited (the email masked), never the request body. */
+    private void recordRateLimit(String limit, String limitedKey, String email, int maximumHits) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("limit", limit);
+        details.put("email", AuditService.maskEmail(email));
+        details.put("maximumPerWindow", maximumHits);
+        details.put("windowMinutes", settings.windowMinutes());
+        auditService.recordOncePerWindow(limit + "|" + limitedKey, new AuditEntry(null, null, null, AuditAction.RATE_LIMITED, SESSION_ENTITY, null,
+                null, details, limit));
+    }
+
+    /** Why this account may not sign in, or null: {@code unknown_email}, {@code inactive}, {@code business_suspended}. */
+    private String refusalReason(User user) {
+        if (user == null) return "unknown_email";
+        if (!user.isActive()) return "inactive";
+        return maySignIn(user) ? null : "business_suspended";
+    }
+
+    /** Why the code was refused, or null when it matched. */
+    private static String codeRefusalReason(CodeCheck codeCheck) {
+        return switch (codeCheck) {
+            case WRONG_CODE, WRONG_CODE_BURNT_NOW -> "wrong_code";
+            case ALREADY_BURNT -> "code_burnt";
+            case NO_OPEN_CODE -> "expired_or_used_code";
+            case MATCHED -> null;
+        };
     }
 
     /** Active, and their business (if any: the super admin has none) is not suspended. */

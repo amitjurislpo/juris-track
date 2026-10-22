@@ -34,7 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Businesses: the platform super admin lists, creates (with the owner), edits, suspends and reactivates them (system mode, every
  * business); the owner (ADMIN) reads and edits their own business's settings. Every write is audited with the record before and
- * after, in the business it concerns.
+ * after, in the business it concerns. The super admin reading the list or one business (with its owner) is audited
+ * ({@code access.business_list_viewed} in the platform log, {@code access.business_viewed} in the business's log).
  *
  * <p>Settings: {@code name} (1 to 80 characters), {@code timeZone} (the business calendar: a workday's date is the calendar date in
  * this zone when it started), {@code staleWorkdayHours} (1 to 48: a workday still open after this many hours is shown as not
@@ -91,6 +92,8 @@ public class BusinessService {
     private static final String BUSINESS_ENTITY = "business";
     private static final String USER_ENTITY = "user";
     private static final String NOT_FOUND = "Business not found.";
+    /** The query parameters of {@code GET /api/businesses} that the access entry keeps. */
+    private static final List<String> LIST_PARAMETERS = List.of("search", "status", "sort", "sortDirection", "page", "pageSize");
 
     private final BusinessRepository businessRepository;
     private final BusinessQueryRepository businessQueryRepository;
@@ -115,7 +118,17 @@ public class BusinessService {
      * {@code pageSize}. 400 for an unknown value.
      */
     @Transactional(readOnly = true)
-    public ListPage<BusinessRow> list(Map<String, String> queryParameters) {
+    public ListPage<BusinessRow> list(CurrentUser superAdmin, Map<String, String> queryParameters) {
+        ListPage<BusinessRow> page = findPage(queryParameters);
+        Map<String, Object> details = new LinkedHashMap<>();
+        for (String parameter : LIST_PARAMETERS) if (queryParameters.containsKey(parameter)) details.put(parameter, queryParameters.get(parameter));
+        details.put("rowCount", page.rows().size());
+        details.put("total", page.total());
+        auditService.recordAccess(AuditAction.BUSINESS_LIST_VIEWED, superAdmin, null, BUSINESS_ENTITY, null, details);
+        return page;
+    }
+
+    private ListPage<BusinessRow> findPage(Map<String, String> queryParameters) {
         InputValidator validator = new InputValidator();
         ListQuery listQuery = ListQuery.of(queryParameters, SORT_KEYS, "name", validator);
         Boolean isSuspended = switch (queryParameters.getOrDefault("status", "all").trim().toLowerCase(Locale.ROOT)) {
@@ -133,9 +146,16 @@ public class BusinessService {
                 listQuery.pageSize());
     }
 
-    /** The business with its owner and counts; 404 when unknown. */
+    /** The business with its owner and counts; 404 when unknown. Audited in the business's log. */
     @Transactional(readOnly = true)
-    public BusinessDetail find(UUID businessId) {
+    public BusinessDetail find(CurrentUser superAdmin, UUID businessId) {
+        BusinessDetail business = findDetail(businessId);
+        auditService.recordIndependently(new AuditEntry(businessId, superAdmin.userId(), business.owner() == null ? null : business.owner().id(),
+                AuditAction.BUSINESS_VIEWED, BUSINESS_ENTITY, businessId.toString(), null, null, null));
+        return business;
+    }
+
+    private BusinessDetail findDetail(UUID businessId) {
         Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
         BusinessRow row = businessQueryRepository.findRow(businessId).orElseThrow();
         return new BusinessDetail(business.getId(), business.getName(), business.getTimeZone(), business.getStaleWorkdayHours(),
@@ -187,7 +207,7 @@ public class BusinessService {
     public BusinessDetail update(CurrentUser superAdmin, UUID businessId, BusinessChanges changes) {
         Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
         applyChanges(superAdmin, business, changes);
-        return find(businessId);
+        return findDetail(businessId);
     }
 
     /** Suspends or reactivates a business. Setting the state it already has changes nothing and writes no audit entry. */
@@ -206,7 +226,7 @@ public class BusinessService {
                     isSuspended ? AuditAction.BUSINESS_SUSPENDED : AuditAction.BUSINESS_REACTIVATED, BUSINESS_ENTITY, businessId.toString(),
                     Map.of("isSuspended", !isSuspended), Map.of("isSuspended", isSuspended), reason));
         }
-        return find(businessId);
+        return findDetail(businessId);
     }
 
     // ── owner ──

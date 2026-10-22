@@ -4,12 +4,14 @@ import com.jurislpo.juristrack.common.RequestMetadata;
 import com.jurislpo.juristrack.config.JuristrackProperties;
 import com.jurislpo.juristrack.crypto.Tokens;
 import com.jurislpo.juristrack.repository.SessionRepository;
+import com.jurislpo.juristrack.repository.SessionRepository.OpenSession;
 import com.jurislpo.juristrack.repository.SessionRepository.RefreshTokenSession;
 import com.jurislpo.juristrack.security.AccessTokenService;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,13 @@ public class SessionService {
     static final String REVOKED_FOR_SIGN_OUT = "sign_out";
     static final String REVOKED_FOR_REFRESH_REUSE = "refresh_reuse";
     static final String REVOKED_FOR_INACTIVE_USER = "user_inactive";
+    /** Why a refresh was refused ({@link RefreshRefusedException#getMessage()}); also the reason in the audit log. */
+    static final String REFRESH_MISSING = "missing";
+    static final String REFRESH_UNKNOWN = "unknown";
+    static final String REFRESH_SESSION_REVOKED = "revoked";
+    static final String REFRESH_TOKEN_REUSED = "reused";
+    static final String REFRESH_SESSION_EXPIRED = "expired";
+    static final String REFRESH_USER_INACTIVE = "inactive";
 
     /** A new or renewed session: its id, its user and the cookies to set. */
     public record IssuedSession(String sessionId, UUID userId, List<ResponseCookie> cookies) {}
@@ -79,22 +88,22 @@ public class SessionService {
      */
     @Transactional(noRollbackFor = RefreshRefusedException.class) // a reused token must stay revoked although the call fails
     public IssuedSession refresh(String refreshToken, RequestMetadata requestMetadata) {
-        if (refreshToken == null || refreshToken.isEmpty()) throw new RefreshRefusedException("missing", null, false);
+        if (refreshToken == null || refreshToken.isEmpty()) throw new RefreshRefusedException(REFRESH_MISSING, null, false);
         String tokenHash = Tokens.sha256(refreshToken);
         RefreshTokenSession tokenSession = sessionRepository.findRefreshTokenForUpdate(tokenHash)
-                .orElseThrow(() -> new RefreshRefusedException("unknown", null, false));
+                .orElseThrow(() -> new RefreshRefusedException(REFRESH_UNKNOWN, null, false));
         String sessionId = tokenSession.sessionId();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        if (tokenSession.revokedAt() != null) throw new RefreshRefusedException("revoked", tokenSession.userId(), false);
+        if (tokenSession.revokedAt() != null) throw new RefreshRefusedException(REFRESH_SESSION_REVOKED, tokenSession.userId(), false);
         if (tokenSession.usedAt() != null
                 && Duration.between(tokenSession.usedAt(), now).compareTo(Duration.ofSeconds(settings.refreshReuseGraceSeconds())) >= 0) {
             sessionRepository.revoke(sessionId, REVOKED_FOR_REFRESH_REUSE, now);
-            throw new RefreshRefusedException("reused", tokenSession.userId(), true);
+            throw new RefreshRefusedException(REFRESH_TOKEN_REUSED, tokenSession.userId(), true);
         }
-        if (!tokenSession.sessionExpiresAt().isAfter(now)) throw new RefreshRefusedException("expired", tokenSession.userId(), false);
+        if (!tokenSession.sessionExpiresAt().isAfter(now)) throw new RefreshRefusedException(REFRESH_SESSION_EXPIRED, tokenSession.userId(), false);
         if (!tokenSession.isUserActive()) {
             sessionRepository.revoke(sessionId, REVOKED_FOR_INACTIVE_USER, now);
-            throw new RefreshRefusedException("inactive", tokenSession.userId(), false);
+            throw new RefreshRefusedException(REFRESH_USER_INACTIVE, tokenSession.userId(), false);
         }
         if (tokenSession.usedAt() == null) sessionRepository.markRefreshTokenUsed(tokenHash, now);
         sessionRepository.updateLastSeen(sessionId, now);
@@ -118,13 +127,16 @@ public class SessionService {
         return sessionRepository.revokeAllOfUser(userId, REVOKED_FOR_INACTIVE_USER, Instant.now().truncatedTo(ChronoUnit.MICROS));
     }
 
-    /** Sign-out with only the refresh cookie (the access token had run out): the session it belongs to, if any. */
+    /**
+     * Sign-out with only the refresh cookie (the access token had run out): ends the session it belongs to, if any, and returns that
+     * session's user when it was still open (empty when there was nothing to end).
+     */
     @Transactional
-    public String revokeByRefreshToken(String refreshToken) {
-        if (refreshToken == null || refreshToken.isEmpty()) return null;
-        String sessionId = sessionRepository.findSessionIdByRefreshToken(Tokens.sha256(refreshToken)).orElse(null);
-        revoke(sessionId);
-        return sessionId;
+    public Optional<UUID> revokeByRefreshToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isEmpty()) return Optional.empty();
+        Optional<OpenSession> session = sessionRepository.findOpenSessionByRefreshToken(Tokens.sha256(refreshToken));
+        session.ifPresent(openSession -> revoke(openSession.sessionId()));
+        return session.map(OpenSession::userId);
     }
 
     private String createRefreshToken(String sessionId, Instant expiresAt, RequestMetadata requestMetadata) {

@@ -1,9 +1,14 @@
 package com.jurislpo.juristrack.exception;
 
+import com.jurislpo.juristrack.security.CurrentUser;
+import com.jurislpo.juristrack.service.AuditAction;
+import com.jurislpo.juristrack.service.AuditService;
+import com.jurislpo.juristrack.service.AuditService.AuditEntry;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,11 +30,18 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
  * Every error as {@code application/problem+json} (see {@link Problems}): user errors keep their message as
  * {@code detail}, validation lists the field errors, unique violations become 409 "That already exists.", and anything
  * unexpected is logged and answered with a generic 500 (no stack traces or SQL leave the server).
+ * A 403 for a signed-in user (role or scope) is audited as {@code security.access_denied} in a transaction of its own, so the entry
+ * stays although the request failed.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+    private final AuditService auditService;
+
+    public ApiExceptionHandler(AuditService auditService) {
+        this.auditService = auditService;
+    }
     static final String INVALID = "Some details are invalid.";
     static final String DUPLICATE = "That already exists.";
     static final String GENERIC = "Something went wrong. Please try again.";
@@ -40,7 +52,16 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ProblemDetail> handleApiException(ApiException e, HttpServletRequest request) {
+        if (e.status() == HttpStatus.FORBIDDEN) recordAccessDenied(e.code());
         return respond(Problems.of(e.status(), e.code(), e.getMessage(), request.getRequestURI()));
+    }
+
+    /** The signed-in user was refused (their role, their scope, or a deactivation while the request waited). */
+    private void recordAccessDenied(String code) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof CurrentUser currentUser)) return;
+        auditService.recordIndependently(new AuditEntry(currentUser.businessId(), currentUser.userId(), null, AuditAction.ACCESS_DENIED, "request", null,
+                null, Map.of("code", code), code));
     }
 
     @ExceptionHandler(ValidationException.class)
@@ -55,6 +76,7 @@ public class ApiExceptionHandler {
         if (authentication == null || authentication instanceof AnonymousAuthenticationToken || !authentication.isAuthenticated()) {
             return respond(Problems.of(HttpStatus.UNAUTHORIZED, UnauthenticatedException.MESSAGE, request.getRequestURI()));
         }
+        recordAccessDenied(Problems.FORBIDDEN);
         return respond(Problems.of(HttpStatus.FORBIDDEN, ForbiddenException.MESSAGE, request.getRequestURI()));
     }
 

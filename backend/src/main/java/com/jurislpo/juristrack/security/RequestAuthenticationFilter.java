@@ -8,6 +8,10 @@ import com.jurislpo.juristrack.exception.UnauthenticatedException;
 import com.jurislpo.juristrack.repository.SessionRepository;
 import com.jurislpo.juristrack.repository.SessionRepository.SessionUser;
 import com.jurislpo.juristrack.service.IntegrationProvisioningService;
+import com.jurislpo.juristrack.service.AuditAction;
+import com.jurislpo.juristrack.service.AuditAggregation;
+import com.jurislpo.juristrack.service.AuditService;
+import com.jurislpo.juristrack.service.AuditService.AuditEntry;
 import com.jurislpo.juristrack.service.IntegrationProvisioningService.AccessRefusedException;
 import com.jurislpo.juristrack.service.SessionService;
 import com.jurislpo.juristrack.tenancy.TenantContext;
@@ -19,7 +23,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,17 +50,27 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *       the very next request. {@code last_seen_at} is touched at most every 5 minutes. An expired token marks the request
  *       ({@link #TOKEN_EXPIRED_ATTRIBUTE}) so the 401 says {@code TOKEN_EXPIRED}.</li>
  * </ul>
+ * Security events are audited without flooding the log (once per key in each AuditAggregation window): a refused JurisOne token
+ * ({@code integration.token_rejected}, reason code only), a JurisOne user who may not use JurisTrack ({@code integration.user_refused}),
+ * a suspended business's JurisOne user ({@code security.suspended_business_request}), and a forged or malformed session cookie or one
+ * of an ended or expired session ({@code security.invalid_session_cookie}). An access token that merely ran out is the normal refresh
+ * flow and is not recorded, nor is a request without any cookie.
  * Not a Spring bean: SecurityConfig adds it to the security filter chain only.
  */
 public class RequestAuthenticationFilter extends OncePerRequestFilter {
 
     public static final String TOKEN_EXPIRED_ATTRIBUTE = "juristrack.accessTokenExpired";
     /**
-     * Set when the session is valid but the user's business is suspended: the request stays signed out (so signing out still works)
-     * and a protected endpoint answers 403 {@code BUSINESS_SUSPENDED} instead of 401 (JsonAuthEntryPoint). The session is not ended,
-     * so it works again once the business is reactivated.
+     * Set (to the {@link SuspendedBusinessUser}) when the session is valid but the user's business is suspended: the request stays
+     * signed out (so signing out still works) and a protected endpoint answers 403 {@code BUSINESS_SUSPENDED} instead of 401
+     * (JsonAuthEntryPoint, which also audits it). The session is not ended, so it works again once the business is reactivated.
      */
     public static final String BUSINESS_SUSPENDED_ATTRIBUTE = "juristrack.businessSuspended";
+
+    /** Who was turned away because their business is suspended. */
+    public record SuspendedBusinessUser(UUID userId, UUID businessId) {}
+
+    private static final String SESSION_ENTITY = "session";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Duration TOUCH_EVERY = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(RequestAuthenticationFilter.class);
@@ -63,14 +80,17 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
     private final IntegrationTokenVerifier integrationTokenVerifier;
     private final IntegrationProvisioningService integrationProvisioningService;
     private final ObjectMapper objectMapper;
+    private final AuditService auditService;
 
     public RequestAuthenticationFilter(AccessTokenService accessTokenService, SessionRepository sessionRepository,
-            IntegrationTokenVerifier integrationTokenVerifier, IntegrationProvisioningService integrationProvisioningService, ObjectMapper objectMapper) {
+            IntegrationTokenVerifier integrationTokenVerifier, IntegrationProvisioningService integrationProvisioningService, ObjectMapper objectMapper,
+            AuditService auditService) {
         this.accessTokenService = accessTokenService;
         this.sessionRepository = sessionRepository;
         this.integrationTokenVerifier = integrationTokenVerifier;
         this.integrationProvisioningService = integrationProvisioningService;
         this.objectMapper = objectMapper;
+        this.auditService = auditService;
     }
 
     @Override
@@ -80,6 +100,7 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
             String authorization = request.getHeader("Authorization");
             boolean hasBearerToken = authorization != null && authorization.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length());
             if (integrationTokenVerifier.isEnabled() && hasBearerToken) {
+                AuditRequestContext.markIntegrationRequest();
                 if (!authenticateIntegrationToken(authorization.substring(BEARER_PREFIX.length()).trim(), request, response)) return;
             } else {
                 authenticateSessionCookie(request);
@@ -98,18 +119,27 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
             currentUser = provision(claims);
         } catch (IntegrationTokenVerifier.InvalidIntegrationTokenException e) {
             log.info("Rejected an integration token: {}", e.getMessage()); // the reason only, never the token
+            String ipAddress = ipAddressOfRequest();
+            auditService.recordOncePerWindow(e.getMessage() + "|" + ipAddress, new AuditEntry(null, null, null, AuditAction.INTEGRATION_TOKEN_REJECTED,
+                    "token", null, null, aggregatedDetails("reason", e.getMessage()), e.getMessage()));
             writeProblem(request, response, HttpStatus.UNAUTHORIZED, Problems.UNAUTHENTICATED, UnauthenticatedException.MESSAGE);
             return false;
         } catch (AccessRefusedException e) {
             log.info("Refused an integration user: {}", e.getMessage());
             if (e.isBusinessSuspended()) {
+                recordSuspendedBusinessRequest(auditService, e.userId(), e.businessId());
                 writeProblem(request, response, HttpStatus.FORBIDDEN, Problems.BUSINESS_SUSPENDED, BusinessSuspendedException.MESSAGE);
             } else {
+                auditService.recordOncePerWindow(e.getMessage() + "|" + e.userId(), new AuditEntry(e.businessId(), null, e.userId(),
+                        AuditAction.INTEGRATION_USER_REFUSED, "user", e.userId() == null ? null : e.userId().toString(), null,
+                        aggregatedDetails("reason", e.getMessage()), e.getMessage()));
                 writeProblem(request, response, HttpStatus.FORBIDDEN, Problems.FORBIDDEN, ForbiddenException.MESSAGE);
             }
             return false;
         } catch (DataIntegrityViolationException e) {
             log.info("Refused an integration user: {}", e.getMessage());
+            auditService.recordOncePerWindow("conflict|" + ipAddressOfRequest(), new AuditEntry(null, null, null, AuditAction.INTEGRATION_USER_REFUSED,
+                    "user", null, null, aggregatedDetails("reason", "conflict"), "conflict"));
             writeProblem(request, response, HttpStatus.FORBIDDEN, Problems.FORBIDDEN, ForbiddenException.MESSAGE);
             return false;
         }
@@ -137,16 +167,51 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
             request.setAttribute(TOKEN_EXPIRED_ATTRIBUTE, Boolean.TRUE);
         } catch (AccessTokenService.InvalidTokenException e) {
             log.debug("Rejected an access token: {}", e.getMessage()); // forged or malformed: treated as signed out
+            recordInvalidSessionCookie("invalid_token", null);
         }
+    }
+
+    /** A forged cookie, or one of an ended session: once per reason, IP address and user in each aggregation window. */
+    private void recordInvalidSessionCookie(String reason, SessionUser sessionUser) {
+        UUID userId = sessionUser == null ? null : sessionUser.userId();
+        auditService.recordOncePerWindow(reason + "|" + ipAddressOfRequest() + "|" + userId, new AuditEntry(sessionUser == null ? null : sessionUser.businessId(),
+                null, userId, AuditAction.INVALID_SESSION_COOKIE, SESSION_ENTITY, null, null, aggregatedDetails("reason", reason), reason));
+    }
+
+    /** 403 BUSINESS_SUSPENDED: once per user (or business) in each aggregation window. */
+    static void recordSuspendedBusinessRequest(AuditService auditService, UUID userId, UUID businessId) {
+        auditService.recordOncePerWindow(businessId + "|" + userId, new AuditEntry(businessId, userId, userId, AuditAction.SUSPENDED_BUSINESS_REQUEST,
+                "business", businessId == null ? null : businessId.toString(), null, aggregatedDetails("code", Problems.BUSINESS_SUSPENDED),
+                Problems.BUSINESS_SUSPENDED));
+    }
+
+    private static Map<String, Object> aggregatedDetails(String key, String value) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put(key, value);
+        details.put("aggregationWindowMinutes", AuditAggregation.WINDOW.toMinutes());
+        return details;
+    }
+
+    private static String ipAddressOfRequest() {
+        AuditRequestContext requestContext = AuditRequestContext.current();
+        return requestContext == null ? null : requestContext.ipAddress();
     }
 
     private CurrentUser loadSessionUser(AccessTokenService.AccessClaims claims, HttpServletRequest request) {
         SessionUser sessionUser = sessionRepository.findSessionUser(claims.sessionId()).orElse(null);
         Instant now = Instant.now();
-        if (sessionUser == null || !claims.userId().equals(sessionUser.sessionUserId())) return null;
-        if (sessionUser.revokedAt() != null || !sessionUser.expiresAt().isAfter(now) || !sessionUser.isActive()) return null;
+        if (sessionUser == null || !claims.userId().equals(sessionUser.sessionUserId())) {
+            recordInvalidSessionCookie("unknown_session", null);
+            return null;
+        }
+        String endedReason = sessionUser.revokedAt() != null ? "session_ended" : !sessionUser.expiresAt().isAfter(now) ? "session_expired"
+                : !sessionUser.isActive() ? "user_inactive" : null;
+        if (endedReason != null) {
+            recordInvalidSessionCookie(endedReason, sessionUser);
+            return null;
+        }
         if (sessionUser.isBusinessSuspended()) {
-            request.setAttribute(BUSINESS_SUSPENDED_ATTRIBUTE, Boolean.TRUE);
+            request.setAttribute(BUSINESS_SUSPENDED_ATTRIBUTE, new SuspendedBusinessUser(sessionUser.userId(), sessionUser.businessId()));
             return null;
         }
         if (Duration.between(sessionUser.lastSeenAt(), now).compareTo(TOUCH_EVERY) >= 0) {

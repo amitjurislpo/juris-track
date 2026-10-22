@@ -38,22 +38,31 @@ public class IntegrationProvisioningService {
 
     /**
      * The token is valid but this person may not use JurisTrack (deactivated, the email belongs to someone else, or the business is
-     * suspended: {@link #isBusinessSuspended()}, answered as 403 {@code BUSINESS_SUSPENDED}).
+     * suspended: {@link #isBusinessSuspended()}, answered as 403 {@code BUSINESS_SUSPENDED}). The message is the reason code of the
+     * audit entry; {@code businessId} and {@code userId} name the existing records it is about (either may be null).
      */
     public static class AccessRefusedException extends RuntimeException {
         private final boolean isBusinessSuspended;
+        private final UUID businessId;
+        private final UUID userId;
 
-        AccessRefusedException(String reason) {
-            this(reason, false);
-        }
-
-        AccessRefusedException(String reason, boolean isBusinessSuspended) {
-            super(reason);
+        AccessRefusedException(String reasonCode, boolean isBusinessSuspended, UUID businessId, UUID userId) {
+            super(reasonCode);
             this.isBusinessSuspended = isBusinessSuspended;
+            this.businessId = businessId;
+            this.userId = userId;
         }
 
         public boolean isBusinessSuspended() { return isBusinessSuspended; }
+
+        public UUID businessId() { return businessId; }
+
+        public UUID userId() { return userId; }
     }
+
+    public static final String REFUSED_BUSINESS_SUSPENDED = "business_suspended";
+    public static final String REFUSED_USER_DEACTIVATED = "user_deactivated";
+    public static final String REFUSED_EMAIL_OF_ANOTHER_BUSINESS = "email_of_another_business";
 
     private static final String BUSINESS_ENTITY = "business";
     private static final String USER_ENTITY = "user";
@@ -75,11 +84,16 @@ public class IntegrationProvisioningService {
         Optional<User> userByEmployeeId = userRepository.findByJurisoneEmployeeId(claims.jurisoneEmployeeId());
         User userByEmail = userByEmployeeId.isPresent() ? null : userRepository.findByEmail(claims.email()).orElse(null);
         Business business = provisionBusiness(claims, userByEmail);
-        if (business.isSuspended()) throw new AccessRefusedException("business suspended", true);
-
         User user = userByEmployeeId.orElse(userByEmail);
-        if (user != null && !user.isActive()) throw new AccessRefusedException("user deactivated");
-        if (user != null && !business.getId().equals(user.getBusinessId())) throw new AccessRefusedException("user belongs to another business");
+        if (business.isSuspended()) {
+            boolean isUserOfBusiness = user != null && business.getId().equals(user.getBusinessId());
+            throw new AccessRefusedException(REFUSED_BUSINESS_SUSPENDED, true, business.getId(), isUserOfBusiness ? user.getId() : null);
+        }
+        if (user != null && !user.isActive()) throw new AccessRefusedException(REFUSED_USER_DEACTIVATED, false, user.getBusinessId(), user.getId());
+        if (user != null && !business.getId().equals(user.getBusinessId())) {
+            // the business may have been created by this very call (rolled back with the refusal): the entry belongs to the user's own business
+            throw new AccessRefusedException(REFUSED_EMAIL_OF_ANOTHER_BUSINESS, false, user.getBusinessId(), user.getId());
+        }
         if (user == null) user = createUser(claims, business);
         else if (user.getJurisoneEmployeeId() == null) linkUser(user, claims);
         updateFromToken(user, claims, business);
@@ -91,7 +105,12 @@ public class IntegrationProvisioningService {
         Optional<Business> linkedBusiness = businessRepository.findByJurisoneBusinessId(claims.jurisoneBusinessId());
         if (linkedBusiness.isPresent()) {
             Business business = linkedBusiness.get();
-            if (!business.getName().equals(claims.businessName())) business.setName(claims.businessName());
+            if (!business.getName().equals(claims.businessName())) {
+                Map<String, Object> before = businessDetails(business);
+                business.setName(claims.businessName());
+                auditService.record(new AuditEntry(business.getId(), null, null, AuditAction.BUSINESS_UPDATED_FROM_TOKEN, BUSINESS_ENTITY,
+                        business.getId().toString(), before, businessDetails(business), null));
+            }
             return business;
         }
         Business standaloneBusiness = userByEmail == null || userByEmail.getBusinessId() == null ? null

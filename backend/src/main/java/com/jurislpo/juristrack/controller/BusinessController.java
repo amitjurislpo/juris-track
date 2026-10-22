@@ -49,8 +49,7 @@ public class BusinessController {
 
     @GetMapping
     public ApiResult<ListPage<BusinessRow>> listBusinesses(@RequestParam Map<String, String> queryParameters) {
-        auth.requireRole(Role.SUPER_ADMIN);
-        return ApiResult.success(businessService.list(queryParameters));
+        return ApiResult.success(businessService.list(auth.requireRole(Role.SUPER_ADMIN), queryParameters));
     }
 
     @PostMapping
@@ -61,8 +60,7 @@ public class BusinessController {
 
     @GetMapping("/{businessId}")
     public ApiResult<BusinessDetail> findBusiness(@PathVariable UUID businessId) {
-        auth.requireRole(Role.SUPER_ADMIN);
-        return ApiResult.success(businessService.find(businessId));
+        return ApiResult.success(businessService.find(auth.requireRole(Role.SUPER_ADMIN), businessId));
     }
 
     @PatchMapping("/{businessId}")

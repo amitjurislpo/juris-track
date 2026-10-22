@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,10 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>A MANAGER or ADMIN with active reports cannot become an EMPLOYEE (422 {@code MANAGER_HAS_REPORTS}): move the reports first.</li>
  *   <li>Deactivating ends every session of the person at once (they also get no new sign-in codes) and closes their open workday
  *       at the current time; the owner cannot deactivate themself, and the last active owner of the business cannot be deactivated.</li>
+ *   <li>A change a business rule refuses (422) is audited as {@code employee.change_refused} (outcome DENIED, the code as reason) in a
+ *       transaction of its own, so the entry stays although the change is rolled back.</li>
+ *   <li>Reading the list or another person's record is audited ({@code access.employee_list_viewed} with the filters,
+ *       {@code access.employee_viewed}); the owner reading their own record is not.</li>
  * </ul>
  */
 @Service
@@ -75,6 +80,8 @@ public class EmployeeService {
     private static final List<Role> LISTED_ROLES = List.of(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE);
     private static final String USER_ENTITY = "user";
     private static final String NOT_FOUND = "Employee not found.";
+    /** The query parameters of {@code GET /api/employees} that the access entry keeps. */
+    private static final List<String> LIST_PARAMETERS = List.of("search", "status", "role", "managerId", "sort", "sortDirection", "page", "pageSize");
 
     private final UserRepository userRepository;
     private final EmployeeQueryRepository employeeQueryRepository;
@@ -99,6 +106,16 @@ public class EmployeeService {
      */
     @Transactional(readOnly = true)
     public ListPage<EmployeeRow> list(CurrentUser owner, Map<String, String> queryParameters) {
+        ListPage<EmployeeRow> page = findPage(owner, queryParameters);
+        Map<String, Object> details = new LinkedHashMap<>();
+        for (String parameter : LIST_PARAMETERS) if (queryParameters.containsKey(parameter)) details.put(parameter, queryParameters.get(parameter));
+        details.put("rowCount", page.rows().size());
+        details.put("total", page.total());
+        auditService.recordAccess(AuditAction.EMPLOYEE_LIST_VIEWED, owner, null, USER_ENTITY, null, details);
+        return page;
+    }
+
+    private ListPage<EmployeeRow> findPage(CurrentUser owner, Map<String, String> queryParameters) {
         InputValidator validator = new InputValidator();
         ListQuery listQuery = ListQuery.of(queryParameters, SORT_KEYS, "name", validator);
         Boolean isActive = switch (queryParameters.getOrDefault("status", "active").trim().toLowerCase(Locale.ROOT)) {
@@ -133,15 +150,25 @@ public class EmployeeService {
                 employeeQueryRepository.count(owner.businessId(), filter, listQuery), listQuery.page(), listQuery.pageSize());
     }
 
-    /** One user of the owner's business; 404 when unknown or in another business. */
+    /** One user of the owner's business; 404 when unknown or in another business. Reading somebody else's record is audited. */
     @Transactional(readOnly = true)
     public EmployeeRow find(CurrentUser owner, UUID employeeId) {
+        EmployeeRow employee = findRow(owner, employeeId);
+        auditService.recordAccess(AuditAction.EMPLOYEE_VIEWED, owner, employeeId, USER_ENTITY, employeeId.toString(), null);
+        return employee;
+    }
+
+    private EmployeeRow findRow(CurrentUser owner, UUID employeeId) {
         return employeeQueryRepository.findRow(owner.businessId(), employeeId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
     }
 
     /** Adds an employee (active, signs in with an emailed code); returns the new id. */
     @Transactional
     public UUID create(CurrentUser owner, EmployeeInput input) {
+        return auditRefusals(owner, null, "create", () -> createEmployee(owner, input));
+    }
+
+    private UUID createEmployee(CurrentUser owner, EmployeeInput input) {
         EmployeeInput employeeInput = input == null ? new EmployeeInput(null, null, null, null, null, null) : input;
         InputValidator validator = new InputValidator();
         String employeeCode = validator.employeeCode("employeeCode", employeeInput.employeeCode());
@@ -169,11 +196,18 @@ public class EmployeeService {
         return employee.getId();
     }
 
-    /** Changes the fields that were sent; nothing changed writes no audit entry. Returns the employee as now stored. */
+    /**
+     * Changes the fields that were sent; nothing changed writes no audit entry, a change writes the whole record before and after
+     * (every field, role and manager included). Returns the employee as now stored.
+     */
     @Transactional
     public EmployeeRow update(CurrentUser owner, UUID employeeId, EmployeeChanges changes) {
+        return auditRefusals(owner, employeeId, "update", () -> updateEmployee(owner, employeeId, changes));
+    }
+
+    private EmployeeRow updateEmployee(CurrentUser owner, UUID employeeId, EmployeeChanges changes) {
         User employee = loadEmployee(owner, employeeId);
-        if (changes == null) return find(owner, employeeId);
+        if (changes == null) return findRow(owner, employeeId);
         Map<String, Object> before = employeeDetails(employee);
 
         InputValidator validator = new InputValidator();
@@ -215,7 +249,7 @@ public class EmployeeService {
             auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId, AuditAction.EMPLOYEE_UPDATED, USER_ENTITY,
                     employeeId.toString(), before, after, null));
         }
-        return find(owner, employeeId);
+        return findRow(owner, employeeId);
     }
 
     /**
@@ -224,13 +258,17 @@ public class EmployeeService {
      */
     @Transactional
     public EmployeeRow setStatus(CurrentUser owner, UUID employeeId, EmployeeStatusChange statusChange) {
+        return auditRefusals(owner, employeeId, "status", () -> changeStatus(owner, employeeId, statusChange));
+    }
+
+    private EmployeeRow changeStatus(CurrentUser owner, UUID employeeId, EmployeeStatusChange statusChange) {
         User employee = loadEmployee(owner, employeeId);
         InputValidator validator = new InputValidator();
         if (statusChange == null || statusChange.isActive() == null) validator.reject("isActive", "Say whether the employee is active (isActive).");
         String reason = validator.optionalText("reason", "Reason", statusChange == null ? null : statusChange.reason(), InputValidator.MAXIMUM_REASON_LENGTH);
         validator.throwIfInvalid();
         boolean isActive = statusChange.isActive();
-        if (isActive == employee.isActive()) return find(owner, employeeId);
+        if (isActive == employee.isActive()) return findRow(owner, employeeId);
 
         Map<String, Object> after = new LinkedHashMap<>();
         after.put("isActive", isActive);
@@ -253,7 +291,26 @@ public class EmployeeService {
         auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId,
                 isActive ? AuditAction.EMPLOYEE_REACTIVATED : AuditAction.EMPLOYEE_DEACTIVATED, USER_ENTITY, employeeId.toString(),
                 Map.of("isActive", !isActive), after, reason));
-        return find(owner, employeeId);
+        return findRow(owner, employeeId);
+    }
+
+    /**
+     * Runs a write; a business rule's refusal (422) is audited as {@code employee.change_refused} with the code as reason, in its own
+     * transaction (the write's transaction rolls back), and then answered as before.
+     */
+    private <T> T auditRefusals(CurrentUser owner, UUID employeeId, String operation, Supplier<T> write) {
+        try {
+            return write.get();
+        } catch (ApiException e) {
+            if (e.status() == HttpStatus.UNPROCESSABLE_ENTITY) {
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("operation", operation);
+                details.put("code", e.code());
+                auditService.recordIndependently(new AuditEntry(owner.businessId(), owner.userId(), employeeId, AuditAction.EMPLOYEE_CHANGE_REFUSED,
+                        USER_ENTITY, employeeId == null ? null : employeeId.toString(), null, details, e.code()));
+            }
+            throw e;
+        }
     }
 
     /** What {@code GET /api/me} adds for the signed-in user: employee code, manager name, business time zone. */

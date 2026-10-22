@@ -15,8 +15,10 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * One audited change: who did it ({@code actorId}), to whom ({@code subjectId}), the record before and after, and why.
- * Written once, never changed. {@code businessId} is null for a system event outside any business.
+ * One audit entry: who did it ({@code actorId}, with their role at that moment), to whom ({@code subjectId}), what
+ * ({@code action}, {@code category}), how it ended ({@code outcome}), the record before and after, why, and the request it came from
+ * (source, IP address, user agent, request id, method, path). Written once, never changed: the database refuses UPDATE, DELETE and
+ * TRUNCATE on {@code audit_logs} (V3). {@code businessId} is null for a platform event outside any business.
  */
 @Entity
 @Immutable
@@ -57,6 +59,33 @@ public class AuditLog {
     @Column(name = "reason")
     private String reason;
 
+    @Column(name = "category", nullable = false)
+    private String category;
+
+    @Column(name = "outcome", nullable = false)
+    private String outcome;
+
+    @Column(name = "source", nullable = false)
+    private String source;
+
+    @Column(name = "actor_role")
+    private String actorRole;
+
+    @Column(name = "ip_address")
+    private String ipAddress;
+
+    @Column(name = "user_agent")
+    private String userAgent;
+
+    @Column(name = "request_id")
+    private String requestId;
+
+    @Column(name = "http_method")
+    private String httpMethod;
+
+    @Column(name = "request_path")
+    private String requestPath;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -66,6 +95,8 @@ public class AuditLog {
         if (id == null) id = UUID.randomUUID();
         if (businessId == null) businessId = TenantContext.current();
         if (createdAt == null) createdAt = now;
+        if (outcome == null) outcome = "SUCCESS";
+        if (source == null) source = "SYSTEM";
     }
 
     public UUID getId() { return id; }
@@ -88,6 +119,24 @@ public class AuditLog {
     public void setAfter(JsonNode after) { this.after = after; }
     public String getReason() { return reason; }
     public void setReason(String reason) { this.reason = reason; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public String getOutcome() { return outcome; }
+    public void setOutcome(String outcome) { this.outcome = outcome; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+    public String getActorRole() { return actorRole; }
+    public void setActorRole(String actorRole) { this.actorRole = actorRole; }
+    public String getIpAddress() { return ipAddress; }
+    public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+    public String getUserAgent() { return userAgent; }
+    public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
+    public String getRequestId() { return requestId; }
+    public void setRequestId(String requestId) { this.requestId = requestId; }
+    public String getHttpMethod() { return httpMethod; }
+    public void setHttpMethod(String httpMethod) { this.httpMethod = httpMethod; }
+    public String getRequestPath() { return requestPath; }
+    public void setRequestPath(String requestPath) { this.requestPath = requestPath; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

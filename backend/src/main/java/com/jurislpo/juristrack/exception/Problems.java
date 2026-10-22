@@ -56,6 +56,8 @@ public final class Problems {
     public static final String NOT_ON_BREAK = "NOT_ON_BREAK";
     /** 409: end the day while on a break; the break must be ended (resume) first. */
     public static final String BREAK_IN_PROGRESS = "BREAK_IN_PROGRESS";
+    /** 422: an export would hold more rows than allowed; narrow the filters. */
+    public static final String EXPORT_TOO_LARGE = "EXPORT_TOO_LARGE";
     /** 500: the open workday's intervals do not match its status (an administrator has to correct it). */
     public static final String TIME_RECORD_INCONSISTENT = "TIME_RECORD_INCONSISTENT";
 

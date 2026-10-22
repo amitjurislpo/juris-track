@@ -7,6 +7,8 @@ import com.jurislpo.juristrack.security.IntegrationTokenVerifier;
 import com.jurislpo.juristrack.security.JsonAuthEntryPoint;
 import com.jurislpo.juristrack.security.OriginCheckFilter;
 import com.jurislpo.juristrack.security.RequestAuthenticationFilter;
+import com.jurislpo.juristrack.security.RequestIdFilter;
+import com.jurislpo.juristrack.service.AuditService;
 import com.jurislpo.juristrack.service.IntegrationProvisioningService;
 import java.util.List;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -37,10 +39,10 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain apiFilterChain(HttpSecurity http, JsonAuthEntryPoint entryPoint, JuristrackProperties properties,
             AccessTokenService accessTokenService, SessionRepository sessionRepository, IntegrationTokenVerifier integrationTokenVerifier,
-            IntegrationProvisioningService integrationProvisioningService, ObjectMapper objectMapper) throws Exception {
+            IntegrationProvisioningService integrationProvisioningService, ObjectMapper objectMapper, AuditService auditService) throws Exception {
         RequestAuthenticationFilter authenticationFilter = new RequestAuthenticationFilter(accessTokenService, sessionRepository,
-                integrationTokenVerifier, integrationProvisioningService, objectMapper);
-        OriginCheckFilter originCheckFilter = new OriginCheckFilter(properties.frontendOrigin(), objectMapper);
+                integrationTokenVerifier, integrationProvisioningService, objectMapper, auditService);
+        OriginCheckFilter originCheckFilter = new OriginCheckFilter(properties.frontendOrigin(), objectMapper, auditService);
         http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> {})
@@ -68,7 +70,8 @@ public class SecurityConfig {
         CorsConfiguration corsConfiguration = new CorsConfiguration();
         corsConfiguration.setAllowedOrigins(List.of(properties.frontendOrigin()));
         corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
-        corsConfiguration.setAllowedHeaders(List.of("Content-Type", "Accept"));
+        corsConfiguration.setAllowedHeaders(List.of("Content-Type", "Accept", RequestIdFilter.REQUEST_ID_HEADER));
+        corsConfiguration.setExposedHeaders(List.of(RequestIdFilter.REQUEST_ID_HEADER));
         corsConfiguration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource corsConfigurationSource = new UrlBasedCorsConfigurationSource();
         corsConfigurationSource.registerCorsConfiguration("/api/**", corsConfiguration);

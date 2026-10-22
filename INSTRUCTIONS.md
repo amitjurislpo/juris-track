@@ -61,7 +61,7 @@ Add new lines at the bottom of the right section. Hindi, Hinglish or English are
 
 ## Decisions already taken
 
-- **Audit:** a complete, append-only audit of every movement (time events, people and settings changes, sign-in and security events, access to other people's data, exports). Details in `references/MIGRATION_PLAN.md` (audit policy). Every new write endpoint ships with its audit entry and a test.
+- **Audit:** a complete, append-only audit of every movement (time events, people and settings changes, sign-in and security events, access to other people's data, exports). Details in `references/MIGRATION_PLAN.md` (audit policy). Every new write endpoint ships with its audit entry, a test, and a line in `AuditEndpointCoverageTest`; security events are aggregated per 15-minute window.
 
 - Sign-in is by emailed code only (fixed code `000000` only in dev). No passwords. When embedded in JurisOne the sign-in is JurisOne's and JurisTrack trusts the signed token.
 - JurisTrack is sold standalone and also embedded in JurisOne; keep one codebase and one set of endpoints for both. The backend builds one `CurrentUser` from either the cookie session or the integration token; the frontend keeps all pages in `src/track` (embeddable, no login or shell) apart from `src/standalone`.

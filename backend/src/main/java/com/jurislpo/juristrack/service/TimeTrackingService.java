@@ -61,6 +61,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>The cached totals on the workday are recomputed from the intervals after every change: values once the day is completed,
  *       empty while it is open. Never incremented.</li>
  *   <li>The manager at the start of the day is kept on the workday ({@code manager_id}, the reporting snapshot).</li>
+ *   <li>Every applied event is audited in its transaction ({@code time.*}); an event refused because the open workday's intervals are
+ *       inconsistent is audited as {@code time.event_failed} (outcome FAILED). Reading the own state is not audited (it is polled).</li>
  * </ul>
  */
 @Service
@@ -158,6 +160,13 @@ public class TimeTrackingService {
             // a concurrent request opened the record first: report the resulting state instead of failing
             if (!isUniqueViolation(e)) throw e;
             appliedEvent = new AppliedEvent(true, null);
+        } catch (ApiException e) {
+            if (Problems.TIME_RECORD_INCONSISTENT.equals(e.code())) {
+                // the event's transaction rolled back: the failure is recorded on its own
+                auditService.recordIndependently(new AuditEntry(currentUser.businessId(), currentUser.userId(), currentUser.userId(),
+                        AuditAction.TIME_EVENT_FAILED, WORKDAY_ENTITY, null, null, Map.of("type", type.name()), e.code()));
+            }
+            throw e;
         }
         TimeState state = currentState(currentUser);
         UUID workdayId = appliedEvent.workdayId() != null ? appliedEvent.workdayId() : state.workday() == null ? null : state.workday().id();

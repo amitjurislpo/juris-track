@@ -2,7 +2,7 @@
 
 # JurisTrack — backend notes
 
-- Audit: a complete, append-only audit of every movement (see the audit policy in `references/MIGRATION_PLAN.md`); every write endpoint writes its audit entry in the same transaction and has a test.
+- Audit: a complete, append-only audit of every movement (see the audit policy in `references/MIGRATION_PLAN.md`); every write endpoint writes its audit entry in the same transaction and has a test; refusals and failures are written in their own transaction; `AuditEndpointCoverageTest` fails the build when a new write endpoint has no registered audit entry. Every response carries an `X-Request-Id` (a caller's valid one is kept) that is stored with the audit entries.
 - API contract: `references/API.md` (every endpoint with roles, fields and error codes; keep it exactly in sync with the code).
 - Source of truth: `references/MIGRATION_PLAN.md` (inventory of the old Next.js app, decisions, order of work) and `references/timetrack.txt` (the original product brief). The old app is the reference for behaviour only.
 - This repo is the **backend** (Spring Boot API in `backend/`, Java 17, Maven Wrapper; Postgres via docker-compose). The web app lives in its own repo, `juris-track-frontend` (React + Vite). It proxies `/api/*` to this API, so the API and the app share one origin in every environment.

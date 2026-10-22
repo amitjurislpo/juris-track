@@ -23,6 +23,9 @@ public class SessionRepository {
             UUID businessId, String businessName, Role role, String firstName, String lastName, String email, boolean isActive,
             boolean isBusinessSuspended) {}
 
+    /** A session that has not ended, and its user. */
+    public record OpenSession(String sessionId, UUID userId) {}
+
     /** A refresh token with its session and the session's user. */
     public record RefreshTokenSession(String sessionId, UUID userId, Instant usedAt, Instant sessionCreatedAt, Instant sessionExpiresAt,
             Instant revokedAt, boolean isUserActive) {}
@@ -99,9 +102,14 @@ public class SessionRepository {
                 Timestamp.from(revokedAt), reason, userId);
     }
 
-    /** The session (zero or one) a refresh token belongs to. */
-    public Optional<String> findSessionIdByRefreshToken(String tokenHash) {
-        return jdbcTemplate.queryForList("SELECT session_id FROM refresh_tokens WHERE token_hash = ?", String.class, tokenHash).stream().findFirst();
+    /** The session (zero or one) a refresh token belongs to, while it is not ended, with its user. */
+    public Optional<OpenSession> findOpenSessionByRefreshToken(String tokenHash) {
+        return jdbcTemplate.query("""
+                SELECT device_session.id, device_session.user_id FROM refresh_tokens token
+                JOIN sessions device_session ON device_session.id = token.session_id
+                WHERE token.token_hash = ? AND device_session.revoked_at IS NULL""",
+                (resultSet, rowNumber) -> new OpenSession(resultSet.getString("id"), resultSet.getObject("user_id", UUID.class)), tokenHash)
+                .stream().findFirst();
     }
 
     private static Instant instantOf(ResultSet resultSet, String column) throws SQLException {

@@ -48,10 +48,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class IntegrationTokenVerifier {
 
-    /** Why a token was refused (for the server log only; never sent to the caller). */
+    /**
+     * Why a token was refused: the message is a short reason code ({@code bad_signature}, {@code expired}, {@code missing_claim: email},
+     * ...) for the server log and the audit log, never sent to the caller and never containing the token.
+     */
     public static class InvalidIntegrationTokenException extends RuntimeException {
-        InvalidIntegrationTokenException(String reason) {
-            super(reason);
+        InvalidIntegrationTokenException(String reasonCode) {
+            super(reasonCode);
         }
     }
 
@@ -96,15 +99,15 @@ public class IntegrationTokenVerifier {
 
     /** The verified claims, or {@link InvalidIntegrationTokenException}. */
     public IntegrationClaims verify(String token) {
-        if (!isEnabled) throw new InvalidIntegrationTokenException("integration disabled");
+        if (!isEnabled) throw new InvalidIntegrationTokenException("integration_disabled");
         JWTClaimsSet claims;
         try {
             SignedJWT signedToken = SignedJWT.parse(token);
-            if (!expectedAlgorithm.equals(signedToken.getHeader().getAlgorithm())) throw new InvalidIntegrationTokenException("unexpected algorithm");
-            if (!signedToken.verify(signatureVerifier)) throw new InvalidIntegrationTokenException("bad signature");
+            if (!expectedAlgorithm.equals(signedToken.getHeader().getAlgorithm())) throw new InvalidIntegrationTokenException("unexpected_algorithm");
+            if (!signedToken.verify(signatureVerifier)) throw new InvalidIntegrationTokenException("bad_signature");
             claims = signedToken.getJWTClaimsSet();
         } catch (ParseException | JOSEException | IllegalStateException e) {
-            throw new InvalidIntegrationTokenException("malformed token");
+            throw new InvalidIntegrationTokenException("malformed_token");
         }
         checkIssuerAndAudience(claims);
         checkTimes(claims, Instant.now());
@@ -112,26 +115,26 @@ public class IntegrationTokenVerifier {
     }
 
     private void checkIssuerAndAudience(JWTClaimsSet claims) {
-        if (!issuer.equals(claims.getIssuer())) throw new InvalidIntegrationTokenException("wrong issuer");
+        if (!issuer.equals(claims.getIssuer())) throw new InvalidIntegrationTokenException("wrong_issuer");
         List<String> audiences = claims.getAudience();
-        if (audiences == null || !audiences.contains(audience)) throw new InvalidIntegrationTokenException("wrong audience");
+        if (audiences == null || !audiences.contains(audience)) throw new InvalidIntegrationTokenException("wrong_audience");
     }
 
     private void checkTimes(JWTClaimsSet claims, Instant now) {
         Date expiresAt = claims.getExpirationTime();
-        if (expiresAt == null) throw new InvalidIntegrationTokenException("no expiry");
+        if (expiresAt == null) throw new InvalidIntegrationTokenException("missing_expiry");
         if (!expiresAt.toInstant().plus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("expired");
         Date notBefore = claims.getNotBeforeTime();
-        if (notBefore != null && notBefore.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("not valid yet");
+        if (notBefore != null && notBefore.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("not_valid_yet");
         Date issuedAt = claims.getIssueTime();
-        if (issuedAt != null && issuedAt.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("issued in the future");
+        if (issuedAt != null && issuedAt.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("issued_in_the_future");
     }
 
     private static IntegrationClaims readClaims(JWTClaimsSet claims) {
         try {
             UUID jurisoneEmployeeId = requiredUuid(claims.getSubject(), "sub");
             String email = requiredText(claims.getStringClaim("email"), "email").toLowerCase(Locale.ROOT);
-            if (!email.contains("@")) throw new InvalidIntegrationTokenException("invalid email");
+            if (!email.contains("@")) throw new InvalidIntegrationTokenException("invalid_claim: email");
             String name = requiredText(claims.getStringClaim("name"), "name");
             UUID jurisoneBusinessId = requiredUuid(claims.getStringClaim("businessId"), "businessId");
             String businessName = requiredText(claims.getStringClaim("businessName"), "businessName");
@@ -140,7 +143,7 @@ public class IntegrationTokenVerifier {
             return new IntegrationClaims(jurisoneEmployeeId, email, name, jurisoneBusinessId, businessName, jurisoneManagerId,
                     roleOf(claims.getStringClaim("trackRole")));
         } catch (ParseException e) {
-            throw new InvalidIntegrationTokenException("a claim has the wrong type");
+            throw new InvalidIntegrationTokenException("invalid_claim_type");
         }
     }
 
@@ -155,7 +158,7 @@ public class IntegrationTokenVerifier {
     }
 
     private static String requiredText(String value, String claimName) {
-        if (value == null || value.isBlank()) throw new InvalidIntegrationTokenException("missing claim " + claimName);
+        if (value == null || value.isBlank()) throw new InvalidIntegrationTokenException("missing_claim: " + claimName);
         return value.trim();
     }
 
@@ -163,7 +166,7 @@ public class IntegrationTokenVerifier {
         try {
             return UUID.fromString(requiredText(value, claimName));
         } catch (IllegalArgumentException e) {
-            throw new InvalidIntegrationTokenException("claim " + claimName + " is not a UUID");
+            throw new InvalidIntegrationTokenException("invalid_claim: " + claimName);
         }
     }
 

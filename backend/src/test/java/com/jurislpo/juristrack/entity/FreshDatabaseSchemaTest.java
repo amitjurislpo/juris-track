@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * Empty database: Flyway applies V1__baseline.sql and V2, then Hibernate validates every entity against it
+ * Empty database: Flyway applies V1__baseline.sql, V2 and V3, then Hibernate validates every entity against it
  * (ddl-auto=validate; the context would not start otherwise). Rows of every entity round-trip through JPA with native
  * enums, jsonb, text[] and the database defaults, and the CHECK constraints guard the "one open X" rules.
  */
@@ -48,7 +48,7 @@ class FreshDatabaseSchemaTest {
 
     @Test
     void flywayAppliedTheBaselineWithRowLevelSecurity() {
-        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2");
+        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3");
         assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'is_suspended'",
                 String.class)).isEqualTo("false");
         assertThat(jdbcTemplate.queryForList("SELECT typname FROM pg_type WHERE typname IN ('user_role', 'workday_status') ORDER BY typname", String.class))
@@ -101,6 +101,7 @@ class FreshDatabaseSchemaTest {
         auditLog.setActorId(manager.getId());
         auditLog.setSubjectId(employee.getId());
         auditLog.setAction("user.manager");
+        auditLog.setCategory("people");
         auditLog.setEntityType("User");
         auditLog.setEntityId(employee.getId().toString());
         auditLog.setAfter(new ObjectMapper().readTree("{\"managerId\":\"" + manager.getId() + "\",\"count\":1}"));
@@ -150,6 +151,8 @@ class FreshDatabaseSchemaTest {
         assertThat(entityManager.find(BreakSession.class, breakSession.getId()).getOpenWorkdayId()).isEqualTo(workday.getId());
         assertThat(jdbcTemplate.queryForObject("SELECT status::text FROM workdays WHERE id = ?", String.class, workday.getId())).isEqualTo("WORKING");
         assertThat(jdbcTemplate.queryForObject("SELECT \"after\"->>'count' FROM audit_logs WHERE id = ?", String.class, auditLog.getId())).isEqualTo("1");
+        assertThat(jdbcTemplate.queryForMap("SELECT outcome, source FROM audit_logs WHERE id = ?", auditLog.getId()))
+                .containsEntry("outcome", "SUCCESS").containsEntry("source", "SYSTEM");
     }
 
     @Test
