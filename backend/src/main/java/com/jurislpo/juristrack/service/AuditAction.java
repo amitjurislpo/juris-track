@@ -49,7 +49,11 @@ public enum AuditAction {
     /** The employee ended their workday. */
     WORKDAY_ENDED("time.workday_ended"),
     /** Somebody else closed an employee's open workday (so far only when the employee is deactivated); the reason says why. */
-    WORKDAY_CLOSED("workday.closed");
+    WORKDAY_CLOSED("workday.closed"),
+    /** A manager or the owner read a report on other people's workdays (one entry per request; filters in {@code after}). */
+    REPORT_VIEWED("reports.viewed"),
+    /** A manager or the owner downloaded the workday report as CSV (filters, rows and display time zone in {@code after}). */
+    REPORT_EXPORTED("reports.exported");
 
     private final String storedName;
 

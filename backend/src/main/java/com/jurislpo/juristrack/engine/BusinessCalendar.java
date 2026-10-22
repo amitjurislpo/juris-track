@@ -31,8 +31,7 @@ import java.util.regex.Pattern;
  *
  * <p><b>Not ported</b> (on purpose): {@code toZonedInputValue} formats an instant for an {@code <input type="datetime-local">} and stays
  * in the frontend; {@code dateKeyToDb} / {@code dbToDateKey} were Prisma adapters, JPA maps a {@code date} column to {@link LocalDate}
- * directly. Display formatting and zone abbreviations (for example a CSV header "Times in IST") stay in the frontend; the CSV export's
- * zone abbreviation comes in a later phase.
+ * directly. Display formatting stays in the frontend; zone names and abbreviations for the CSV export are in {@link ZoneNames}.
  */
 public final class BusinessCalendar {
 

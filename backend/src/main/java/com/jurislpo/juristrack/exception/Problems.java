@@ -58,6 +58,8 @@ public final class Problems {
     public static final String BREAK_IN_PROGRESS = "BREAK_IN_PROGRESS";
     /** 500: the open workday's intervals do not match its status (an administrator has to correct it). */
     public static final String TIME_RECORD_INCONSISTENT = "TIME_RECORD_INCONSISTENT";
+    /** 422: the CSV export would have more rows than one file may hold; a shorter range or fewer people is needed. */
+    public static final String EXPORT_TOO_LARGE = "EXPORT_TOO_LARGE";
 
     public record FieldError(String field, String message) {}
 
