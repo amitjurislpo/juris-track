@@ -49,7 +49,17 @@ public enum AuditAction {
     /** The employee ended their workday. */
     WORKDAY_ENDED("time.workday_ended"),
     /** Somebody else closed an employee's open workday (so far only when the employee is deactivated); the reason says why. */
-    WORKDAY_CLOSED("workday.closed");
+    WORKDAY_CLOSED("workday.closed"),
+    /** A manager or the owner corrected a work or break interval of somebody in their scope (reason mandatory). */
+    TIME_SESSION_ADJUSTED("time.session_adjusted"),
+    /** A manager or the owner ended somebody's open (forgotten) workday (reason mandatory). */
+    TIME_WORKDAY_CLOSED("time.workday_closed"),
+    /** Access: a manager or the owner opened one person's live state on the Team tab. */
+    TEAM_MEMBER_VIEWED("access.team_member_viewed"),
+    /** Access: a manager or the owner opened one person's history (the date range is recorded). */
+    TEAM_MEMBER_WORKDAYS_VIEWED("access.team_member_workdays_viewed"),
+    /** Access: a manager or the owner opened one workday of somebody else. */
+    WORKDAY_VIEWED("access.workday_viewed");
 
     private final String storedName;
 

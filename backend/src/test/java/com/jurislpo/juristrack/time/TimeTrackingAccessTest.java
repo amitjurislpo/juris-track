@@ -29,8 +29,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * Who may track time and see which workdays ("Authorization scope" of the old verify-flows checks, as far as this module goes):
- * every business role tracks its own time, the platform super admin none; nobody sees another person's workday here (404), not
- * even their manager (the Team tab comes in module 5.3), and never one of another business; a suspended business is refused.
+ * every business role tracks its own time, the platform super admin none; a colleague or a manager outside the reporting line does
+ * not see another person's workday (404), their manager and the owner do (Team tab, see TeamWorkdayAccessTest), and nobody sees one
+ * of another business; a suspended business is refused.
  */
 class TimeTrackingAccessTest extends IntegrationTest {
 
@@ -134,7 +135,7 @@ class TimeTrackingAccessTest extends IntegrationTest {
     }
 
     @Test
-    void nobodySeesAnotherPersonsWorkdayHere() throws Exception {
+    void colleaguesAndOtherManagersDoNotSeeAnotherPersonsWorkday() throws Exception {
         TimeTracker report = signInNew(businessId, "EMPLOYEE", managerId);
         String workdayId = JsonPath.read(report.apply("START"), "$.data.state.workday.id");
         TimeTracker colleague = signInNew(businessId, "EMPLOYEE", managerId);
@@ -143,7 +144,7 @@ class TimeTrackingAccessTest extends IntegrationTest {
         TimeTracker otherManager = signInNew(businessId, "MANAGER", null);
         otherManager.workday(workdayId).andExpect(status().isNotFound());
         TimeTracker owner = signInNew(businessId, "ADMIN", null);
-        owner.workday(workdayId).andExpect(status().isNotFound());
+        owner.workday(workdayId).andExpect(status().isOk());
         colleague.history("").andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(0));
         report.workday(UUID.randomUUID()).andExpect(status().isNotFound());
         report.workday("not-a-uuid").andExpect(status().isBadRequest());
