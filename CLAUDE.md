@@ -1,1 +1,16 @@
-@AGENTS.md
+@INSTRUCTIONS.md
+
+# JurisTrack — backend notes
+
+- Source of truth: `references/MIGRATION_PLAN.md` (inventory of the old Next.js app, decisions, order of work) and `references/timetrack.txt` (the original product brief). The old app is the reference for behaviour only.
+- This repo is the **backend** (Spring Boot API in `backend/`, Java 17, Maven Wrapper; Postgres via docker-compose). The web app lives in its own repo, `juris-track-frontend` (React + Vite). It proxies `/api/*` to this API, so the API and the app share one origin in every environment.
+- Ports (dev): API http://localhost:8082, web app http://localhost:3007 (`juristrack.app-url` must match it: the Origin check and CORS allow only that origin), Postgres on host port 5437. E2E: web 3008, API 8083.
+- Configuration: one file per environment, `backend/src/main/resources/application-<env>.properties` (dev, sqe, uat, prd) on top of `application.properties`. dev has local-only values in the file; the secrets of sqe/uat/prd are `${ENV_VARS}` provided by the server. No `.env` files.
+- Schema changes: Flyway migration `backend/src/main/resources/db/migration/V<n>__name.sql` plus its reverse in `backend/src/main/resources/db/rollback/U<n>__name.sql`; JPA runs with `ddl-auto=validate`. One-shot commands (`migrate`, `seed`, `reset`) run as `./mvnw spring-boot:run -Dspring-boot.run.arguments=<command>` in `backend/`.
+- Two modes (see `references/INTEGRATION.md`): standalone (own emailed-code login, cookies) and embedded in JurisOne (the JurisOne backend is the gateway and sends `Authorization: Bearer <JWT signed by JurisOne>`; JurisTrack verifies it with the public key and provisions business and user just in time). Controllers and services only see `CurrentUser`; never branch on the mode in business logic.
+- Multi-business: every business-owned table has `business_id` + row-level security; `TenantContext` is applied to each DB connection (pattern: `tenancy/` in the JurisOne backend). Sign-in is by email only (emailed code).
+- Every API endpoint: permission check in the controller. Managers see only the employees who report to them (`manager_id`); out-of-scope records answer 404.
+- REST: nouns in paths, ids in the path, GET never writes, POST creates (201), PUT sets, PATCH partial, DELETE removes; success bodies are `{ ok, message?, data? }`, errors are `application/problem+json` with a `code`.
+- Time = timestamps UTC (`Instant`); a workday's date is the calendar date in the business time zone when it started. Durations come from the recorded intervals, never from a counter.
+- Backend tests: `./mvnw test` in `backend/` (JUnit 5 + Testcontainers; Docker must be running). The browser tests live in the frontend repo.
+- This is a pure Java project: no Node, no `package.json`. Never run Maven in this folder while the dev API runs; test in a fresh copy (see the migration guides).

@@ -1,12 +1,15 @@
-node_modules/
-.next/
-out/
-build/
-coverage/
-.env
-.env*.local
-*.tsbuildinfo
-next-env.d.ts
-src/generated/
-npm-debug.log*
+# build output
+backend/target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE settings
+.idea/
+.vscode/
+*.iml
+
+# local files (settings live in backend/src/main/resources/application-<env>.properties; there are no .env files)
+.env*
+*.log
 .DS_Store
