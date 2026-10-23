@@ -138,4 +138,23 @@ class EnvironmentGuardTest {
             assertThat(problemsOf(configuration)).as(environmentName).singleElement().asString().contains("juristrack.seed.super-admin-email");
         }
     }
+
+    @Test
+    void devValuesAreRefusedAgainstAnythingButThisMachine() {
+        Map<String, String> configuration = new HashMap<>();
+        configuration.put("juristrack.env", "dev");
+        configuration.put("juristrack.otp.fixed-code", "000000");
+        configuration.put("juristrack.app-url", "http://localhost:3007");
+        configuration.put("spring.datasource.url", "jdbc:postgresql://localhost:5437/juristrack?currentSchema=public");
+        assertThat(problemsOf(configuration)).isEmpty();
+        configuration.put("spring.datasource.url", "jdbc:postgresql://db:5432/juristrack"); // a docker-compose service
+        assertThat(problemsOf(configuration)).isEmpty();
+        configuration.put("spring.datasource.url", "jdbc:postgresql://db.internal.example.com:5432/juristrack");
+        assertThat(problemsOf(configuration)).singleElement().asString().contains("spring.datasource.url");
+        configuration.put("spring.datasource.url", "jdbc:postgresql://localhost.evil.example.com:5432/juristrack");
+        assertThat(problemsOf(configuration)).singleElement().asString().contains("spring.datasource.url");
+        configuration.put("spring.datasource.url", "jdbc:postgresql://127.0.0.1:5437/juristrack");
+        configuration.put("juristrack.app-url", "https://track.example.com");
+        assertThat(problemsOf(configuration)).singleElement().asString().contains("juristrack.app-url");
+    }
 }

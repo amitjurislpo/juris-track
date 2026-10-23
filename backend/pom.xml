@@ -46,6 +46,12 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- there is no default Spring profile; ./mvnw spring-boot:run (local development) runs as dev. The packaged jar needs SPRING_PROFILES_ACTIVE. -->
+          <profiles>
+            <profile>dev</profile>
+          </profiles>
+        </configuration>
       </plugin>
     </plugins>
   </build>

@@ -42,6 +42,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -51,10 +52,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>The employee is always the signed-in user, never an id from the request.</li>
  *   <li>Every event runs in one transaction that first locks the employee's row ({@link EmployeeLockRepository}), so requests of
  *       the same employee are serialized while others are never blocked; the state is read and the transition decided inside the
- *       lock, and "now" is read from the injected {@link Clock} only after the lock was taken.</li>
+ *       lock, and "now" is read from the injected {@link Clock} (to the millisecond, never before the latest instant already recorded for
+ *       the employee) only after the lock was taken.</li>
  *   <li>A repeated event (a double-click) answers the current state with {@code alreadyApplied = true} and creates nothing. The
  *       unique "open key" columns make a second open workday or interval impossible even if this code were bypassed; a unique-key
- *       collision from a concurrent request is reported the same way.</li>
+ *       collision means inconsistent records and is reported (500 {@code TIME_RECORD_INCONSISTENT}), never hidden as a repeat.</li>
  *   <li>A workday belongs to the calendar date in the business time zone when it started and may run past midnight. Starting again
  *       after the day ended on the same date reopens that workday with a new work session; the gap counts as neither productive nor
  *       break time (owner decision D5).</li>
@@ -124,6 +126,8 @@ public class TimeTrackingService {
         this.writeTransaction = new TransactionTemplate(transactionManager);
         this.readTransaction = new TransactionTemplate(transactionManager);
         this.readTransaction.setReadOnly(true);
+        // one snapshot for the several statements that make up a state (workday, work sessions, break sessions)
+        this.readTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         this.employeeLockRepository = employeeLockRepository;
         this.workdayRepository = workdayRepository;
         this.workSessionRepository = workSessionRepository;
@@ -157,9 +161,13 @@ public class TimeTrackingService {
         try {
             appliedEvent = writeTransaction.execute(transactionStatus -> applyEvent(currentUser.userId(), type));
         } catch (DataIntegrityViolationException e) {
-            // a concurrent request opened the record first: report the resulting state instead of failing
+            // every writer holds the employee's lock, so two requests cannot race to open the same record: a collision on an open key
+            // means the records are inconsistent (e.g. a leftover open interval on an ended day) and is reported, not hidden as a repeat
             if (!isUniqueViolation(e)) throw e;
-            appliedEvent = new AppliedEvent(true, null);
+            ApiException inconsistent = inconsistentRecords();
+            auditService.recordIndependently(new AuditEntry(currentUser.businessId(), currentUser.userId(), currentUser.userId(),
+                    AuditAction.TIME_EVENT_FAILED, WORKDAY_ENTITY, null, null, Map.of("type", type.name()), inconsistent.code()));
+            throw inconsistent;
         } catch (ApiException e) {
             if (Problems.TIME_RECORD_INCONSISTENT.equals(e.code())) {
                 // the event's transaction rolled back: the failure is recorded on its own
@@ -174,18 +182,18 @@ public class TimeTrackingService {
     }
 
     /**
-     * Closes the employee's open workday at the current time because the employee is being deactivated: the open work or break
-     * session ends now, the day is COMPLETED and its totals are recomputed, with a {@code workday.closed} audit entry (the reason
-     * given for the deactivation, else "Employee deactivated."). Runs inside the deactivation's transaction and takes the employee's
-     * lock first. Returns the closed workday's id, or empty when no workday was open.
+     * Closes the employee's open workday at the current time because the employee is being deactivated or the business suspended: the
+     * open work or break session ends now, the day is COMPLETED and its totals are recomputed, with a {@code workday.closed} audit entry
+     * (the given reason, else "Employee deactivated."). Runs inside the caller's transaction and takes the employee's lock first.
+     * Returns the closed workday's id, or empty when no workday was open.
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public Optional<UUID> closeOpenWorkdayOfDeactivatedEmployee(UUID businessId, UUID actorId, UUID employeeId, String reason) {
+    public Optional<UUID> closeOpenWorkday(UUID businessId, UUID actorId, UUID employeeId, String reason) {
         employeeLockRepository.lockEmployee(employeeId);
         Optional<Workday> openWorkday = workdayRepository.findByActiveEmployeeId(employeeId);
         if (openWorkday.isEmpty()) return Optional.empty();
         Workday workday = openWorkday.get();
-        Instant now = now();
+        Instant now = stampFor(employeeId);
         WorkdayStatus statusBefore = workday.getStatus();
         findOpenWorkSession(workday.getId()).ifPresent(session -> closeWorkSession(session, now));
         findOpenBreakSession(workday.getId()).ifPresent(session -> closeBreakSession(session, now));
@@ -215,7 +223,7 @@ public class TimeTrackingService {
         LockedEmployee employee = employeeLockRepository.lockEmployee(employeeId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Employee not found."));
         if (!employee.isActive()) throw new ApiException(HttpStatus.FORBIDDEN, "This account is deactivated.");
-        Instant now = now();
+        Instant now = stampFor(employeeId);
         ZoneId zone = BusinessCalendar.zoneOf(employee.businessTimeZone());
         LocalDate today = BusinessCalendar.toDateKey(now, zone);
         Optional<Workday> openWorkday = workdayRepository.findByActiveEmployeeId(employeeId);
@@ -377,11 +385,13 @@ public class TimeTrackingService {
             case ON_BREAK -> openBreakSession != null && openWorkSession == null;
             case COMPLETED -> false;
         };
-        if (!isConsistent) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, Problems.TIME_RECORD_INCONSISTENT,
-                    "Your time record is in an unexpected state. Please contact an administrator to review it.");
-        }
+        if (!isConsistent) throw inconsistentRecords();
         return new OpenIntervals(openWorkSession, openBreakSession);
+    }
+
+    private static ApiException inconsistentRecords() {
+        return new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, Problems.TIME_RECORD_INCONSISTENT,
+                "Your time record is in an unexpected state. Please contact an administrator to review it.");
     }
 
     /** The cached totals from the intervals: set once the day is completed, empty while it is open (old recomputeWorkdayTotals). */
@@ -404,9 +414,19 @@ public class TimeTrackingService {
         workdayRepository.saveAndFlush(workday);
     }
 
-    /** Now, to the microsecond the database stores. */
+    /** Now, to the millisecond (what the browser keeps), for the answers that only display it. */
     private Instant now() {
-        return clock.instant().truncatedTo(ChronoUnit.MICROS);
+        return clock.instant().truncatedTo(ChronoUnit.MILLIS);
+    }
+
+    /**
+     * The instant a change is recorded at: now, but never before the latest instant already recorded for the employee. A clock that
+     * stepped back (NTP, another instance behind) then never stamps an interval before the previous one. Call after taking the lock.
+     */
+    private Instant stampFor(UUID employeeId) {
+        Instant clockNow = now();
+        Instant latestRecorded = employeeLockRepository.findLatestRecordedInstant(employeeId).orElse(null);
+        return latestRecorded != null && latestRecorded.isAfter(clockNow) ? latestRecorded : clockNow;
     }
 
     private static boolean isUniqueViolation(DataIntegrityViolationException e) {

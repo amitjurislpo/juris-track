@@ -21,6 +21,7 @@ import com.jurislpo.juristrack.entity.Role;
 import com.jurislpo.juristrack.entity.WorkSession;
 import com.jurislpo.juristrack.entity.WorkdayStatus;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.exception.Problems.FieldError;
 import com.jurislpo.juristrack.exception.ValidationException;
@@ -310,10 +311,10 @@ public class ReportService {
         Set<UUID> visibleEmployeeIds = scope.equals(ALL_SCOPE) ? null : reportingScopeService.visibleEmployeeIds(business.getId(),
                 currentUser.userId(), scope.equals(DIRECT_SCOPE) ? ReportingLine.DIRECT_REPORTS : ReportingLine.WITH_INDIRECT_REPORTS);
         if (employeeId != null && !isVisible(business.getId(), visibleEmployeeIds, employeeId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Employee not found.");
+            throw new OutOfScopeException("user", "Employee not found.");
         }
         if (managerId != null && !managerId.equals(currentUser.userId()) && !isVisible(business.getId(), visibleEmployeeIds, managerId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Manager not found.");
+            throw new OutOfScopeException("user", "Manager not found.");
         }
 
         Map<String, Object> auditFilters = new LinkedHashMap<>();
@@ -438,7 +439,7 @@ public class ReportService {
         long productiveSeconds = rows.stream().mapToLong(ReportRow::productiveSeconds).sum();
         return new ReportTotals(rows.size(), (int) rows.stream().map(row -> row.employee().id()).distinct().count(), productiveSeconds,
                 rows.stream().mapToLong(ReportRow::breakSeconds).sum(), rows.stream().mapToLong(ReportRow::spanSeconds).sum(),
-                rows.stream().mapToInt(ReportRow::breakCount).sum(), averageOf(productiveSeconds, rows.size()));
+                rows.stream().mapToInt(ReportRow::breakCount).sum(), WorkdayHistoryService.averageOf(productiveSeconds, rows.size()));
     }
 
     /** One point per calendar day from {@code from} to {@code to}, zero-filled (the old {@code dailySeries}). */
@@ -469,7 +470,7 @@ public class ReportService {
             groups.add(new SummaryRow(key, label, groupBy.equals("employee") ? first.employee().employeeCode() : null, groupRows.size(),
                     (int) groupRows.stream().map(row -> row.employee().id()).distinct().count(), productiveSeconds,
                     groupRows.stream().mapToLong(ReportRow::breakSeconds).sum(), groupRows.stream().mapToLong(ReportRow::spanSeconds).sum(),
-                    groupRows.stream().mapToInt(ReportRow::breakCount).sum(), averageOf(productiveSeconds, groupRows.size()),
+                    groupRows.stream().mapToInt(ReportRow::breakCount).sum(), WorkdayHistoryService.averageOf(productiveSeconds, groupRows.size()),
                     groupRows.stream().map(ReportRow::startedAt).min(Comparator.naturalOrder()).orElse(null),
                     groupRows.stream().map(ReportRow::endedAt).filter(endedAt -> endedAt != null).max(Comparator.naturalOrder()).orElse(null)));
         });
@@ -492,10 +493,5 @@ public class ReportService {
         }
         Comparator<SummaryRow> order = SUMMARY_ORDERS.get(listQuery.sort());
         return (listQuery.isAscending() ? order : order.reversed()).thenComparing(SUMMARY_TIE_BREAK);
-    }
-
-    /** Seconds per workday rounded like JavaScript's {@code Math.round} (half up); 0 without workdays. */
-    private static long averageOf(long seconds, int workdays) {
-        return workdays == 0 ? 0 : Math.round((double) seconds / workdays);
     }
 }

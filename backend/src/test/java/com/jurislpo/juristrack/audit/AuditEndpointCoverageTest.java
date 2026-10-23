@@ -58,6 +58,8 @@ class AuditEndpointCoverageTest extends IntegrationTest {
             Map.entry("POST /api/businesses", List.of("business.created", "employee.created")),
             Map.entry("PATCH /api/businesses/{businessId}", List.of("business.updated")),
             Map.entry("PUT /api/businesses/{businessId}/status", List.of("business.suspended", "business.reactivated")),
+            Map.entry("PUT /api/businesses/{businessId}/jurisone-link", List.of("integration.business_linked")),
+            Map.entry("DELETE /api/businesses/{businessId}/jurisone-link", List.of("integration.business_unlinked")),
             Map.entry("PATCH /api/business", List.of("business.updated")),
             Map.entry("POST /api/employees", List.of("employee.created", "employee.change_refused")),
             Map.entry("PATCH /api/employees/{employeeId}", List.of("employee.updated", "employee.change_refused")),
@@ -235,6 +237,21 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         mockMvc.perform(reactivateTrace.on(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status"))).cookie(superAdminCookie)
                 .content("{\"isSuspended\":false}")).andExpect(status().isOk());
         assertThat(reactivateTrace.entry("business.reactivated")).containsEntry("actor_id", superAdminId);
+    }
+
+    @Test
+    void linkingAndUnlinkingABusinessToJurisoneIsAudited() throws Exception {
+        UUID jurisoneBusinessId = UUID.randomUUID();
+        AuditTrace linkTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(linkTrace.on(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/jurisone-link"))).cookie(superAdminCookie)
+                .content("{\"jurisoneBusinessId\":\"" + jurisoneBusinessId + "\"}")).andExpect(status().isOk());
+        assertThat(linkTrace.entry("integration.business_linked")).containsEntry("actor_id", superAdminId).containsEntry("actor_role", "SUPER_ADMIN")
+                .containsEntry("business_id", businessId).containsEntry("category", "integration").containsEntry("outcome", "SUCCESS")
+                .containsEntry("entity_type", "business").containsEntry("entity_id", businessId.toString());
+        AuditTrace unlinkTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(unlinkTrace.on(SignIn.fromWebApp(delete("/api/businesses/" + businessId + "/jurisone-link"))).cookie(superAdminCookie))
+                .andExpect(status().isOk());
+        assertThat(unlinkTrace.entry("integration.business_unlinked")).containsEntry("actor_id", superAdminId).containsEntry("business_id", businessId);
     }
 
     @Test

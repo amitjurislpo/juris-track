@@ -9,7 +9,9 @@ import com.jurislpo.juristrack.engine.ReportingLine;
 import com.jurislpo.juristrack.entity.Role;
 import com.jurislpo.juristrack.entity.User;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.exception.Problems;
+import com.jurislpo.juristrack.repository.EmployeeLockRepository;
 import com.jurislpo.juristrack.repository.EmployeeQueryRepository;
 import com.jurislpo.juristrack.repository.EmployeeQueryRepository.EmployeeFilter;
 import com.jurislpo.juristrack.repository.EmployeeQueryRepository.EmployeeRow;
@@ -29,6 +31,7 @@ import java.util.function.Supplier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The owner's (ADMIN's) employees: list, add, edit, deactivate and reactivate, always inside the owner's own business (another
@@ -88,14 +91,19 @@ public class EmployeeService {
     private final SessionService sessionService;
     private final AuditService auditService;
     private final TimeTrackingService timeTrackingService;
+    private final EmployeeLockRepository employeeLockRepository;
+    private final TransactionTemplate transactionTemplate;
 
     public EmployeeService(UserRepository userRepository, EmployeeQueryRepository employeeQueryRepository, SessionService sessionService,
-            AuditService auditService, TimeTrackingService timeTrackingService) {
+            AuditService auditService, TimeTrackingService timeTrackingService, EmployeeLockRepository employeeLockRepository,
+            TransactionTemplate transactionTemplate) {
         this.userRepository = userRepository;
         this.employeeQueryRepository = employeeQueryRepository;
         this.sessionService = sessionService;
         this.auditService = auditService;
         this.timeTrackingService = timeTrackingService;
+        this.employeeLockRepository = employeeLockRepository;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -104,7 +112,7 @@ public class EmployeeService {
      * (direct reports of that user), {@code sort} ({@link #SORT_KEYS}, default {@code name}), {@code sortDirection}, {@code page},
      * {@code pageSize}. 400 for an unknown value.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public ListPage<EmployeeRow> list(CurrentUser owner, Map<String, String> queryParameters) {
         ListPage<EmployeeRow> page = findPage(owner, queryParameters);
         Map<String, Object> details = new LinkedHashMap<>();
@@ -151,7 +159,7 @@ public class EmployeeService {
     }
 
     /** One user of the owner's business; 404 when unknown or in another business. Reading somebody else's record is audited. */
-    @Transactional(readOnly = true)
+    @Transactional
     public EmployeeRow find(CurrentUser owner, UUID employeeId) {
         EmployeeRow employee = findRow(owner, employeeId);
         auditService.recordAccess(AuditAction.EMPLOYEE_VIEWED, owner, employeeId, USER_ENTITY, employeeId.toString(), null);
@@ -159,11 +167,10 @@ public class EmployeeService {
     }
 
     private EmployeeRow findRow(CurrentUser owner, UUID employeeId) {
-        return employeeQueryRepository.findRow(owner.businessId(), employeeId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+        return employeeQueryRepository.findRow(owner.businessId(), employeeId).orElseThrow(() -> new OutOfScopeException(USER_ENTITY, NOT_FOUND));
     }
 
     /** Adds an employee (active, signs in with an emailed code); returns the new id. */
-    @Transactional
     public UUID create(CurrentUser owner, EmployeeInput input) {
         return auditRefusals(owner, null, "create", () -> createEmployee(owner, input));
     }
@@ -200,12 +207,12 @@ public class EmployeeService {
      * Changes the fields that were sent; nothing changed writes no audit entry, a change writes the whole record before and after
      * (every field, role and manager included). Returns the employee as now stored.
      */
-    @Transactional
     public EmployeeRow update(CurrentUser owner, UUID employeeId, EmployeeChanges changes) {
         return auditRefusals(owner, employeeId, "update", () -> updateEmployee(owner, employeeId, changes));
     }
 
     private EmployeeRow updateEmployee(CurrentUser owner, UUID employeeId, EmployeeChanges changes) {
+        lockEmployeeRow(employeeId);
         User employee = loadEmployee(owner, employeeId);
         if (changes == null) return findRow(owner, employeeId);
         Map<String, Object> before = employeeDetails(employee);
@@ -256,12 +263,12 @@ public class EmployeeService {
      * Deactivates (ends every session at once) or reactivates an employee. Setting the state the employee already has changes
      * nothing and writes no audit entry.
      */
-    @Transactional
     public EmployeeRow setStatus(CurrentUser owner, UUID employeeId, EmployeeStatusChange statusChange) {
         return auditRefusals(owner, employeeId, "status", () -> changeStatus(owner, employeeId, statusChange));
     }
 
     private EmployeeRow changeStatus(CurrentUser owner, UUID employeeId, EmployeeStatusChange statusChange) {
+        lockEmployeeRow(employeeId);
         User employee = loadEmployee(owner, employeeId);
         InputValidator validator = new InputValidator();
         if (statusChange == null || statusChange.isActive() == null) validator.reject("isActive", "Say whether the employee is active (isActive).");
@@ -282,7 +289,7 @@ public class EmployeeService {
         }
         if (!isActive) {
             // no record is left running for a deactivated account: the open workday ends now (audited as workday.closed)
-            timeTrackingService.closeOpenWorkdayOfDeactivatedEmployee(owner.businessId(), owner.userId(), employeeId, reason)
+            timeTrackingService.closeOpenWorkday(owner.businessId(), owner.userId(), employeeId, reason)
                     .ifPresent(workdayId -> after.put("closedWorkdayId", workdayId.toString()));
         }
         employee.setActive(isActive);
@@ -300,7 +307,7 @@ public class EmployeeService {
      */
     private <T> T auditRefusals(CurrentUser owner, UUID employeeId, String operation, Supplier<T> write) {
         try {
-            return write.get();
+            return transactionTemplate.execute(transactionStatus -> write.get());
         } catch (ApiException e) {
             if (e.status() == HttpStatus.UNPROCESSABLE_ENTITY) {
                 Map<String, Object> details = new LinkedHashMap<>();
@@ -319,10 +326,19 @@ public class EmployeeService {
         return employeeQueryRepository.findProfileDetails(currentUser.userId());
     }
 
+    /**
+     * Takes the employee's row lock before the employee is read, so a change waits for a concurrent edit, deactivation or time event
+     * of the same person and then works on what they left (no lost update, no second deactivation). 404 for somebody who is not a
+     * user of a business visible to the caller.
+     */
+    private void lockEmployeeRow(UUID employeeId) {
+        employeeLockRepository.lockEmployee(employeeId).orElseThrow(() -> new OutOfScopeException(USER_ENTITY, NOT_FOUND));
+    }
+
     private User loadEmployee(CurrentUser owner, UUID employeeId) {
         return userRepository.findById(employeeId)
                 .filter(user -> owner.businessId().equals(user.getBusinessId()) && user.getRole() != Role.SUPER_ADMIN)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+                .orElseThrow(() -> new OutOfScopeException(USER_ENTITY, NOT_FOUND));
     }
 
     private static void requireAssignableRole(Role role) {

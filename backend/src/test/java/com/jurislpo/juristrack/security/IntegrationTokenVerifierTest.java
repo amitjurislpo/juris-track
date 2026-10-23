@@ -14,7 +14,9 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.PlainJWT;
 import com.nimbusds.jwt.SignedJWT;
 import java.security.KeyPair;
+import java.time.Instant;
 import java.util.Base64;
+import java.util.Date;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -104,5 +106,28 @@ class IntegrationTokenVerifierTest {
         IntegrationTokenVerifier disabledVerifier = new IntegrationTokenVerifier(new JuristrackProperties(null, null, false, null, null, null, null, null));
         assertThat(disabledVerifier.isEnabled()).isFalse();
         assertThatThrownBy(() -> disabledVerifier.verify(IntegrationTokens.tokenFor(employee()))).isInstanceOf(InvalidIntegrationTokenException.class);
+    }
+
+    @Test
+    void aTokenNeedsAnIssueTimeAndAnIdAndMayLiveTenMinutesAtMost() {
+        IntegrationTokenVerifier verifier = verifierFor(IntegrationTokens.JURISONE_KEY_PAIR);
+        Employee employee = employee();
+        String withoutIssueTime = IntegrationTokens.tokenFor(employee, claims -> claims.issueTime(null));
+        assertThatThrownBy(() -> verifier.verify(withoutIssueTime)).hasMessage("missing_issue_time");
+        String withoutId = IntegrationTokens.tokenFor(employee, claims -> claims.jwtID(null));
+        assertThatThrownBy(() -> verifier.verify(withoutId)).hasMessage("missing_claim: jti");
+        Instant issuedAt = Instant.now();
+        String longLived = IntegrationTokens.tokenFor(employee, claims -> claims.issueTime(Date.from(issuedAt)).expirationTime(Date.from(issuedAt.plusSeconds(601))));
+        assertThatThrownBy(() -> verifier.verify(longLived)).hasMessage("lifetime_too_long");
+        String tenMinutes = IntegrationTokens.tokenFor(employee, claims -> claims.issueTime(Date.from(issuedAt)).expirationTime(Date.from(issuedAt.plusSeconds(600))));
+        assertThat(verifier.verify(tenMinutes).jurisoneEmployeeId()).isEqualTo(employee.employeeId());
+    }
+
+    @Test
+    void aTokenWorksOnceOnly() {
+        IntegrationTokenVerifier verifier = verifierFor(IntegrationTokens.JURISONE_KEY_PAIR);
+        String token = IntegrationTokens.tokenFor(employee());
+        verifier.verify(token);
+        assertThatThrownBy(() -> verifier.verify(token)).hasMessage("replayed_token");
     }
 }

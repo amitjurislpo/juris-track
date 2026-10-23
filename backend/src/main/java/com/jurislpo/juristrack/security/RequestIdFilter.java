@@ -1,6 +1,8 @@
 package com.jurislpo.juristrack.security;
 
 import com.jurislpo.juristrack.common.RequestMetadata;
+import com.jurislpo.juristrack.common.TrustedProxies;
+import com.jurislpo.juristrack.config.JuristrackProperties;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,12 +20,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * recorded with it too). A caller's {@value #REQUEST_ID_HEADER} is kept when it is 1 to 64 letters, digits, {@code .}, {@code _},
  * {@code :} or {@code -} (the JurisOne gateway passes its own); anything else is replaced by a new UUID. The id is echoed in the
  * response's {@value #REQUEST_ID_HEADER} and stored in every audit entry of the request. The IP address and user agent follow
- * {@link RequestMetadata} (the rate limits use the same IP address); the path is stored without the query string, at most 300
+ * {@link RequestMetadata} (the rate limits use the same IP address: the connection's, or behind a trusted proxy the client it forwarded, see
+ * {@link TrustedProxies}); the path is stored without the query string, at most 300
  * characters.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class RequestIdFilter extends OncePerRequestFilter {
+
+    private final TrustedProxies trustedProxies;
+
+    public RequestIdFilter(JuristrackProperties properties) {
+        this.trustedProxies = TrustedProxies.of(properties.security().trustedProxies());
+    }
 
     public static final String REQUEST_ID_HEADER = "X-Request-Id";
     private static final Pattern REQUEST_ID_PATTERN = Pattern.compile("^[A-Za-z0-9._:-]{1,64}$");
@@ -33,6 +42,8 @@ public class RequestIdFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
         String requestId = acceptedRequestId(request.getHeader(REQUEST_ID_HEADER));
         response.setHeader(REQUEST_ID_HEADER, requestId);
+        request.setAttribute(RequestMetadata.CLIENT_ADDRESS_ATTRIBUTE, trustedProxies.clientAddress(request.getRemoteAddr(),
+                request.getHeader("X-Forwarded-For"), request.getHeader("X-Real-IP")));
         RequestMetadata requestMetadata = RequestMetadata.of(request);
         String path = request.getRequestURI();
         AuditRequestContext.open(new AuditRequestContext(requestId, requestMetadata.ipAddress(), requestMetadata.userAgent(), request.getMethod(),

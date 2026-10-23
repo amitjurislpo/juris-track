@@ -3,6 +3,7 @@ package com.jurislpo.juristrack.service;
 import com.jurislpo.juristrack.engine.ReportingLine;
 import com.jurislpo.juristrack.entity.Role;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.security.CurrentUser;
 import java.util.UUID;
@@ -42,13 +43,13 @@ public class TeamAccessPolicy {
 
     /**
      * Checks that {@code actor} may correct the time of {@code employeeId} (a user of the actor's business): 403
-     * {@code CANNOT_CORRECT_OWN_TIME} for their own records, 404 {@code notFoundMessage} outside their scope.
+     * {@code CANNOT_CORRECT_OWN_TIME} for their own records, 404 {@code notFoundMessage} outside their scope (recorded as an out-of-scope probe).
      */
     public void requireCanCorrect(CurrentUser actor, UUID employeeId, String notFoundMessage) {
         if (actor.userId().equals(employeeId)) {
             throw new ApiException(HttpStatus.FORBIDDEN, Problems.CANNOT_CORRECT_OWN_TIME,
                     "You cannot correct your own time. Ask your manager or the owner to do it.");
         }
-        if (!canView(actor, employeeId)) throw new ApiException(HttpStatus.NOT_FOUND, notFoundMessage);
+        if (!canView(actor, employeeId)) throw new OutOfScopeException("workday", notFoundMessage);
     }
 }

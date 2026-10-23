@@ -139,7 +139,9 @@ class SignInAuditTest extends IntegrationTest {
     void failedSignInRateLimitIsRecordedOncePerWindow() throws Exception {
         String email = TestData.uniqueEmail("guesser");
         testData.createUser(businessId, "EMPLOYEE", email, null);
-        for (int i = 0; i < 20; i++) postCode(trace(), email, "123456").andExpect(status().isUnauthorized());
+        // spread over three accounts, so the per-email limit (10) is not what stops the guesses
+        List<String> emails = List.of(TestData.uniqueEmail("guesser.one"), TestData.uniqueEmail("guesser.two"), email);
+        for (int i = 0; i < 20; i++) postCode(trace(), emails.get(i % 3), "123456").andExpect(status().isUnauthorized());
         AuditTrace limitedTrace = trace();
         postCode(limitedTrace, email, "123456").andExpect(status().isTooManyRequests());
         assertThat(limitedTrace.entry("auth.rate_limited")).containsEntry("reason", "failed_sign_ins_per_ip");

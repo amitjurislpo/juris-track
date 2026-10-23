@@ -18,6 +18,10 @@ public interface WorkdayRepository extends JpaRepository<Workday, UUID> {
 
     Optional<Workday> findByEmployeeIdAndWorkDate(UUID employeeId, LocalDate workDate);
 
+    /** The employees of the business who have an open workday (WORKING or ON_BREAK). */
+    @Query("SELECT workday.employeeId FROM Workday workday WHERE workday.businessId = :businessId AND workday.activeEmployeeId IS NOT NULL")
+    List<UUID> findEmployeeIdsWithOpenWorkday(@Param("businessId") UUID businessId);
+
     /** The employee's workdays dated {@code from} to {@code to} (both included). */
     List<Workday> findByEmployeeIdAndWorkDateBetween(UUID employeeId, LocalDate from, LocalDate to);
 

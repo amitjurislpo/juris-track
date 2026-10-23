@@ -125,7 +125,7 @@ public class AuditLogService {
      * Every entry of the filter (sorted like the list, paging ignored) as CSV, at most {@value #MAXIMUM_EXPORT_ROWS} rows (422
      * {@code EXPORT_TOO_LARGE} beyond). The export itself is audited ({@code audit.exported}) with the filters and the row count.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public CsvFile export(CurrentUser viewer, Map<String, String> queryParameters) {
         Map<String, String> parameters = withDefaultSortDirection(queryParameters);
         InputValidator validator = new InputValidator();
@@ -141,7 +141,7 @@ public class AuditLogService {
         Map<String, Object> details = new LinkedHashMap<>();
         for (String parameter : FILTER_PARAMETERS) if (queryParameters.containsKey(parameter)) details.put(parameter, queryParameters.get(parameter));
         details.put("rowCount", entries.size());
-        auditService.recordIndependently(new AuditEntry(null, viewer.userId(), null, AuditAction.AUDIT_LOG_EXPORTED, "audit_log", null, null, details, null));
+        auditService.record(new AuditEntry(null, viewer.userId(), null, AuditAction.AUDIT_LOG_EXPORTED, "audit_log", null, null, details, null));
 
         StringBuilder csv = new StringBuilder("﻿");
         appendCsvLine(csv, CSV_HEADER);

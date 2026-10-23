@@ -29,6 +29,11 @@ public class EnvironmentGuard {
 
     @PostConstruct
     void refuseUnsafeConfiguration() {
+        // there is no default profile: a start without one would otherwise be taken for dev
+        if (environment.getProperty("juristrack.env", "").isBlank()) {
+            throw new IllegalStateException("No environment is active: start with SPRING_PROFILES_ACTIVE=" + String.join("|", ENVIRONMENTS)
+                    + " (there is no default profile, so a forgotten setting can never run with the dev shortcuts)");
+        }
         List<String> problems = findProblems(environment::getProperty);
         if (!problems.isEmpty()) {
             throw new IllegalStateException("Unsafe configuration for juristrack.env=" + environment.getProperty("juristrack.env", "dev")
@@ -44,7 +49,20 @@ public class EnvironmentGuard {
             problems.add("juristrack.env must be one of " + ENVIRONMENTS + ", not \"" + environmentName + "\"");
             return problems;
         }
-        if ("dev".equals(environmentName)) return problems;
+        if ("dev".equals(environmentName)) {
+            // whatever juristrack.env says: dev's fixed sign-in code and public secrets are for a machine of its own only
+            if (!valueOrDefault(property.apply("juristrack.otp.fixed-code"), "").isBlank()) {
+                String databaseUrl = valueOrDefault(property.apply("spring.datasource.url"), "");
+                if (!databaseUrl.isEmpty() && !isLocal(databaseUrl)) {
+                    problems.add("spring.datasource.url is not on this machine: the fixed sign-in code (dev) is refused against a shared database");
+                }
+                String appUrl = valueOrDefault(property.apply("juristrack.app-url"), "");
+                if (!appUrl.isEmpty() && !isLocal(appUrl)) {
+                    problems.add("juristrack.app-url is not localhost: the fixed sign-in code (dev) is refused for a public address");
+                }
+            }
+            return problems;
+        }
         if (!valueOrDefault(property.apply("juristrack.otp.fixed-code"), "").isBlank()) {
             problems.add("juristrack.otp.fixed-code must be empty (a fixed sign-in code is for dev only)");
         }
@@ -76,6 +94,11 @@ public class EnvironmentGuard {
             if (value.isBlank() || value.contains("<")) problems.add(secretName + " is not set (still a placeholder or empty)");
         }
         return problems;
+    }
+
+    /** A URL whose host is this machine or a docker-compose service next to it: {@code localhost}, {@code 127.0.0.1}, {@code [::1]} or a name without dots ({@code db}). */
+    private static boolean isLocal(String url) {
+        return url.matches("(?i)^[a-z0-9+.:-]*//(localhost|127\\.0\\.0\\.1|\\[::1]|[a-z0-9_-]+)([:/?].*)?$");
     }
 
     private static String valueOrDefault(String value, String fallback) {

@@ -18,6 +18,7 @@ import com.jurislpo.juristrack.entity.WorkSession;
 import com.jurislpo.juristrack.entity.Workday;
 import com.jurislpo.juristrack.entity.WorkdayStatus;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.repository.BreakSessionRepository;
 import com.jurislpo.juristrack.repository.BusinessRepository;
 import com.jurislpo.juristrack.repository.WorkSessionRepository;
@@ -36,6 +37,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -65,8 +67,12 @@ public class WorkdayHistoryService {
     public record WorkdayRow(UUID id, LocalDate date, TrackingStatus status, @JsonProperty("isStale") boolean isStale, Instant startedAt,
             Instant endedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount) {}
 
-    /** The sums over every workday of the range (all pages). */
-    public record WorkdayTotalsSummary(int workdays, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount) {}
+    /**
+     * The sums over every workday of the range (all pages). {@code averageProductiveSeconds}: productive seconds per workday of the range,
+     * rounded half up, 0 without workdays (the one definition of the reports too).
+     */
+    public record WorkdayTotalsSummary(int workdays, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount,
+            long averageProductiveSeconds) {}
 
     /** One day of the chart; every date of the range is present (zero-filled). */
     public record DailyPoint(LocalDate date, long productiveSeconds, long breakSeconds, int workdays) {}
@@ -128,7 +134,7 @@ public class WorkdayHistoryService {
      * default {@code date}), {@code sortDirection} (default {@code desc} here: newest first), {@code page}, {@code pageSize}.
      * 400 for an unknown range, a malformed date or a bad list parameter.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public WorkdayHistory listOwnWorkdays(CurrentUser currentUser, Map<String, String> queryParameters) {
         return listWorkdays(currentUser.userId(), currentUser.businessId(), queryParameters);
     }
@@ -174,12 +180,12 @@ public class WorkdayHistoryService {
      * see ({@link TeamAccessPolicy}; audited as access). 404 for anybody else's and for another business's, so existence is not
      * revealed. Not read-only: reading somebody else's workday writes its access audit entry.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public WorkdaySnapshot findWorkday(CurrentUser currentUser, UUID workdayId) {
         Workday workday = workdayRepository.findById(workdayId).filter(day -> day.getBusinessId().equals(currentUser.businessId()))
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+                .orElseThrow(() -> new OutOfScopeException("workday", NOT_FOUND));
         if (!workday.getEmployeeId().equals(currentUser.userId())) {
-            if (!teamAccessPolicy.canView(currentUser, workday.getEmployeeId())) throw new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND);
+            if (!teamAccessPolicy.canView(currentUser, workday.getEmployeeId())) throw new OutOfScopeException("workday", NOT_FOUND);
             teamAccessAudit.recordWorkdayViewed(currentUser, workday.getEmployeeId(), workday.getId(), workday.getWorkDate());
         }
         return workdaySnapshots.snapshotOf(workday, now(), loadBusiness(currentUser.businessId()).getStaleWorkdayHours());
@@ -218,7 +224,12 @@ public class WorkdayHistoryService {
     static WorkdayTotalsSummary totalsOf(List<WorkdayRow> rows) {
         return new WorkdayTotalsSummary(rows.size(), rows.stream().mapToLong(WorkdayRow::productiveSeconds).sum(),
                 rows.stream().mapToLong(WorkdayRow::breakSeconds).sum(), rows.stream().mapToLong(WorkdayRow::spanSeconds).sum(),
-                rows.stream().mapToInt(WorkdayRow::breakCount).sum());
+                rows.stream().mapToInt(WorkdayRow::breakCount).sum(), averageOf(rows.stream().mapToLong(WorkdayRow::productiveSeconds).sum(), rows.size()));
+    }
+
+    /** Seconds per workday rounded half up (like JavaScript's {@code Math.round}); 0 without workdays. */
+    static long averageOf(long seconds, int workdays) {
+        return workdays == 0 ? 0 : Math.round((double) seconds / workdays);
     }
 
     /** One point per calendar day from {@code from} to {@code to}, zero-filled. */

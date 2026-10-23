@@ -11,6 +11,7 @@ import com.jurislpo.juristrack.SignIn;
 import com.jurislpo.juristrack.TestData;
 import com.jurislpo.juristrack.service.AuthService;
 import com.jurislpo.juristrack.service.RateLimiter;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -149,9 +150,10 @@ class OtpSignInTest extends IntegrationTest {
 
     @Test
     void manyWrongCodesFromOneIpAddressAreRateLimited() throws Exception {
-        String email = newEmployee();
-        for (int i = 0; i < 20; i++) SignIn.postCode(mockMvc, email, "123456", true).andExpect(status().isUnauthorized());
-        SignIn.postCode(mockMvc, email, "123456", true).andExpect(status().isTooManyRequests())
+        // three accounts, so the per-email limit (10) is not what stops the guesses
+        List<String> emails = List.of(newEmployee(), newEmployee(), newEmployee());
+        for (int i = 0; i < 20; i++) SignIn.postCode(mockMvc, emails.get(i % 3), "123456", true).andExpect(status().isUnauthorized());
+        SignIn.postCode(mockMvc, emails.get(2), "123456", true).andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.detail").value(AuthService.TOO_MANY_FAILED_SIGN_INS));
     }
 
@@ -172,5 +174,35 @@ class OtpSignInTest extends IntegrationTest {
         SignIn.requestCode(mockMvc, email).andExpect(status().isOk());
         SignIn.postCode(mockMvc, email, SignIn.CODE, true).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.role").value("SUPER_ADMIN")).andExpect(jsonPath("$.data.businessName").isEmpty());
+    }
+
+    @Test
+    void manyWrongCodesForOneAccountAreRateLimitedWhateverTheIpAddress() throws Exception {
+        String email = newEmployee();
+        // ten guesses, each from another address (the header is believed: the connection comes from a trusted proxy)
+        for (int i = 0; i < 10; i++) {
+            mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).header("X-Forwarded-For", "198.51.100." + (10 + i))
+                    .content("{\"email\":\"" + email + "\",\"otp\":\"123456\"}")).andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).header("X-Forwarded-For", "198.51.100.99")
+                .content("{\"email\":\"" + email + "\",\"otp\":\"123456\"}")).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void aCallerThatIsNotATrustedProxyCannotChooseItsIpAddress() throws Exception {
+        // 20 wrong codes, each claiming another address in X-Forwarded-For, from one connection that is not a proxy: still one IP address
+        List<String> emails = List.of(newEmployee(), newEmployee(), newEmployee());
+        for (int i = 0; i < 20; i++) {
+            mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).with(request -> {
+                        request.setRemoteAddr("203.0.113.77");
+                        return request;
+                    }).header("X-Forwarded-For", "192.0.2." + (1 + i))
+                    .content("{\"email\":\"" + emails.get(i % 3) + "\",\"otp\":\"123456\"}")).andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).with(request -> {
+                    request.setRemoteAddr("203.0.113.77");
+                    return request;
+                }).header("X-Forwarded-For", "192.0.2.200")
+                .content("{\"email\":\"" + emails.get(0) + "\",\"otp\":\"123456\"}")).andExpect(status().isTooManyRequests());
     }
 }

@@ -48,6 +48,7 @@ public class AuthService {
     static final String CODE_REQUESTS_PER_IP_LIMIT = "code_requests_per_ip";
     static final String CODE_REQUESTS_PER_EMAIL_LIMIT = "code_requests_per_email";
     static final String FAILED_SIGN_INS_PER_IP_LIMIT = "failed_sign_ins_per_ip";
+    static final String FAILED_SIGN_INS_PER_EMAIL_LIMIT = "failed_sign_ins_per_email";
 
     /** A successful sign-in: the session (with its cookies) and who signed in. */
     public record SignInResult(IssuedSession session, CurrentUser user) {}
@@ -97,9 +98,16 @@ public class AuthService {
             details.put("email", AuditService.maskEmail(email));
             if (refusal != null) details.put("reason", refusal);
             if (refusal == null) otpService.issue(email, user.getFirstName(), requestMetadata.ipAddress());
-            auditService.record(new AuditEntry(user != null ? user.getBusinessId() : null, null, user != null ? user.getId() : null,
+            AuditEntry entry = new AuditEntry(user != null ? user.getBusinessId() : null, null, user != null ? user.getId() : null,
                     AuditAction.SIGN_IN_CODE_REQUESTED, SESSION_ENTITY, null, null, details, refusal,
-                    refusal == null ? AuditOutcome.SUCCESS : AuditOutcome.DENIED));
+                    refusal == null ? AuditOutcome.SUCCESS : AuditOutcome.DENIED);
+            if (refusal == null) {
+                auditService.record(entry);
+            } else {
+                // a refused request (unknown or inactive account) is the one anybody can repeat for free: once per address, IP and window
+                details.put("aggregationWindowMinutes", AuditAggregation.WINDOW.toMinutes());
+                auditService.recordOncePerWindow(email + "|" + ipAddress, entry);
+            }
         });
         return CODE_REQUESTED;
     }
@@ -114,9 +122,17 @@ public class AuthService {
         String code = rawCode == null ? "" : rawCode.trim();
         if (!CODE_PATTERN.matcher(code).matches()) throw new ApiException(HttpStatus.BAD_REQUEST, CODE_INVALID);
         String ipAddress = requestMetadata.ipAddress() != null ? requestMetadata.ipAddress() : "unknown";
-        String failedSignInKey = "sign-in-ip:" + ipAddress;
-        if (rateLimiter.check(failedSignInKey, settings.failedSignInsPerIp()).isLimited()) {
+        // every attempt is counted before the code is looked at (check and count are one step, so a parallel burst cannot slip past the
+        // limit) and given back when the sign-in succeeds: only failures use up the limits, per IP address and per account
+        String failedSignInIpKey = "sign-in-ip:" + ipAddress;
+        String failedSignInEmailKey = "sign-in-email:" + email;
+        if (rateLimiter.checkAndHit(failedSignInIpKey, settings.failedSignInsPerIp(), windowMillis()).isLimited()) {
             recordRateLimit(FAILED_SIGN_INS_PER_IP_LIMIT, ipAddress, email, settings.failedSignInsPerIp());
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, TOO_MANY_FAILED_SIGN_INS);
+        }
+        if (rateLimiter.checkAndHit(failedSignInEmailKey, settings.failedSignInsPerEmail(), windowMillis()).isLimited()) {
+            rateLimiter.release(failedSignInIpKey);
+            recordRateLimit(FAILED_SIGN_INS_PER_EMAIL_LIMIT, email, email, settings.failedSignInsPerEmail());
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, TOO_MANY_FAILED_SIGN_INS);
         }
         return TenantContext.call(null, () -> {
@@ -125,7 +141,6 @@ public class AuthService {
             String accountRefusal = refusalReason(user);
             String refusal = accountRefusal != null ? accountRefusal : codeRefusalReason(codeCheck);
             if (refusal != null) {
-                rateLimiter.hit(failedSignInKey, windowMillis());
                 Map<String, Object> details = new LinkedHashMap<>();
                 details.put("email", AuditService.maskEmail(email));
                 details.put("reason", refusal);
@@ -138,6 +153,8 @@ public class AuthService {
                 }
                 throw new ApiException(HttpStatus.UNAUTHORIZED, WRONG_CODE);
             }
+            rateLimiter.release(failedSignInIpKey);
+            rateLimiter.release(failedSignInEmailKey);
             return transactionTemplate.execute(transactionStatus -> {
                 User signingInUser = userRepository.findById(user.getId()).orElseThrow();
                 signingInUser.setLastLoginAt(Instant.now().truncatedTo(ChronoUnit.MICROS));

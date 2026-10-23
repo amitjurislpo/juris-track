@@ -41,6 +41,9 @@ curl http://localhost:8082/actuator/health    # {"status":"UP",...}
 
 One-shot commands: `./mvnw spring-boot:run -Dspring-boot.run.arguments=<command>` with `migrate`, `seed` or `reset`
 (`reset` empties the database and refuses unless `juristrack.app-url` is localhost or `juristrack.allow-database-reset=true`).
+There is **no default Spring profile**: `spring-boot:run` runs as `dev` (set in the Maven plugin), but a packaged jar (`java -jar`, Docker, a server) must be started
+with `SPRING_PROFILES_ACTIVE=dev|sqe|uat|prd`, else it refuses to start, so a forgotten setting can never run with the dev shortcuts (fixed code `000000`, public secrets).
+In sqe, uat and prd set `TRUSTED_PROXIES` to the web server / gateway address: only a request from there may name the client in `X-Forwarded-For`.
 The API in Docker too: `docker compose up -d --build backend`. Backups: `scripts/backup.sh` / `scripts/restore.sh` (keep 14 days).
 
 ## Working on it

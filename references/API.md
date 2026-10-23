@@ -16,9 +16,11 @@ sync with the code: an endpoint, parameter or field is added, renamed or removed
 - **Common codes**: 400 `VALIDATION_FAILED` (also malformed JSON, a malformed id in the path or a wrong type), 401 `UNAUTHENTICATED` / `TOKEN_EXPIRED`
   (refresh the session and retry), 403 `FORBIDDEN` (signed in, wrong role), 403 `BUSINESS_SUSPENDED` (the user's business is suspended; signing out still
   works), 403 `CROSS_SITE_BLOCKED`, 404 `NOT_FOUND` (also a record of another business), 409 `CONFLICT` (a duplicate the specific codes below do not
-  cover), 422 business rule (specific codes below), 429 `RATE_LIMITED`, 500 `INTERNAL_ERROR`.
+  cover), 413 `PAYLOAD_TOO_LARGE` (a request body above 64 KB, refused before it is read), 422 business rule (specific codes below), 429 `RATE_LIMITED`,
+  500 `INTERNAL_ERROR`.
 - **Time codes**: 409 `WORKDAY_NOT_STARTED`, `NOT_ON_BREAK`, `BREAK_IN_PROGRESS` (time events); 403 `CANNOT_CORRECT_OWN_TIME`; 422
-  `TIME_INTERVAL_OVERLAP`, `INTERVAL_STILL_RUNNING`, `WORKDAY_MUST_START_WITH_WORK` (corrections); 422 `EXPORT_TOO_LARGE` (exports); 500
+  `TIME_INTERVAL_OVERLAP`, `INTERVAL_STILL_RUNNING`, `WORKDAY_MUST_START_WITH_WORK`, `CORRECTION_OUT_OF_RANGE`, `WORKDAY_OVERLAP` (corrections); 422
+  `EXPORT_TOO_LARGE` (exports); 500
   `TIME_RECORD_INCONSISTENT`.
 - **Types**: ids are UUID strings; timestamps are ISO-8601 UTC strings (`2026-10-22T09:30:00.123456Z`); time zones are IANA ids; roles are `SUPER_ADMIN`,
   `ADMIN` (the business owner), `MANAGER`, `EMPLOYEE`.
@@ -49,6 +51,8 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 | GET | `/api/businesses/{businessId}` | SUPER_ADMIN | One business |
 | PATCH | `/api/businesses/{businessId}` | SUPER_ADMIN | Change a business's settings |
 | PUT | `/api/businesses/{businessId}/status` | SUPER_ADMIN | Suspend / reactivate |
+| PUT | `/api/businesses/{businessId}/jurisone-link` | SUPER_ADMIN | Link a standalone business to its JurisOne business |
+| DELETE | `/api/businesses/{businessId}/jurisone-link` | SUPER_ADMIN | Remove that link |
 | GET | `/api/business` | ADMIN | The owner's business settings |
 | PATCH | `/api/business` | ADMIN | Change the owner's business settings |
 | GET | `/api/employees` | ADMIN | List the business's people |
@@ -76,18 +80,22 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 ### POST /api/auth/otp-requests
 Body `{ email: string }`. Always 200 `{ ok, message: "If that account exists and is active, a 6-digit code is on its way to the email." }`; no code is sent
 to an unknown or deactivated account or to a user of a suspended business. 400 missing/invalid email; 429 too many requests (per IP and per email).
+The IP address is the connection's, or, behind a trusted proxy (`juristrack.security.trusted-proxies`, default loopback only), the client it forwarded in
+`X-Forwarded-For` (the right-most hop that is not a proxy): a caller cannot choose its own address by writing the header.
 Audit: `auth.sign_in_code_requested`, SUCCESS when a code was sent, DENIED with the reason (`unknown_email`, `inactive`, `business_suspended`) otherwise
-(the answer is the same); a 429 writes `auth.rate_limited` once per limit, key and window.
+(the answer is the same; a DENIED entry is written once per address, IP and window); a 429 writes `auth.rate_limited` once per limit, key and window.
 
 ### POST /api/auth/sessions
 Body `{ email: string, otp: string (6 digits), remember?: boolean }` (`remember` = keep me signed in). 201 with the `jt_at` / `jt_rt` cookies and
 `data = { id, firstName, lastName, email, role, businessName }` (`businessName` null for the SUPER_ADMIN). 400 malformed code; 401 wrong, expired or used
-code, unknown or deactivated account, or suspended business (always the same message); 429 after too many failures from one IP.
+code, unknown or deactivated account, or suspended business (always the same message); 429 after too many failures from one IP address (20 per window) or
+for one account (10 per window, from whatever address); only failed attempts count.
 Audit: `auth.signed_in`; a refusal writes `auth.sign_in_failed` with the reason (`wrong_code`, `expired_or_used_code`, `code_burnt`, `unknown_email`,
 `inactive`, `business_suspended`), the wrong try that uses up a code's 5 tries also `auth.sign_in_code_burnt`; a 429 writes `auth.rate_limited` (once per window).
 
 ### POST /api/auth/session-refreshes
-No body; uses the `jt_rt` cookie. 201 with new cookies. 401 (cookies cleared) when the session ended, expired, the user was deactivated or the refresh
+No body; uses the `jt_rt` cookie. 201 with new cookies. A token used again within `refresh-reuse-grace-seconds` (two requests of one browser at once) gets
+a new `jt_at` only, no second `jt_rt` (so a copied token cannot start a parallel chain). 401 (cookies cleared) when the session ended, expired, the user was deactivated or the refresh
 token was used twice. Audit: a successful refresh is not audited (every few minutes); a reused token writes `auth.session_revoked_refresh_reuse`, any
 other refusal `auth.session_refresh_failed` (reason `unknown`, `revoked`, `expired`, `inactive`; once per reason, IP address, user and window); a
 request without the cookie writes nothing.
@@ -139,7 +147,24 @@ zone), 404. Audit: `business.updated` (only when something changed).
 Body `{ isSuspended: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Business suspended." | "Business is active.", data: <detail> }`.
 While suspended the business's users get no sign-in codes, cannot sign in, and every request of theirs with an existing session (or JurisOne token) answers
 403 `BUSINESS_SUSPENDED`; sessions are not ended, so they work again after reactivation. 400 (`isSuspended`, `reason`), 404.
+**Suspending closes every open workday of the business** at that moment (nobody can end or correct a day while suspended, so the suspension must not
+count as work time): the open work or break interval ends, the day is `DAY_ENDED` with recomputed totals, one `workday.closed` entry per person (reason
+`business_suspended`, actor = the super admin). Reactivating reopens nothing.
 Audit: `business.suspended` / `business.reactivated` with the reason.
+
+### PUT /api/businesses/{businessId}/jurisone-link
+Body `{ jurisoneBusinessId: uuid (required) }`. Links a **standalone** business to its business in JurisOne: from then on the JurisOne tokens of that
+business resolve to it and its people are linked by email on their first token (a token never takes the ADMIN role away from an owner). This is the only
+way an existing business is linked: a JurisOne token never adopts a business by email (that would let any owner plant an email and take over a company).
+200 `{ ok, message: "Business linked to JurisOne.", data: <as GET /api/businesses/{businessId}> }` (`isLinkedToJurisone: true`); the same link again changes
+nothing and writes no entry. Errors: 400 (`jurisoneBusinessId` missing or not a UUID), 404, 409 `BUSINESS_ALREADY_LINKED` (linked to another JurisOne
+business: remove the link first), 409 `JURISONE_BUSINESS_IN_USE` (another business has that JurisOne id; a JurisOne business that already got a
+business of its own by a token is in this state). Audit: `integration.business_linked` (category `integration`, in the business's log, `after.jurisoneBusinessId`).
+
+### DELETE /api/businesses/{businessId}/jurisone-link
+No body. Removes the link; the business stays a standalone one and its people keep their accounts (their JurisOne employee ids stay recorded). 200
+`{ ok, message: "Business unlinked from JurisOne.", data: <detail> }` (`isLinkedToJurisone: false`); a business that is not linked is left as it is
+(nothing written). 404. Audit: `integration.business_unlinked` (`before.jurisoneBusinessId`).
 
 ## Business settings (owner)
 
@@ -215,8 +240,11 @@ activeWorkStartedAt | null, activeBreakStartedAt | null, productiveSeconds, brea
 lastActivity: { type: "STARTED_WORK" | "STARTED_BREAK" | "RESUMED_WORK" | "ENDED_DAY", at }, segments: [{ id, type: "WORK" | "BREAK", startedAt, endedAt | null }] }`.
 `productiveSeconds` / `breakSeconds` include the running interval up to `serverTime`; a client keeps a timer running with
 `closedProductiveSeconds + (now - activeWorkStartedAt)` and `closedBreakSeconds + (now - activeBreakStartedAt)`. `spanSeconds` = start of the day to its end
-(or now). `breakCount` counts the running break too. `isStale` ("not ended") = the day is still open and `spanSeconds` is more than the business's
-`staleWorkdayHours` (computed when read). `segments` are oldest first.
+(or now). `breakCount` counts the running break too. `isStale` ("not ended") = the day is still open and its last uninterrupted stretch (from the start, or from
+the last time it was started again after the day had ended) is more than the business's
+`staleWorkdayHours` (computed when read), so a day reopened late in the evening is not "not ended" because of the morning. `segments` are oldest first.
+**Precision**: events are stamped to the millisecond (what a browser keeps), never before the latest instant already recorded for the person (a clock that
+steps back, or an instance whose clock runs behind, cannot put an interval before the previous one: the event is stamped at that latest instant).
 
 ### GET /api/me/time
 `data = { employeeId, serverTime, today, businessTimeZone, staleWorkdayHours, displayTimeZones: string[], status: "NOT_STARTED" | "WORKING" | "ON_BREAK" |
@@ -235,7 +263,8 @@ Body `{ type: "START" | "BREAK" | "RESUME" | "END" }` (any case). Answer `data =
 
 `workdayId` = the workday the event applied to (for a repeat the current one, null when there is none); after a night shift ends past midnight it is the
 ended day while `state.workday` is null. Requests of one person are serialized (row lock on the user), so parallel requests never create a second
-workday or a second open interval; exactly one of them answers 201.
+workday or a second open interval; exactly one of them answers 201. A collision on one of those keys that no concurrent request explains (every writer holds the
+person's lock) means inconsistent records and is a 500 `TIME_RECORD_INCONSISTENT`, never an `alreadyApplied` repeat.
 Errors: 400 `VALIDATION_FAILED` (field `type`: missing or unknown); 409 `WORKDAY_NOT_STARTED` (`BREAK` or `END` before the day started: "Start your
 workday before taking a break." / "You have not started a workday."; also `BREAK` after the day ended); 409 `NOT_ON_BREAK` (`RESUME` without a break:
 "You are not on a break."); 409 `BREAK_IN_PROGRESS` (`END` while on a break: "You are on a break. Select Back to Work before ending your workday.");
@@ -254,7 +283,8 @@ earlier `from` is moved up); `sort` = `date` (default) | `startedAt` | `endedAt`
 `data = { rows, total, page, pageSize, range, from, to, totals, dailySeries }`:
 - row `{ id, date, status, isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount }` (an open day's figures run to
   `now`; an ended day's come from the totals stored when it ended);
-- `totals = { workdays, productiveSeconds, breakSeconds, spanSeconds, breakCount }` over the whole range (every page);
+- `totals = { workdays, productiveSeconds, breakSeconds, spanSeconds, breakCount, averageProductiveSeconds }` over the whole range (every page);
+  `averageProductiveSeconds` = productive seconds per workday of the range, rounded half up, 0 without workdays (see "Averages");
 - `dailySeries = [{ date, productiveSeconds, breakSeconds, workdays }]`, one point for every date from `from` to `to` (zero when nothing was recorded).
 
 ### GET /api/workdays/{workdayId}
@@ -332,12 +362,19 @@ interval). Rules:
 - **Reason**: `reason` is mandatory, 5 to 500 characters after trimming (400 field `reason`: "Give a reason of at least 5 characters.").
 - **Times** are ISO-8601 instants with `Z` or an offset (`2026-10-22T09:30:00Z`, `2026-10-22T15:00:00+05:30`), stored in UTC; a time without an
   offset or anything else is 400 ("Send the time as an ISO-8601 instant, for example 2026-10-22T09:30:00Z.").
+- Times have the **millisecond** precision a browser keeps: a time sent back exactly as it was read (older records may carry microseconds) is no change
+  and does not write a "Time corrected" entry; the last-activity end offered by a client is accepted.
 - No time may lie in the future (400 "Times cannot be in the future."); an interval must end **after** it starts (400 field `endedAt`: "The end time
   must be after the start time.").
 - The intervals of a workday never overlap, work with work, break with break **and** work with break (422 `TIME_INTERVAL_OVERLAP`: "The corrected
   interval overlaps another work or break interval."); a running interval lasts until now, so only the latest interval may run. Intervals that only
   touch (one ends when the next starts) do not overlap.
 - The first interval of a workday is a work interval (422 `WORKDAY_MUST_START_WITH_WORK`), so every break lies inside the day.
+- **Window**: a corrected time (and the end of a closed workday) must lie from the start of the workday's date to the end of the **next** date, in the zone
+  the workday was started in (a night shift may run into the next morning), and the first interval must start on the date itself; else 422
+  `CORRECTION_OUT_OF_RANGE`. A year typed wrong, or year 1, can no longer add years of work or move hours into another day.
+- **Other workdays**: the corrected workday (its first start to its last end, or to now while it runs) must not overlap another workday of the same person
+  (422 `WORKDAY_OVERLAP`: the same hours would count twice in the reports); touching is fine.
 - A running interval keeps running: only its start moves (`endedAt` left out or `null`); a value for `endedAt` is 422 `INTERVAL_STILL_RUNNING`
   ("This interval is still running. Close the workday instead of setting an end time."). A closed interval stays closed (`endedAt: null` is 400
   "An end time is required.").
@@ -364,7 +401,9 @@ breakSeconds, spanSeconds, breakCount } }` (an open day's totals as of the corre
 ### PUT /api/workdays/{workdayId}/status
 Body: `{ status: "DAY_ENDED" (any case; nothing else can be set, 400 field status), endedAt?: string, reason: string }`. Ends an open workday,
 typically a forgotten (stale) one: the running work or break interval ends at `endedAt` and the day becomes `DAY_ENDED` with recomputed totals.
-Without `endedAt` the end is **now** while an interval is running (the old app's rule), otherwise the end of the last interval. `endedAt` may not be in
+Without `endedAt` the end is **now** while an interval is running (the old app's rule), otherwise the end of the last interval; either way it must lie in the
+workday's window (see Window above): a day forgotten for days is closed with an `endedAt` on its own date or the next (else 422 `CORRECTION_OUT_OF_RANGE`).
+`endedAt` may not be in
 the future nor before the last recorded activity (the start of the running interval or the end of any interval): 400 field `endedAt` ("The end time
 cannot be before the last recorded activity."). Any open workday can be ended, stale or not.
 200 `{ ok, message: "Workday ended.", data: <workday> }`. Idempotent: a workday that has already ended is left as it is, answered 200 with
@@ -438,7 +477,8 @@ A report filtered on the caller themselves (`employeeId` = own id, owner only) i
 ### Averages
 - Board `metrics.averageProductiveSeconds` = `totalProductiveSeconds` divided by the people who started today (working, on a break or day ended),
   rounded down; 0 when nobody started.
-- Report `totals.averageProductiveSeconds` and a summary row's `averageProductiveSeconds` = productive seconds per workday, rounded half up; 0 without
+- Report `totals.averageProductiveSeconds`, a summary row's `averageProductiveSeconds` and the history's `totals.averageProductiveSeconds` (`GET /api/workdays/mine`,
+  `GET /api/team/members/{employeeId}/workdays`) = productive seconds per workday of the range, rounded half up; 0 without
   workdays.
 
 ## Audit log
@@ -449,8 +489,8 @@ A complete, append-only record of every movement (owner decision, `MIGRATION_PLA
 for unknown emails, refused tokens), `actor` (who did it; `actorRole` = their role at that moment), `subject` (whom it is about), `action`, `category`
 (`auth`, `people`, `business`, `time`, `security`, `access`, `integration`, `audit`), `outcome` (`SUCCESS`; `DENIED` = refused for a rule, a role or a
 security reason; `FAILED` = allowed but went wrong), `entityType` / `entityId`, `before` / `after` (JSON), `reason`, and the request: `source`
-(`STANDALONE` cookie session or standalone sign-in, `INTEGRATION` JurisOne's Bearer token, `SYSTEM` no HTTP request), `ipAddress` (first
-`X-Forwarded-For` hop, else `X-Real-IP`, else the connection; the same as the rate limits), `userAgent` (at most 400 characters), `requestId`,
+(`STANDALONE` cookie session or standalone sign-in, `INTEGRATION` JurisOne's Bearer token, `SYSTEM` no HTTP request), `ipAddress` (the connection's address, or,
+behind a trusted proxy, the client it forwarded in `X-Forwarded-For`; the same as the rate limits, see `POST /api/auth/otp-requests`), `userAgent` (at most 400 characters), `requestId`,
 `httpMethod`, `requestPath` (never the query string).
 
 **Never stored**: sign-in codes, tokens, cookies, secrets. Values of JSON keys that name a password, token, secret, cookie, authorization or one-time code
@@ -468,11 +508,11 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 
 | Action | Category | Outcome | When |
 |---|---|---|---|
-| `auth.sign_in_code_requested` | auth | SUCCESS / DENIED | every code request; DENIED (reason `unknown_email`, `inactive`, `business_suspended`) when no code was sent |
+| `auth.sign_in_code_requested` | auth | SUCCESS / DENIED | a code was sent (every one); DENIED (reason `unknown_email`, `inactive`, `business_suspended`) when no code was sent: once per address, IP, window |
 | `auth.signed_in` | auth | SUCCESS | a session was created (`after.isRemembered`) |
 | `auth.sign_in_failed` | auth | DENIED | a refused sign-in; reason `wrong_code`, `expired_or_used_code`, `code_burnt`, `unknown_email`, `inactive`, `business_suspended` |
 | `auth.sign_in_code_burnt` | auth | DENIED | the wrong try that used up a code's tries |
-| `auth.rate_limited` | auth | DENIED | a sign-in rate limit hit (reason `code_requests_per_ip`, `code_requests_per_email`, `failed_sign_ins_per_ip`); once per limit, key, window |
+| `auth.rate_limited` | auth | DENIED | a sign-in rate limit hit (reason `code_requests_per_ip`, `code_requests_per_email`, `failed_sign_ins_per_ip`, `failed_sign_ins_per_email`); once per limit, key, window |
 | `auth.signed_out` | auth | SUCCESS | a session was ended by signing out |
 | `auth.session_revoked_refresh_reuse` | auth | DENIED | a refresh token was used twice: the session was ended |
 | `auth.session_refresh_failed` | auth | DENIED | a refused refresh (reason `unknown`, `revoked`, `expired`, `inactive`); once per reason, IP, user, window |
@@ -480,6 +520,7 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `security.suspended_business_request` | security | DENIED | a 403 `BUSINESS_SUSPENDED` (cookie or token); once per user and window |
 | `security.invalid_session_cookie` | security | DENIED | a forged or malformed access cookie (`invalid_token`) or one of an ended session (`unknown_session`, `session_ended`, `session_expired`, `user_inactive`); once per reason, IP, user, window |
 | `security.cross_site_request_blocked` | security | DENIED | a 403 `CROSS_SITE_BLOCKED`; once per IP, path and window |
+| `security.out_of_scope_access` | security | DENIED | a signed-in user asked, with a 404, for a person or workday outside their scope, in another business or unknown (team, workday, correction, report and employee endpoints); entity type `user` / `workday`, `after.recordType`, no subject (the probed id is not trusted), reason `NOT_FOUND`; once per user and window |
 | `access.employee_list_viewed` | access | SUCCESS | the owner listed the people (`after` = filters, `rowCount`, `total`) |
 | `access.employee_viewed` | access | SUCCESS | the owner opened another person's record |
 | `access.business_list_viewed` | access | SUCCESS | the super admin listed the businesses (platform log) |
@@ -492,28 +533,32 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `employee.change_refused` | people | DENIED | a 422 business rule refused a change (`MANAGER_CYCLE`, `LAST_ACTIVE_OWNER`, `CANNOT_DEACTIVATE_SELF`, `ROLE_NOT_ASSIGNABLE`, `MANAGER_*`, ...) |
 | `time.workday_started`, `time.workday_reopened`, `time.break_started`, `time.work_resumed`, `time.workday_ended` | time | SUCCESS | an applied time event |
 | `time.event_failed` | time | FAILED | a time event refused with 500 `TIME_RECORD_INCONSISTENT` |
-| `workday.closed` | time | SUCCESS | somebody else closed a workday because of a deactivation, with the reason |
+| `workday.closed` | time | SUCCESS | somebody else closed a workday because of a deactivation or a suspension of the business (reason `business_suspended`) |
 | `time.session_adjusted` | time | SUCCESS | a manager or the owner corrected a work or break interval (interval and workday totals before / after, the reason) |
 | `time.workday_closed` | time | SUCCESS | a manager or the owner ended somebody's open workday (`PUT /api/workdays/{workdayId}/status`), with the closed intervals |
-| `time.correction_refused` | time | DENIED | a 422 business rule refused a correction (`TIME_INTERVAL_OVERLAP`, `WORKDAY_MUST_START_WITH_WORK`, `INTERVAL_STILL_RUNNING`, ...) |
+| `time.correction_refused` | time | DENIED | a 422 business rule refused a correction (`TIME_INTERVAL_OVERLAP`, `WORKDAY_OVERLAP`, `CORRECTION_OUT_OF_RANGE`, `WORKDAY_MUST_START_WITH_WORK`, `INTERVAL_STILL_RUNNING`, ...) |
 | `access.team_member_viewed` | access | SUCCESS | a manager or the owner opened one person's live state |
 | `access.team_member_workdays_viewed` | access | SUCCESS | a manager or the owner opened one person's history (`after = { range, from, to }`) |
 | `access.workday_viewed` | access | SUCCESS | a manager or the owner opened somebody else's workday (`after.date`) |
 | `reports.viewed` | access | SUCCESS | a report was read (`after = { report, filters, rowCount }`), one per request |
 | `reports.exported` | access | SUCCESS | the workday report was downloaded as CSV (`after` adds `timeZone`, `fileName`) |
-| `integration.business_provisioned` / `integration.business_linked` | integration | SUCCESS | a JurisOne token created / linked a business |
+| `integration.business_provisioned` | integration | SUCCESS | a JurisOne token created a business (a token never links an existing one) |
+| `integration.business_linked` / `integration.business_unlinked` | integration | SUCCESS | the super admin linked / unlinked a business to JurisOne (`PUT` / `DELETE /api/businesses/{businessId}/jurisone-link`; `after` / `before.jurisoneBusinessId`) |
 | `integration.business_updated` | integration | SUCCESS | the token renamed a linked business |
 | `integration.user_provisioned` / `integration.user_linked` / `integration.user_updated` | integration | SUCCESS | a token created / linked / changed a user |
-| `integration.token_rejected` | integration | DENIED | a refused JurisOne token: reason code only (`bad_signature`, `expired`, `wrong_issuer`, `wrong_audience`, `malformed_token`, `missing_claim: <name>`, ...), never the token; once per reason, IP, window |
+| `integration.token_rejected` | integration | DENIED | a refused JurisOne token: reason code only (`bad_signature`, `expired`, `wrong_issuer`, `wrong_audience`, `malformed_token`, `missing_issue_time`, `lifetime_too_long`, `replayed_token`, `missing_claim: <name>`, ...), never the token; once per reason, IP, window |
 | `integration.user_refused` | integration | DENIED | a valid token whose person may not use JurisTrack (`user_deactivated`, `email_of_another_business`, `conflict`); once per reason, user, window |
 
 **Volume decisions**: one entry per write; reads of somebody else's data one entry per request (the Team tab's live board, which refreshes every few
 seconds, is not recorded; opening one person, their history or workday, and every report and export is); never audited: reading one's own data
 (`GET /api/me`, `/api/me/time` (polled), `/api/workdays/mine`, one's own workday, one's own employee record, `GET /api/business`), a successful session
-refresh, a 401 without a session or with an access token that merely ran out, validation errors and conflicts (400, 404, 409), viewing the audit log
+refresh, a 401 without a session or with an access token that merely ran out, validation errors and conflicts (400, 409), a 404 for a route or a record
+of one's own scope that does not exist (but a 404 for somebody else's person or workday is `security.out_of_scope_access`, once per window), viewing the audit log
 (only exports). High-volume security events (rate limits, refused refreshes, bad cookies, refused tokens, suspended-business requests, cross-site
 writes) are written at most once per key in each 15-minute window (in memory per API instance; `after.aggregationWindowMinutes`). Refusals and failures
-are written in a transaction of their own, so they stay although the request fails.
+are written in a transaction of their own, so they stay although the request fails. Reads of other people's data write their entry **in the read's own
+transaction** (one database connection per request; the data is never served without its entry). Entries that nobody signed in caused (sign-in attempts,
+refused tokens and cookies) are capped per IP address and window (`juristrack.audit.unauthenticated-entries-per-ip`, default 500): the log is append-only.
 
 ### GET /api/audit-logs
 ADMIN (their business) and SUPER_ADMIN (every entry); MANAGER and EMPLOYEE 403. Query: list parameters (`sort` = `createdAt` (default) | `action` |

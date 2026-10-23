@@ -1,12 +1,15 @@
 package com.jurislpo.juristrack.exception;
 
 import com.jurislpo.juristrack.security.CurrentUser;
+import com.jurislpo.juristrack.security.RequestBodyLimitFilter;
 import com.jurislpo.juristrack.service.AuditAction;
+import com.jurislpo.juristrack.service.AuditAggregation;
 import com.jurislpo.juristrack.service.AuditService;
 import com.jurislpo.juristrack.service.AuditService.AuditEntry;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.sql.SQLException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -53,6 +56,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ProblemDetail> handleApiException(ApiException e, HttpServletRequest request) {
         if (e.status() == HttpStatus.FORBIDDEN) recordAccessDenied(e.code());
+        if (e instanceof OutOfScopeException outOfScope) recordOutOfScopeAccess(outOfScope);
         return respond(Problems.of(e.status(), e.code(), e.getMessage(), request.getRequestURI()));
     }
 
@@ -62,6 +66,21 @@ public class ApiExceptionHandler {
         if (authentication == null || !(authentication.getPrincipal() instanceof CurrentUser currentUser)) return;
         auditService.recordIndependently(new AuditEntry(currentUser.businessId(), currentUser.userId(), null, AuditAction.ACCESS_DENIED, "request", null,
                 null, Map.of("code", code), code));
+    }
+
+    /**
+     * A signed-in user asked for a record outside their reach and got 404: recorded once per user and aggregation window, whatever the
+     * endpoint. Written here, after the request's transaction has ended, so it stays and needs no connection of the failed request.
+     * The probed id is not trusted as a subject; the kind of record is the entity type.
+     */
+    private void recordOutOfScopeAccess(OutOfScopeException e) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof CurrentUser currentUser)) return;
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("recordType", e.recordType());
+        details.put("aggregationWindowMinutes", AuditAggregation.WINDOW.toMinutes());
+        auditService.recordOncePerWindow(currentUser.userId().toString(), new AuditEntry(currentUser.businessId(), currentUser.userId(), null,
+                AuditAction.OUT_OF_SCOPE_ACCESS, e.recordType(), null, null, details, e.code()));
     }
 
     @ExceptionHandler(ValidationException.class)
@@ -104,6 +123,11 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
     ResponseEntity<ProblemDetail> handleUnreadableRequest(Exception e, HttpServletRequest request) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof RequestBodyLimitFilter.BodyTooLargeException) {
+                return respond(Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.PAYLOAD_TOO_LARGE, "The request is too large.", request.getRequestURI()));
+            }
+        }
         return respond(Problems.of(HttpStatus.BAD_REQUEST, INVALID, request.getRequestURI()));
     }
 

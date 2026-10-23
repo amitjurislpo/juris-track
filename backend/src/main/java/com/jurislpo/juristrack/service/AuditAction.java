@@ -31,6 +31,8 @@ public enum AuditAction {
     SUSPENDED_BUSINESS_REQUEST("security.suspended_business_request", AuditCategory.SECURITY, AuditOutcome.DENIED),
     /** A forged or malformed session cookie, or one of an ended session, was presented (at most one entry per reason, IP and window). */
     INVALID_SESSION_COOKIE("security.invalid_session_cookie", AuditCategory.SECURITY, AuditOutcome.DENIED),
+    /** 404: a signed-in user asked for somebody's record outside their scope, in another business, or with an unknown id (one entry per user and window). */
+    OUT_OF_SCOPE_ACCESS("security.out_of_scope_access", AuditCategory.SECURITY, AuditOutcome.DENIED),
     /** 403 CROSS_SITE_BLOCKED: a cookie write without the web app's Origin (at most one entry per IP and window). */
     CROSS_SITE_REQUEST_BLOCKED("security.cross_site_request_blocked", AuditCategory.SECURITY, AuditOutcome.DENIED),
 
@@ -51,8 +53,10 @@ public enum AuditAction {
     // ── embedded in JurisOne ──
     /** A business was created from a JurisOne token. */
     BUSINESS_PROVISIONED("integration.business_provisioned", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
-    /** An existing standalone business was linked to its JurisOne business. */
+    /** The super admin linked a standalone business to its JurisOne business ({@code PUT /api/businesses/{businessId}/jurisone-link}); a token never does. */
     BUSINESS_LINKED("integration.business_linked", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
+    /** The super admin removed a business's link to JurisOne ({@code DELETE /api/businesses/{businessId}/jurisone-link}); {@code before} holds the JurisOne id. */
+    BUSINESS_UNLINKED("integration.business_unlinked", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
     /** A linked business was renamed because the token carried JurisOne's new name. */
     BUSINESS_UPDATED_FROM_TOKEN("integration.business_updated", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
     /** A user was created from a JurisOne token. */

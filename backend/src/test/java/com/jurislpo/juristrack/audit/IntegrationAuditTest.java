@@ -120,13 +120,12 @@ class IntegrationAuditTest extends EmbeddedIntegrationTest {
         UUID standaloneBusinessId = testData.createBusiness("Taken Co " + UUID.randomUUID());
         String email = TestData.uniqueEmail("taken");
         UUID standaloneUserId = testData.createUser(standaloneBusinessId, "EMPLOYEE", email, null);
-        // the standalone business is linked by the first token, then the same email arrives from another JurisOne business
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(new Employee(UUID.randomUUID(), email, "Ravi Kumar",
-                jurisoneBusinessId, businessName, null, "EMPLOYEE")))).andExpect(status().isOk());
+        // the email belongs to a standalone business: a JurisOne token never adopts it (nor creates a business for it)
         AuditTrace trace = new AuditTrace(jdbcTemplate);
         mockMvc.perform(trace.on(get("/api/me")).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(new Employee(UUID.randomUUID(), email,
                 "Ravi Kumar", UUID.randomUUID(), "Elsewhere", null, "EMPLOYEE")))).andExpect(status().isForbidden());
         assertThat(trace.entry("integration.user_refused")).containsEntry("reason", "email_of_another_business").containsEntry("subject_id", standaloneUserId)
-                .containsEntry("business_id", standaloneBusinessId);
+                .containsEntry("business_id", standaloneBusinessId).containsEntry("outcome", "DENIED").containsEntry("source", "INTEGRATION");
+        assertThat(jdbcTemplate.queryForObject("SELECT jurisone_business_id FROM businesses WHERE id = ?", UUID.class, standaloneBusinessId)).isNull();
     }
 }

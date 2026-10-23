@@ -105,13 +105,18 @@ public class SessionService {
             sessionRepository.revoke(sessionId, REVOKED_FOR_INACTIVE_USER, now);
             throw new RefreshRefusedException(REFRESH_USER_INACTIVE, tokenSession.userId(), false);
         }
-        if (tokenSession.usedAt() == null) sessionRepository.markRefreshTokenUsed(tokenHash, now);
         sessionRepository.updateLastSeen(sessionId, now);
-        String nextRefreshToken = createRefreshToken(sessionId, tokenSession.sessionExpiresAt(), requestMetadata);
         Duration sessionLifetime = Duration.between(tokenSession.sessionCreatedAt(), tokenSession.sessionExpiresAt());
         boolean isRemembered = sessionLifetime.compareTo(Duration.ofHours(settings.shortSessionHours() + 1L)) > 0;
-        return new IssuedSession(sessionId, tokenSession.userId(), cookies(tokenSession.userId(), sessionId, nextRefreshToken,
-                isRemembered ? Duration.between(now, tokenSession.sessionExpiresAt()) : null));
+        Duration maxAge = isRemembered ? Duration.between(now, tokenSession.sessionExpiresAt()) : null;
+        if (tokenSession.usedAt() != null) {
+            // used moments ago (two requests of one browser at once): the first one got the successor. This one gets a new access token
+            // only, so a copied token replayed inside the grace cannot start a second refresh chain that would never be detected
+            return new IssuedSession(sessionId, tokenSession.userId(), List.of(accessCookie(tokenSession.userId(), sessionId, maxAge)));
+        }
+        sessionRepository.markRefreshTokenUsed(tokenHash, now);
+        String nextRefreshToken = createRefreshToken(sessionId, tokenSession.sessionExpiresAt(), requestMetadata);
+        return new IssuedSession(sessionId, tokenSession.userId(), cookies(tokenSession.userId(), sessionId, nextRefreshToken, maxAge));
     }
 
     /** Ends one session (sign-out). */
@@ -147,13 +152,15 @@ public class SessionService {
 
     /** {@code maxAge} null = browser-session cookies (no "keep me signed in"). */
     private List<ResponseCookie> cookies(UUID userId, String sessionId, String refreshToken, Duration maxAge) {
-        ResponseCookie.ResponseCookieBuilder accessCookie = cookie(ACCESS_COOKIE, accessTokenService.issue(userId, sessionId));
         ResponseCookie.ResponseCookieBuilder refreshCookie = cookie(REFRESH_COOKIE, refreshToken);
-        if (maxAge != null) {
-            accessCookie.maxAge(maxAge);
-            refreshCookie.maxAge(maxAge);
-        }
-        return List.of(accessCookie.build(), refreshCookie.build());
+        if (maxAge != null) refreshCookie.maxAge(maxAge);
+        return List.of(accessCookie(userId, sessionId, maxAge), refreshCookie.build());
+    }
+
+    private ResponseCookie accessCookie(UUID userId, String sessionId, Duration maxAge) {
+        ResponseCookie.ResponseCookieBuilder accessCookie = cookie(ACCESS_COOKIE, accessTokenService.issue(userId, sessionId));
+        if (maxAge != null) accessCookie.maxAge(maxAge);
+        return accessCookie.build();
     }
 
     private ResponseCookie.ResponseCookieBuilder cookie(String name, String value) {

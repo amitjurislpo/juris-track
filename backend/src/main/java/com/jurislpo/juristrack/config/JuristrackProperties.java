@@ -1,5 +1,6 @@
 package com.jurislpo.juristrack.config;
 
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -22,8 +23,8 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
     public JuristrackProperties {
         if (seed == null) seed = new Seed(null, false);
         if (integration == null) integration = new Integration(false, null, Integration.DEFAULT_AUDIENCE, null, Integration.DEFAULT_CLOCK_SKEW_SECONDS);
-        if (security == null) security = new Security(null, 0, 0, 0, false, -1);
-        if (otp == null) otp = new Otp(null, 0, 0, 0, 0, 0, 0);
+        if (security == null) security = new Security(null, 0, 0, 0, false, -1, null);
+        if (otp == null) otp = new Otp(null, 0, 0, 0, 0, 0, 0, 0);
         if (mail == null) mail = new Mail(null, 0, null, null, null);
     }
 
@@ -66,9 +67,12 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
      * @param shortSessionHours         lifetime of a session without it (the cookies then also end with the browser)
      * @param cookieSecure              send the cookies only over https (true wherever the app is served over https)
      * @param refreshReuseGraceSeconds  a refresh token used again within this many seconds is a parallel request, not a stolen copy
+     *                                  (it gets a new access token but no second refresh token)
+     * @param trustedProxies            the addresses (IP or CIDR) of the proxies in front of the API; only a request that comes from one of
+     *                                  them may name the client in {@code X-Forwarded-For} (default: loopback only)
      */
     public record Security(String jwtSecret, int accessTokenTtlSeconds, int sessionTtlDays, int shortSessionHours, boolean cookieSecure,
-            int refreshReuseGraceSeconds) {
+            int refreshReuseGraceSeconds, List<String> trustedProxies) {
 
         static final int DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 300;
         static final int DEFAULT_SESSION_TTL_DAYS = 30;
@@ -80,6 +84,7 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
             if (sessionTtlDays <= 0) sessionTtlDays = DEFAULT_SESSION_TTL_DAYS;
             if (shortSessionHours <= 0) shortSessionHours = DEFAULT_SHORT_SESSION_HOURS;
             if (refreshReuseGraceSeconds < 0) refreshReuseGraceSeconds = DEFAULT_REFRESH_REUSE_GRACE_SECONDS;
+            trustedProxies = trustedProxies == null || trustedProxies.isEmpty() ? List.of("127.0.0.1", "::1") : List.copyOf(trustedProxies);
         }
     }
 
@@ -92,9 +97,10 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
      * @param requestsPerIp        code requests per IP address per window
      * @param requestsPerEmail     code requests per email address per window
      * @param failedSignInsPerIp   wrong codes per IP address per window before sign-in answers 429
+     * @param failedSignInsPerEmail wrong codes per email address per window before sign-in answers 429 (guessing one account is limited whatever IP address it comes from)
      * @param windowMinutes        the rate-limit window
      */
-    public record Otp(String fixedCode, int codeTtlMinutes, int maxAttempts, int requestsPerIp, int requestsPerEmail, int failedSignInsPerIp,
+    public record Otp(String fixedCode, int codeTtlMinutes, int maxAttempts, int requestsPerIp, int requestsPerEmail, int failedSignInsPerIp, int failedSignInsPerEmail,
             int windowMinutes) {
 
         public Otp {
@@ -104,6 +110,7 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
             if (requestsPerIp <= 0) requestsPerIp = 10;
             if (requestsPerEmail <= 0) requestsPerEmail = 5;
             if (failedSignInsPerIp <= 0) failedSignInsPerIp = 20;
+            if (failedSignInsPerEmail <= 0) failedSignInsPerEmail = 10;
             if (windowMinutes <= 0) windowMinutes = 15;
         }
     }

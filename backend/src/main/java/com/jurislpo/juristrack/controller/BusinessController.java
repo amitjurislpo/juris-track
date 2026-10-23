@@ -15,9 +15,11 @@ import com.jurislpo.juristrack.service.BusinessService.BusinessDetail;
 import com.jurislpo.juristrack.service.BusinessService.BusinessInput;
 import com.jurislpo.juristrack.service.BusinessService.BusinessStatusChange;
 import com.jurislpo.juristrack.service.BusinessService.CreatedBusiness;
+import com.jurislpo.juristrack.service.BusinessService.JurisoneLinkInput;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -67,6 +69,16 @@ public class BusinessController {
     public ApiResult<BusinessDetail> updateBusiness(@PathVariable UUID businessId, @RequestBody(required = false) JsonNode body) {
         CurrentUser superAdmin = auth.requireRole(Role.SUPER_ADMIN);
         return ApiResult.success("Business saved.", businessService.update(superAdmin, businessId, BusinessChanges.from(PatchBody.of(body, objectMapper))));
+    }
+
+    @PutMapping("/{businessId}/jurisone-link")
+    public ApiResult<BusinessDetail> linkBusinessToJurisone(@PathVariable UUID businessId, @RequestBody(required = false) JurisoneLinkInput body) {
+        return ApiResult.success("Business linked to JurisOne.", businessService.linkToJurisone(auth.requireRole(Role.SUPER_ADMIN), businessId, body));
+    }
+
+    @DeleteMapping("/{businessId}/jurisone-link")
+    public ApiResult<BusinessDetail> unlinkBusinessFromJurisone(@PathVariable UUID businessId) {
+        return ApiResult.success("Business unlinked from JurisOne.", businessService.unlinkFromJurisone(auth.requireRole(Role.SUPER_ADMIN), businessId));
     }
 
     @PutMapping("/{businessId}/status")

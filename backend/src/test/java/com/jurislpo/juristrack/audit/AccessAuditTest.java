@@ -75,11 +75,13 @@ class AccessAuditTest extends IntegrationTest {
         AuditTrace ownTrace = new AuditTrace(jdbcTemplate);
         mockMvc.perform(ownTrace.on(get("/api/employees/" + ownerId)).cookie(ownerCookie)).andExpect(status().isOk());
         assertThat(ownTrace.entries()).isEmpty();
-        // another business's person is 404 and nothing was read
+        // another business's person is 404 and nothing was read: the only trace is the probe itself (security.out_of_scope_access, once per user and window)
         UUID strangerId = testData.createUser(testData.createBusiness("Elsewhere " + UUID.randomUUID()), "EMPLOYEE", TestData.uniqueEmail("stranger"), null);
         AuditTrace strangerTrace = new AuditTrace(jdbcTemplate);
         mockMvc.perform(strangerTrace.on(get("/api/employees/" + strangerId)).cookie(ownerCookie)).andExpect(status().isNotFound());
-        assertThat(strangerTrace.entries()).isEmpty();
+        assertThat(strangerTrace.entries()).singleElement().satisfies(probe -> assertThat(probe).containsEntry("action", "security.out_of_scope_access")
+                .containsEntry("actor_id", ownerId).containsEntry("business_id", businessId).containsEntry("entity_type", "user"));
+        assertThat(strangerTrace.count("access.employee_viewed")).isZero();
     }
 
     @Test

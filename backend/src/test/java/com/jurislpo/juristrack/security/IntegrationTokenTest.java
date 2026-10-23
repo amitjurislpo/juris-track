@@ -90,10 +90,12 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'integration.user_updated' AND subject_id = ?", Integer.class,
                 userRow(employee.employeeId()).get("id"))).isEqualTo(1);
 
-        // ADMIN only when JurisOne sends it; an unknown role is EMPLOYEE
-        callMe(IntegrationTokens.tokenFor(changed.withTrackRole("ADMIN"))).andExpect(jsonPath("$.data.role").value("ADMIN"));
+        // an unknown role is EMPLOYEE; ADMIN only when JurisOne sends it, and a token never takes it away again
+        callMe(IntegrationTokens.tokenFor(changed.withTrackRole("MANAGER"))).andExpect(jsonPath("$.data.role").value("MANAGER"));
         callMe(IntegrationTokens.tokenFor(changed.withTrackRole("HR"))).andExpect(jsonPath("$.data.role").value("EMPLOYEE"));
         callMe(IntegrationTokens.tokenFor(changed, claims -> claims.claim("trackRole", null))).andExpect(jsonPath("$.data.role").value("EMPLOYEE"));
+        callMe(IntegrationTokens.tokenFor(changed.withTrackRole("ADMIN"))).andExpect(jsonPath("$.data.role").value("ADMIN"));
+        callMe(IntegrationTokens.tokenFor(changed.withTrackRole("HR"))).andExpect(jsonPath("$.data.role").value("ADMIN"));
     }
 
     @Test
@@ -121,18 +123,26 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
     }
 
     @Test
-    void anExistingStandaloneUserIsLinkedByEmailWithTheirBusiness() throws Exception {
-        UUID standaloneBusinessId = testData.createBusiness("Standalone Co " + UUID.randomUUID());
-        String email = TestData.uniqueEmail("standalone");
-        UUID standaloneUserId = testData.createUser(standaloneBusinessId, "ADMIN", email, null);
+    void aStandaloneBusinessIsNeverAdoptedByEmail() throws Exception {
+        // a standalone owner planted the email of somebody at a JurisOne company that has not opened JurisTrack yet
+        String plantedName = "Mallory Co " + UUID.randomUUID();
+        UUID standaloneBusinessId = testData.createBusiness(plantedName);
+        String email = TestData.uniqueEmail("planted");
+        UUID plantedUserId = testData.createUser(standaloneBusinessId, "EMPLOYEE", email, null);
 
-        Employee employee = new Employee(UUID.randomUUID(), email, "Olivia Owner", jurisoneBusinessId, businessName, null, "MANAGER");
-        callMe(IntegrationTokens.tokenFor(employee)).andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(standaloneUserId.toString()));
-        assertThat(userRow(employee.employeeId()).get("id")).isEqualTo(standaloneUserId);
-        assertThat(jdbcTemplate.queryForObject("SELECT jurisone_business_id FROM businesses WHERE id = ?", UUID.class, standaloneBusinessId))
-                .isEqualTo(jurisoneBusinessId);
-        assertThat(jdbcTemplate.queryForList("SELECT action FROM audit_logs WHERE business_id = ? ORDER BY created_at", String.class, standaloneBusinessId))
-                .contains("integration.business_linked", "integration.user_linked");
+        Employee victim = new Employee(UUID.randomUUID(), email, "Hema Raman", jurisoneBusinessId, businessName, null, "MANAGER");
+        callMe(IntegrationTokens.tokenFor(victim)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(jdbcTemplate.queryForMap("SELECT name, jurisone_business_id FROM businesses WHERE id = ?", standaloneBusinessId))
+                .containsEntry("name", plantedName).containsEntry("jurisone_business_id", null);
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM businesses WHERE jurisone_business_id = ?", Integer.class, jurisoneBusinessId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT jurisone_employee_id FROM users WHERE id = ?", UUID.class, plantedUserId)).isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'integration.user_refused' AND subject_id = ? "
+                + "AND reason = 'email_of_another_business'", Integer.class, plantedUserId)).isEqualTo(1);
+
+        // the rest of the JurisOne company still gets its own new business
+        Employee colleague = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
+        callMe(IntegrationTokens.tokenFor(colleague)).andExpect(status().isOk()).andExpect(jsonPath("$.data.businessName").value(businessName));
+        assertThat(userRow(colleague.employeeId()).get("business_id")).isNotEqualTo(standaloneBusinessId);
     }
 
     @Test
@@ -147,6 +157,16 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
         callMe(IntegrationTokens.tokenFor(first)).andExpect(status().isOk());
         Employee sameEmailElsewhere = new Employee(UUID.randomUUID(), first.email(), "Asha Rao", UUID.randomUUID(), "Elsewhere", null, "EMPLOYEE");
         callMe(IntegrationTokens.tokenFor(sameEmailElsewhere)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aReplayedTokenIsRefusedAndAudited() throws Exception {
+        Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
+        String token = IntegrationTokens.tokenFor(employee);
+        callMe(token).andExpect(status().isOk());
+        callMe(token).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'integration.token_rejected' AND reason = 'replayed_token'",
+                Integer.class)).isPositive();
     }
 
     @Test
@@ -185,11 +205,12 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
     @Test
     void bearerRequestsNeedNoOriginAndHaveNoSession() throws Exception {
         Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "ADMIN");
-        String token = IntegrationTokens.tokenFor(employee);
-        mockMvc.perform(patch("/api/business").header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+        // one token per request: tokens are single-use
+        mockMvc.perform(patch("/api/business").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"staleWorkdayHours\": 10}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.staleWorkdayHours").value(10));
-        mockMvc.perform(delete("/api/auth/sessions/current").header("Authorization", "Bearer " + token)).andExpect(status().isOk());
+        mockMvc.perform(delete("/api/auth/sessions/current").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)))
+                .andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id = ?", Integer.class, userRow(employee.employeeId()).get("id")))
                 .isZero();
     }
@@ -200,10 +221,10 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
         Employee colleague = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
         callMe(IntegrationTokens.tokenFor(colleague)).andExpect(status().isOk());
         UUID otherBusinessUserId = testData.createUser(testData.createBusiness("Other " + UUID.randomUUID()), "EMPLOYEE", TestData.uniqueEmail("other"), null);
-        String token = IntegrationTokens.tokenFor(owner);
-        mockMvc.perform(get("/api/employees/" + userRow(colleague.employeeId()).get("id")).header("Authorization", "Bearer " + token))
+        mockMvc.perform(get("/api/employees/" + userRow(colleague.employeeId()).get("id")).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(owner)))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/api/employees/" + otherBusinessUserId).header("Authorization", "Bearer " + token)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/employees/" + otherBusinessUserId).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(owner)))
+                .andExpect(status().isNotFound());
     }
 
     @Test

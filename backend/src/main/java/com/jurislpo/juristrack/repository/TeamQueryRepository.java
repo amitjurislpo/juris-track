@@ -2,6 +2,8 @@ package com.jurislpo.juristrack.repository;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.jurislpo.juristrack.entity.Role;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +75,23 @@ public class TeamQueryRepository {
         parameters.put("businessId", businessId);
         parameters.put("employeeId", employeeId);
         return jdbcTemplate.query(MEMBER_SELECT + " AND person.id = :employeeId", parameters, MEMBER_MAPPER).stream().findFirst();
+    }
+
+    /**
+     * Whether another workday of the employee overlaps the time from {@code from} to {@code until} (touching is not overlapping); a
+     * workday that is still open lasts until {@code now}.
+     */
+    public boolean existsOverlappingWorkday(UUID employeeId, UUID excludedWorkdayId, Instant from, Instant until, Instant now) {
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("employeeId", employeeId);
+        parameters.put("excludedWorkdayId", excludedWorkdayId);
+        parameters.put("fromTime", Timestamp.from(from));
+        parameters.put("untilTime", Timestamp.from(until));
+        parameters.put("nowTime", Timestamp.from(now));
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM workdays other
+                               WHERE other.employee_id = :employeeId AND other.id <> :excludedWorkdayId
+                                 AND other.started_at < :untilTime AND COALESCE(other.ended_at, :nowTime) > :fromTime)""", parameters, Boolean.class));
     }
 
     /** Whose workday this is; empty when unknown or of another business. Read without loading the workday into the persistence context. */

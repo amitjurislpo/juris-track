@@ -37,7 +37,7 @@ Why a gateway and not the browser calling JurisTrack with a token: one origin (c
 leaves the JurisOne backend, JurisOne keeps control of who may use the module (plan/grant, suspension), and JurisTrack needs no knowledge of JurisOne sessions.
 
 **Token (JWT, asymmetric):** signed by JurisOne with a private key (ES256 or RS256), verified by JurisTrack with the public key only (configured as
-`juristrack.integration.public-key`, later a JWKS URL so keys can rotate). Lifetime about 5 minutes, issued per request or cached for a few minutes.
+`juristrack.integration.public-key`, later a JWKS URL so keys can rotate). Lifetime about 5 minutes (at most 10: `exp - iat`), **one token per request** (single-use, see `jti`).
 
 | Claim | Meaning |
 |---|---|
@@ -48,16 +48,21 @@ leaves the JurisOne backend, JurisOne keeps control of who may use the module (p
 | `businessId`, `businessName` | JurisOne business id and name |
 | `managerId` (optional) | JurisOne employee id of this employee's assigned manager (null if none): JurisTrack keeps it as `manager_id` and refreshes it on every token |
 | `trackRole` (optional) | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` (optional `ADMIN` only if JurisOne wants an owner-type user). Sent on **every** token; JurisTrack follows it, so granting or removing the role in JurisOne takes effect on the next call |
-| `exp`, `iat`, `jti` | expiry (short), issue time, unique id (replay guard) |
+| `exp`, `iat`, `jti` | all three required: expiry (short, `exp - iat` at most 10 minutes), issue time, unique id. A `jti` is accepted **once**: a replayed token answers 401 and is audited (`replayed_token`), so the gateway issues a fresh token for every request |
 
 **Just-in-time provisioning (implemented):** on a valid token, in system mode inside one transaction: find the business by `businesses.jurisone_business_id` (create it
-with the JurisOne business name and defaults if new, refresh the name otherwise), then the user by `users.jurisone_employee_id`; if not found, match by email (this
-links a user who first used JurisTrack standalone), else create the user. **The token is authoritative on every call** for name, email, role (`MANAGER` or
-`EMPLOYEE`; `ADMIN` only when sent; a downgrade takes effect on the next call) and manager (`manager_id` is resolved by the manager's `jurisone_employee_id` in
-the same business; null when the manager is not known yet; never the user themself). Granting or removing the JurisTrack manager role in JurisOne therefore needs
-no action in JurisTrack. An unchanged user writes no audit entry. Rules: if the token's JurisOne business is not known yet and the email belongs to a standalone
-user whose business is not linked, that business is adopted (it gets the `jurisone_business_id`); an email that belongs to a user of another linked business, or to
-the `SUPER_ADMIN`, is refused with 403; a deactivated user is refused with 403; a user of a **suspended business** is refused with 403 `BUSINESS_SUSPENDED` (the super admin suspends businesses); any invalid token answers 401 without details and is never logged.
+with the JurisOne business name and defaults if new, refresh the name otherwise), then the user by `users.jurisone_employee_id`; if not found, match by email
+**inside that business** (a user of the linked business who was added by email before is linked), else create the user. **A token never adopts an existing
+business.** A standalone company moves to JurisOne only when the platform super admin links it explicitly (`PUT /api/businesses/{businessId}/jurisone-link`,
+audited; `DELETE` undoes it); otherwise any standalone owner could plant an employee with a JurisOne colleague's email, and the first token of that company
+would hand the whole company to the planter. **The token is authoritative on every call** for name, email, role (`MANAGER` or `EMPLOYEE`; `ADMIN` only when
+sent; a downgrade takes effect on the next call, **except that an existing ADMIN keeps the owner role** unless the token itself says otherwise, so linking
+can never leave a business without its owner) and manager (`manager_id` is resolved by the manager's `jurisone_employee_id` in the same business; null when the
+manager is not known yet; never the user themself). Granting or removing the JurisTrack manager role in JurisOne therefore needs no action in JurisTrack. An
+unchanged user writes no audit entry. Rules: if the token's JurisOne business is not known yet and the email (or the employee id) already belongs to a user
+anywhere, the token is refused with 403 (`integration.user_refused`, reason `email_of_another_business`; no business is created for it); an email that belongs
+to the `SUPER_ADMIN` is refused with 403; a deactivated user is refused with 403; a user of a **suspended business** is refused with 403 `BUSINESS_SUSPENDED`
+(the super admin suspends businesses, which also closes their open workdays); any invalid token answers 401 without details and is never logged.
 
 **Roster sync (part of the first version):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the
 roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees
@@ -68,7 +73,9 @@ it when employees or manager assignments change and on a schedule. Just-in-time 
 
 **Security rules:** accept the Bearer token only when `juristrack.integration.enabled=true`; reject unsigned, expired or wrong `iss`/`aud` tokens; allow a small
 clock skew (`juristrack.integration.clock-skew-seconds`); in embedded deployments the JurisTrack API port is reachable only from the JurisOne backend (network
-rule or mTLS); never log tokens; optionally refuse a `jti` that was already used within its lifetime.
+rule or mTLS); never log tokens; a `jti` is accepted once (replay guard, in memory per instance); put the gateway's address in `juristrack.security.trusted-proxies` so the
+client address it forwards in `X-Forwarded-For` is believed (rate limits and the audit IP follow it). Bearer requests skip the Origin check: in embedded mode the
+cross-site defence is the JurisOne gateway's job.
 
 ## 3. Standalone: how a direct user signs in
 

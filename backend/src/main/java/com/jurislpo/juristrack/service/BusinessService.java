@@ -9,12 +9,14 @@ import com.jurislpo.juristrack.entity.Business;
 import com.jurislpo.juristrack.entity.Role;
 import com.jurislpo.juristrack.entity.User;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.repository.BusinessQueryRepository;
 import com.jurislpo.juristrack.repository.BusinessQueryRepository.BusinessFilter;
 import com.jurislpo.juristrack.repository.BusinessQueryRepository.BusinessOwner;
 import com.jurislpo.juristrack.repository.BusinessQueryRepository.BusinessRow;
 import com.jurislpo.juristrack.repository.BusinessRepository;
 import com.jurislpo.juristrack.repository.UserRepository;
+import com.jurislpo.juristrack.repository.WorkdayRepository;
 import com.jurislpo.juristrack.security.CurrentUser;
 import com.jurislpo.juristrack.service.AuditService.AuditEntry;
 import java.time.Instant;
@@ -74,6 +76,9 @@ public class BusinessService {
     /** {@code PUT /api/businesses/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
     public record BusinessStatusChange(@JsonProperty("isSuspended") Boolean isSuspended, String reason) {}
 
+    /** {@code PUT /api/businesses/{id}/jurisone-link} body: the JurisOne business this one is linked to (a UUID, as text so a malformed id is a field error). */
+    public record JurisoneLinkInput(String jurisoneBusinessId) {}
+
     /** A business's settings as its owner sees them ({@code GET /api/business}). */
     public record BusinessSettings(UUID id, String name, String timeZone, int staleWorkdayHours, List<String> displayTimeZones, Instant createdAt,
             Instant updatedAt) {}
@@ -89,6 +94,10 @@ public class BusinessService {
     public static final int MINIMUM_STALE_WORKDAY_HOURS = 1;
     public static final int MAXIMUM_STALE_WORKDAY_HOURS = 48;
     public static final int MAXIMUM_DISPLAY_TIME_ZONES = 8;
+    /** The most entries a request may list (duplicates are dropped afterwards); more is refused before any zone is looked up. */
+    public static final int MAXIMUM_SENT_DISPLAY_TIME_ZONES = 32;
+    /** The reason of the {@code workday.closed} entries a suspension writes. */
+    static final String SUSPENSION_REASON = "business_suspended";
     private static final String BUSINESS_ENTITY = "business";
     private static final String USER_ENTITY = "user";
     private static final String NOT_FOUND = "Business not found.";
@@ -99,14 +108,18 @@ public class BusinessService {
     private final BusinessQueryRepository businessQueryRepository;
     private final UserRepository userRepository;
     private final EmployeeService employeeService;
+    private final TimeTrackingService timeTrackingService;
+    private final WorkdayRepository workdayRepository;
     private final AuditService auditService;
 
     public BusinessService(BusinessRepository businessRepository, BusinessQueryRepository businessQueryRepository, UserRepository userRepository,
-            EmployeeService employeeService, AuditService auditService) {
+            EmployeeService employeeService, TimeTrackingService timeTrackingService, WorkdayRepository workdayRepository, AuditService auditService) {
         this.businessRepository = businessRepository;
         this.businessQueryRepository = businessQueryRepository;
         this.userRepository = userRepository;
         this.employeeService = employeeService;
+        this.timeTrackingService = timeTrackingService;
+        this.workdayRepository = workdayRepository;
         this.auditService = auditService;
     }
 
@@ -117,7 +130,7 @@ public class BusinessService {
      * {@code active}, {@code suspended}), {@code sort} ({@link #SORT_KEYS}, default {@code name}), {@code sortDirection}, {@code page},
      * {@code pageSize}. 400 for an unknown value.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public ListPage<BusinessRow> list(CurrentUser superAdmin, Map<String, String> queryParameters) {
         ListPage<BusinessRow> page = findPage(queryParameters);
         Map<String, Object> details = new LinkedHashMap<>();
@@ -147,10 +160,10 @@ public class BusinessService {
     }
 
     /** The business with its owner and counts; 404 when unknown. Audited in the business's log. */
-    @Transactional(readOnly = true)
+    @Transactional
     public BusinessDetail find(CurrentUser superAdmin, UUID businessId) {
         BusinessDetail business = findDetail(businessId);
-        auditService.recordIndependently(new AuditEntry(businessId, superAdmin.userId(), business.owner() == null ? null : business.owner().id(),
+        auditService.record(new AuditEntry(businessId, superAdmin.userId(), business.owner() == null ? null : business.owner().id(),
                 AuditAction.BUSINESS_VIEWED, BUSINESS_ENTITY, businessId.toString(), null, null, null));
         return business;
     }
@@ -225,6 +238,64 @@ public class BusinessService {
             auditService.record(new AuditEntry(businessId, superAdmin.userId(), null,
                     isSuspended ? AuditAction.BUSINESS_SUSPENDED : AuditAction.BUSINESS_REACTIVATED, BUSINESS_ENTITY, businessId.toString(),
                     Map.of("isSuspended", !isSuspended), Map.of("isSuspended", isSuspended), reason));
+            if (isSuspended) {
+                // nobody can end or correct a day while the business is suspended, so the suspension must not count as work time:
+                // every open workday ends now (audited as workday.closed); reactivating reopens nothing
+                for (UUID employeeId : workdayRepository.findEmployeeIdsWithOpenWorkday(businessId)) {
+                    timeTrackingService.closeOpenWorkday(businessId, superAdmin.userId(), employeeId, SUSPENSION_REASON);
+                }
+            }
+        }
+        return findDetail(businessId);
+    }
+
+    /**
+     * Links a standalone business to its JurisOne business ({@code PUT /api/businesses/{businessId}/jurisone-link}): from then on the
+     * tokens of that JurisOne business resolve to it, and its people are linked by email on their first token. This is the only way a
+     * business is linked to an existing one (a token never adopts a business). The same link again changes nothing and writes no entry.
+     * 400 for a missing or malformed id, 404 for an unknown business, 409 {@code BUSINESS_ALREADY_LINKED} when it is linked to another
+     * JurisOne business, 409 {@code JURISONE_BUSINESS_IN_USE} when another business has that JurisOne id.
+     */
+    @Transactional
+    public BusinessDetail linkToJurisone(CurrentUser superAdmin, UUID businessId, JurisoneLinkInput input) {
+        InputValidator validator = new InputValidator();
+        UUID jurisoneBusinessId = null;
+        String rawId = input == null || input.jurisoneBusinessId() == null ? "" : input.jurisoneBusinessId().trim();
+        if (rawId.isEmpty()) {
+            validator.reject("jurisoneBusinessId", "The JurisOne business id is required.");
+        } else {
+            try {
+                jurisoneBusinessId = UUID.fromString(rawId);
+            } catch (IllegalArgumentException e) {
+                validator.reject("jurisoneBusinessId", "The JurisOne business id is not valid.");
+            }
+        }
+        validator.throwIfInvalid();
+        Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+        if (jurisoneBusinessId.equals(business.getJurisoneBusinessId())) return findDetail(businessId);
+        if (business.getJurisoneBusinessId() != null) {
+            throw new ApiException(HttpStatus.CONFLICT, Problems.BUSINESS_ALREADY_LINKED, "This business is already linked to another JurisOne business. Unlink it first.");
+        }
+        if (businessRepository.findByJurisoneBusinessId(jurisoneBusinessId).isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT, Problems.JURISONE_BUSINESS_IN_USE, "Another business is already linked to that JurisOne business.");
+        }
+        business.setJurisoneBusinessId(jurisoneBusinessId);
+        businessRepository.saveAndFlush(business);
+        auditService.record(new AuditEntry(businessId, superAdmin.userId(), null, AuditAction.BUSINESS_LINKED, BUSINESS_ENTITY, businessId.toString(),
+                null, Map.of("jurisoneBusinessId", jurisoneBusinessId.toString()), null));
+        return findDetail(businessId);
+    }
+
+    /** Removes the link to JurisOne ({@code DELETE /api/businesses/{businessId}/jurisone-link}); a business that is not linked is left as it is. */
+    @Transactional
+    public BusinessDetail unlinkFromJurisone(CurrentUser superAdmin, UUID businessId) {
+        Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+        UUID jurisoneBusinessId = business.getJurisoneBusinessId();
+        if (jurisoneBusinessId != null) {
+            business.setJurisoneBusinessId(null);
+            businessRepository.saveAndFlush(business);
+            auditService.record(new AuditEntry(businessId, superAdmin.userId(), null, AuditAction.BUSINESS_UNLINKED, BUSINESS_ENTITY, businessId.toString(),
+                    Map.of("jurisoneBusinessId", jurisoneBusinessId.toString()), null, null));
         }
         return findDetail(businessId);
     }
@@ -282,6 +353,11 @@ public class BusinessService {
     private static List<String> displayTimeZones(List<String> rawTimeZones, InputValidator validator) {
         if (rawTimeZones == null) {
             validator.reject("displayTimeZones", "Display time zones are required (send [] for none).");
+            return List.of();
+        }
+        if (rawTimeZones.size() > MAXIMUM_SENT_DISPLAY_TIME_ZONES) {
+            // bounded before any zone is resolved
+            validator.reject("displayTimeZones", "Send at most " + MAXIMUM_SENT_DISPLAY_TIME_ZONES + " display time zones.");
             return List.of();
         }
         Set<String> timeZones = new LinkedHashSet<>();

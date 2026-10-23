@@ -50,6 +50,16 @@ public final class Problems {
     public static final String CANNOT_DEACTIVATE_SELF = "CANNOT_DEACTIVATE_SELF";
     /** 422: the business must keep at least one active owner (ADMIN). */
     public static final String LAST_ACTIVE_OWNER = "LAST_ACTIVE_OWNER";
+    /** 409: the business is already linked to a JurisOne business (unlink it first). */
+    public static final String BUSINESS_ALREADY_LINKED = "BUSINESS_ALREADY_LINKED";
+    /** 409: another business is already linked to that JurisOne business. */
+    public static final String JURISONE_BUSINESS_IN_USE = "JURISONE_BUSINESS_IN_USE";
+    /** 413: the request body is larger than the API accepts. */
+    public static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
+    /** 422: a corrected time lies outside the workday's window (its date and the next day, in the business time zone). */
+    public static final String CORRECTION_OUT_OF_RANGE = "CORRECTION_OUT_OF_RANGE";
+    /** 422: the corrected workday would overlap another workday of the same person. */
+    public static final String WORKDAY_OVERLAP = "WORKDAY_OVERLAP";
     /** 409: a break or the end of the day before the workday started (a break also after the day ended). */
     public static final String WORKDAY_NOT_STARTED = "WORKDAY_NOT_STARTED";
     /** 409: resume work without a break to end. */

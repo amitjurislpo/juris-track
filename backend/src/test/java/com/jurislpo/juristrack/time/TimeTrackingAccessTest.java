@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -169,13 +170,19 @@ class TimeTrackingAccessTest extends IntegrationTest {
     }
 
     @Test
-    void aSuspendedBusinessCannotTrackTime() throws Exception {
+    void aSuspendedBusinessCannotTrackTimeAndItsOpenDayWasClosed() throws Exception {
+        String superAdminEmail = TestData.uniqueEmail("access.platform.suspend");
+        testData.createUser(null, "SUPER_ADMIN", superAdminEmail, null);
+        Cookie superAdminCookie = SignIn.session(mockMvc, superAdminEmail).accessCookie();
         TimeTracker tracker = signInNew(businessId, "EMPLOYEE", null);
         tracker.apply("START");
-        testData.suspendBusiness(businessId);
+        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":true}"))
+                .andExpect(status().isOk());
         tracker.send("END").andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"));
         tracker.history("").andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"));
-        jdbcTemplate.update("UPDATE businesses SET is_suspended = false WHERE id = ?", businessId);
-        assertThat((String) tracker.stateValue("$.data.status")).isEqualTo("WORKING");
+        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":false}"))
+                .andExpect(status().isOk());
+        // the suspension closed the open day (it does not count as work) and the reactivation does not reopen it
+        assertThat((String) tracker.stateValue("$.data.status")).isEqualTo("DAY_ENDED");
     }
 }

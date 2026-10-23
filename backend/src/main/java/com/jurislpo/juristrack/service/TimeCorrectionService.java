@@ -12,6 +12,7 @@ import com.jurislpo.juristrack.entity.WorkSession;
 import com.jurislpo.juristrack.entity.Workday;
 import com.jurislpo.juristrack.entity.WorkdayStatus;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.repository.BreakSessionRepository;
 import com.jurislpo.juristrack.repository.EmployeeLockRepository;
@@ -24,6 +25,7 @@ import com.jurislpo.juristrack.service.TimeCorrectionAudit.IntervalRecord;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -147,8 +149,11 @@ public class TimeCorrectionService {
         EditableInterval target = intervals.stream().filter(interval -> interval.id().equals(intervalId) && interval.type() == type).findFirst()
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, INTERVAL_NOT_FOUND));
 
-        Instant newStart = requestedStart != null ? requestedStart : target.startedAt();
-        Instant newEnd = endedAtText == null ? target.endedAt() : requestedEnd;
+        // times are compared to the millisecond a browser keeps: a time sent back as it was read (milliseconds) is no change, and the
+        // stored value (which may have microseconds from older records) is kept
+        Instant newStart = requestedStart == null || requestedStart.equals(inMilliseconds(target.startedAt())) ? target.startedAt() : requestedStart;
+        Instant newEnd = endedAtText == null || (requestedEnd != null && requestedEnd.equals(inMilliseconds(target.endedAt()))) ? target.endedAt()
+                : requestedEnd;
         boolean isRunning = target.endedAt() == null;
         if (isRunning && newEnd != null) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.INTERVAL_STILL_RUNNING,
@@ -165,7 +170,9 @@ public class TimeCorrectionService {
         EditableInterval corrected = new EditableInterval(target.id(), type, newStart, newEnd);
         List<EditableInterval> correctedIntervals = intervals.stream().map(interval -> interval == target ? corrected : interval)
                 .sorted(TIMELINE_ORDER).toList();
+        requireInsideWindow(workday, corrected, correctedIntervals.get(0) == corrected);
         requireValidTimeline(correctedIntervals, now);
+        requireNoOtherWorkdayOverlap(workday, correctedIntervals, now);
 
         WorkdaySnapshot before = snapshotOf(workday, workSessions, breakSessions, now, employee);
         if (type == SegmentType.WORK) {
@@ -228,9 +235,14 @@ public class TimeCorrectionService {
         if (end.isAfter(now)) rejectField("endedAt", FUTURE_TIME);
         Instant earliestEnd = intervals.stream().map(interval -> interval.endedAt() == null ? interval.startedAt() : interval.endedAt())
                 .max(Comparator.naturalOrder()).orElse(workday.getStartedAt());
-        if (end.isBefore(earliestEnd) || end.isBefore(workday.getStartedAt())) {
+        if (inMilliseconds(end).isBefore(inMilliseconds(earliestEnd)) || end.isBefore(inMilliseconds(workday.getStartedAt()))) {
             rejectField("endedAt", "The end time cannot be before the last recorded activity.");
         }
+        // the end as the client read the last activity (milliseconds) may be a hair before the stored microseconds: the activity wins
+        if (end.isBefore(earliestEnd)) end = earliestEnd;
+        if (end.isBefore(workday.getStartedAt())) end = workday.getStartedAt();
+        requireInsideWindow(workday, end);
+        requireNoOtherWorkdayOverlap(workday, workday.getStartedAt(), end, now);
 
         WorkdaySnapshot before = snapshotOf(workday, workSessions, breakSessions, now, employee);
         List<IntervalRecord> closedIntervals = new ArrayList<>();
@@ -280,10 +292,58 @@ public class TimeCorrectionService {
      */
     private LockedEmployee lockWorkdayOwner(CurrentUser actor, UUID workdayId, AtomicReference<UUID> employeeIdHolder) {
         UUID employeeId = teamQueryRepository.findWorkdayEmployeeId(actor.businessId(), workdayId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, WORKDAY_NOT_FOUND));
+                .orElseThrow(() -> new OutOfScopeException("workday", WORKDAY_NOT_FOUND));
         teamAccessPolicy.requireCanCorrect(actor, employeeId, WORKDAY_NOT_FOUND);
         employeeIdHolder.set(employeeId);
-        return employeeLockRepository.lockEmployee(employeeId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, WORKDAY_NOT_FOUND));
+        return employeeLockRepository.lockEmployee(employeeId).orElseThrow(() -> new OutOfScopeException("workday", WORKDAY_NOT_FOUND));
+    }
+
+    /**
+     * A corrected interval must lie in the workday's window: from the start of its date to the end of the next date, both in the zone
+     * the workday was started in (a night shift may run into the next morning), and the first interval of the day must start on the
+     * date itself. 422 {@code CORRECTION_OUT_OF_RANGE} otherwise: a year typed wrong must not add years of work, nor move hours into
+     * another day.
+     */
+    private void requireInsideWindow(Workday workday, EditableInterval corrected, boolean isFirstInterval) {
+        ZoneId zone = ZoneId.of(workday.getTimeZone());
+        Instant windowStart = workday.getWorkDate().atStartOfDay(zone).toInstant();
+        Instant windowEnd = workday.getWorkDate().plusDays(2).atStartOfDay(zone).toInstant();
+        boolean isStartInside = !corrected.startedAt().isBefore(windowStart) && corrected.startedAt().isBefore(windowEnd);
+        boolean isEndInside = corrected.endedAt() == null || (corrected.endedAt().isAfter(windowStart) && !corrected.endedAt().isAfter(windowEnd));
+        boolean isFirstOnTheDate = !isFirstInterval || corrected.startedAt().isBefore(workday.getWorkDate().plusDays(1).atStartOfDay(zone).toInstant());
+        if (!isStartInside || !isEndInside || !isFirstOnTheDate) throw outOfRange(workday);
+    }
+
+    /** The end of a closed workday must lie in the same window. */
+    private void requireInsideWindow(Workday workday, Instant end) {
+        ZoneId zone = ZoneId.of(workday.getTimeZone());
+        Instant windowStart = workday.getWorkDate().atStartOfDay(zone).toInstant();
+        Instant windowEnd = workday.getWorkDate().plusDays(2).atStartOfDay(zone).toInstant();
+        if (!end.isAfter(windowStart) || end.isAfter(windowEnd)) throw outOfRange(workday);
+    }
+
+    private static ApiException outOfRange(Workday workday) {
+        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.CORRECTION_OUT_OF_RANGE,
+                "A time must be on the workday's date (" + workday.getWorkDate() + ") or the day after, in the business time zone.");
+    }
+
+    /** The corrected workday (first start to last end, or until now while it runs) must not overlap another workday of the person. */
+    private void requireNoOtherWorkdayOverlap(Workday workday, List<EditableInterval> correctedIntervals, Instant now) {
+        Instant from = correctedIntervals.get(0).startedAt();
+        boolean isOpen = workday.getStatus() != WorkdayStatus.COMPLETED || correctedIntervals.stream().anyMatch(interval -> interval.endedAt() == null);
+        Instant until = isOpen ? now : correctedIntervals.stream().map(EditableInterval::endedAt).max(Comparator.naturalOrder()).orElse(from);
+        requireNoOtherWorkdayOverlap(workday, from, until, now);
+    }
+
+    private void requireNoOtherWorkdayOverlap(Workday workday, Instant from, Instant until, Instant now) {
+        if (teamQueryRepository.existsOverlappingWorkday(workday.getEmployeeId(), workday.getId(), from, until, now)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.WORKDAY_OVERLAP,
+                    "The corrected time overlaps another workday of this person. Their hours would count twice.");
+        }
+    }
+
+    private static Instant inMilliseconds(Instant instant) {
+        return instant == null ? null : instant.truncatedTo(ChronoUnit.MILLIS);
     }
 
     /**
@@ -358,14 +418,14 @@ public class TimeCorrectionService {
         return reason;
     }
 
-    /** An ISO-8601 instant with {@code Z} or an offset ({@code 2026-10-22T09:30:00Z}), to the microsecond the database stores. */
+    /** An ISO-8601 instant with {@code Z} or an offset ({@code 2026-10-22T09:30:00Z}), to the millisecond (what the browser keeps). */
     private static Instant readInstant(String field, String text, InputValidator validator) {
         String trimmedText = text.trim();
         try {
-            return Instant.parse(trimmedText).truncatedTo(ChronoUnit.MICROS);
+            return Instant.parse(trimmedText).truncatedTo(ChronoUnit.MILLIS);
         } catch (DateTimeParseException e) {
             try {
-                return OffsetDateTime.parse(trimmedText).toInstant().truncatedTo(ChronoUnit.MICROS);
+                return OffsetDateTime.parse(trimmedText).toInstant().truncatedTo(ChronoUnit.MILLIS);
             } catch (DateTimeParseException offsetException) {
                 validator.reject(field, "Send the time as an ISO-8601 instant, for example 2026-10-22T09:30:00Z.");
                 return null;
@@ -379,8 +439,8 @@ public class TimeCorrectionService {
         validator.throwIfInvalid();
     }
 
-    /** Now, to the microsecond the database stores. */
+    /** Now, to the millisecond. */
     private Instant now() {
-        return clock.instant().truncatedTo(ChronoUnit.MICROS);
+        return clock.instant().truncatedTo(ChronoUnit.MILLIS);
     }
 }

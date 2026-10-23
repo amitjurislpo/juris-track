@@ -16,14 +16,16 @@ import java.util.UUID;
  * @param status                  WORKING, ON_BREAK or DAY_ENDED
  * @param startedAt               when the day started
  * @param endedAt                 when it ended, null while open
- * @param isStale                 still open and running longer than the business's stale workday hours ("not ended")
+ * @param isStale                 still open and its last uninterrupted stretch (since the start, or since it was started again after
+ *                                a gap) is longer than the business's stale workday hours ("not ended")
  * @param closedProductiveSeconds the closed work sessions
  * @param closedBreakSeconds      the closed breaks
  * @param activeWorkStartedAt     the running work session's start, or null
  * @param activeBreakStartedAt    the running break's start, or null
  * @param productiveSeconds       all work sessions, the running one counted until now
  * @param breakSeconds            all breaks, the running one counted until now
- * @param spanSeconds             from the start of the day to its end (or now); a reopened day's gap is inside the span
+ * @param spanSeconds             from the start of the day to its end (or now); a reopened day's gap is inside the span (but not in
+ *                                "not ended": see {@code isStale})
  * @param breakCount              breaks taken, the running one included
  * @param lastActivity            the last thing that happened
  * @param segments                every work and break interval, oldest first

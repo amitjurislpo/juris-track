@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.jurislpo.juristrack.config.AuditProperties;
 import com.jurislpo.juristrack.entity.AuditLog;
 import com.jurislpo.juristrack.repository.AuditLogRepository;
 import com.jurislpo.juristrack.security.AuditRequestContext;
@@ -34,11 +35,18 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <ul>
  *   <li>{@link #record} joins the caller's transaction: the entry is written together with the change or not at all.</li>
  *   <li>{@link #recordIndependently} writes in a transaction of its own, so the entry stays although the request fails or its
- *       transaction rolls back (refusals) or is read-only (reads of other people's data). A failure to write is logged, never thrown.</li>
+ *       transaction rolls back (refusals). Call it only when no transaction of the request is open or holds a connection (after a
+ *       rollback, or from the exception handler): it needs a second connection, which a request that already holds one must not
+ *       take. A failure to write is logged, never thrown.</li>
  *   <li>{@link #recordOncePerWindow} does the same for high-volume security events, at most once per key in each
  *       {@link AuditAggregation#WINDOW}.</li>
- *   <li>{@link #recordAccess} records that somebody read another person's data; reading one's own data is not recorded.</li>
+ *   <li>{@link #recordAccess} records that somebody read another person's data; reading one's own data is not recorded. It joins the
+ *       read's own transaction (which is therefore not read-only): one connection per request, the entry is written with the read or
+ *       the read fails, so data is never served without its entry.</li>
  * </ul>
+ * An entry that nobody signed in caused (a sign-in attempt, a refused token or cookie) counts against the caller's IP address:
+ * {@link AuditProperties#unauthenticatedEntriesPerIp()} per window, and what is over the cap is not written (the log is append-only
+ * and must not be growable without bound by anonymous callers); a warning in the server log says so.
  * Secrets never reach the log: values of keys that name a password, token, secret, cookie, authorization header or one-time code are
  * replaced by {@value #REDACTED} in {@code before} and {@code after}. The application never updates or deletes an entry (the database
  * refuses it as well).
@@ -80,13 +88,17 @@ public class AuditService {
     private final JdbcTemplate jdbcTemplate;
     private final AuditAggregation auditAggregation;
     private final TransactionTemplate independentTransaction;
+    private final RateLimiter rateLimiter;
+    private final int unauthenticatedEntriesPerIp;
 
     public AuditService(AuditLogRepository auditLogRepository, ObjectMapper objectMapper, JdbcTemplate jdbcTemplate, AuditAggregation auditAggregation,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager, RateLimiter rateLimiter, AuditProperties auditProperties) {
         this.auditLogRepository = auditLogRepository;
         this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
         this.auditAggregation = auditAggregation;
+        this.rateLimiter = rateLimiter;
+        this.unauthenticatedEntriesPerIp = auditProperties.unauthenticatedEntriesPerIp();
         this.independentTransaction = new TransactionTemplate(transactionManager);
         this.independentTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -94,16 +106,33 @@ public class AuditService {
     /** Writes the entry in the caller's transaction (or a new one when there is none). */
     @Transactional
     public void record(AuditEntry entry) {
+        if (isOverUnauthenticatedCap(entry)) return;
         auditLogRepository.save(toAuditLog(entry));
     }
 
     /** Writes the entry in its own transaction: it stays even when the caller's work fails or rolls back. Never throws. */
     public void recordIndependently(AuditEntry entry) {
+        if (isOverUnauthenticatedCap(entry)) return;
         try {
             independentTransaction.executeWithoutResult(transactionStatus -> auditLogRepository.save(toAuditLog(entry)));
         } catch (RuntimeException e) {
             log.error("[audit] could not record {}: the audit log has a gap", entry.action().storedName(), e);
         }
+    }
+
+    /**
+     * True when nobody is signed in for this entry (no actor, no signed-in user) and the request's IP address has already caused its
+     * share of such entries in this window. Entries outside a request (commands, jobs) are never capped.
+     */
+    private boolean isOverUnauthenticatedCap(AuditEntry entry) {
+        AuditRequestContext requestContext = AuditRequestContext.current();
+        if (requestContext == null || entry.actorId() != null || signedInUser() != null) return false;
+        String ipAddress = requestContext.ipAddress() == null ? "unknown" : requestContext.ipAddress();
+        boolean isOverCap = rateLimiter.checkAndHit("audit-unauthenticated:" + ipAddress, unauthenticatedEntriesPerIp, AuditAggregation.WINDOW.toMillis())
+                .isLimited();
+        if (isOverCap) log.warn("[audit] {} not recorded: {} has caused {} entries without a signed-in user in this window", entry.action().storedName(),
+                ipAddress, unauthenticatedEntriesPerIp);
+        return isOverCap;
     }
 
     /** Like {@link #recordIndependently}, but only the first time {@code aggregationKey} occurs in its window. */
@@ -114,11 +143,12 @@ public class AuditService {
     /**
      * Records that {@code viewer} read data of somebody else: {@code subjectId} (null for a list of several people), the record
      * ({@code entityType}, {@code entityId}) and the details (filters, range). Nothing is recorded when the viewer read their own data.
-     * Written in its own transaction, so it works inside read-only transactions.
+     * Written in the read's own transaction (call it from a transaction that is not read-only), so a read needs one connection only
+     * and is never served without its entry.
      */
     public void recordAccess(AuditAction action, CurrentUser viewer, UUID subjectId, String entityType, String entityId, Map<String, ?> details) {
         if (viewer == null || viewer.userId().equals(subjectId)) return;
-        recordIndependently(new AuditEntry(null, viewer.userId(), subjectId, action, entityType, entityId, null, details, null));
+        record(new AuditEntry(null, viewer.userId(), subjectId, action, entityType, entityId, null, details, null));
     }
 
     private AuditLog toAuditLog(AuditEntry entry) {

@@ -15,6 +15,7 @@ import com.jurislpo.juristrack.entity.WorkSession;
 import com.jurislpo.juristrack.entity.Workday;
 import com.jurislpo.juristrack.entity.WorkdayStatus;
 import com.jurislpo.juristrack.exception.ApiException;
+import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.repository.BreakSessionRepository;
 import com.jurislpo.juristrack.repository.BusinessRepository;
 import com.jurislpo.juristrack.repository.TeamQueryRepository;
@@ -38,6 +39,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -144,7 +146,7 @@ public class TeamService {
      * DAY_ENDED or {@code all}, any case), {@code search} (name, email, employee code), {@code sort} ({@link #SORT_KEYS}, default
      * {@code name}), {@code sortDirection}, {@code page}, {@code pageSize}. 400 for an unknown value.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public TeamBoard listMembers(CurrentUser viewer, Map<String, String> queryParameters) {
         InputValidator validator = new InputValidator();
         ListQuery listQuery = ListQuery.of(queryParameters, SORT_KEYS, "name", validator);
@@ -174,7 +176,7 @@ public class TeamService {
     }
 
     /** One person of the caller's scope with their current time state; 404 outside the scope. Audited as access. */
-    @Transactional
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public TeamMemberDetail findMember(CurrentUser viewer, UUID employeeId) {
         TeamMemberEmployee employee = requireVisibleMember(viewer, employeeId);
         Business business = loadBusiness(viewer.businessId());
@@ -189,7 +191,7 @@ public class TeamService {
     }
 
     /** One person's history, as {@code GET /api/workdays/mine} answers one's own; 404 outside the scope. Audited as access. */
-    @Transactional
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public WorkdayHistory listMemberWorkdays(CurrentUser viewer, UUID employeeId, Map<String, String> queryParameters) {
         requireVisibleMember(viewer, employeeId);
         WorkdayHistory history = workdayHistoryService.listWorkdays(employeeId, viewer.businessId(), queryParameters);
@@ -200,7 +202,7 @@ public class TeamService {
     private TeamMemberEmployee requireVisibleMember(CurrentUser viewer, UUID employeeId) {
         return teamQueryRepository.findMember(viewer.businessId(), employeeId)
                 .filter(employee -> teamAccessPolicy.canView(viewer, employee.id()))
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, EMPLOYEE_NOT_FOUND));
+                .orElseThrow(() -> new OutOfScopeException("user", EMPLOYEE_NOT_FOUND));
     }
 
     private static String readScope(CurrentUser viewer, String rawScope, InputValidator validator) {

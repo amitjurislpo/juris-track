@@ -21,8 +21,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -36,8 +39,9 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>the signature;</li>
  *   <li>{@code iss} = {@code juristrack.integration.issuer}, {@code aud} contains {@code juristrack.integration.audience};</li>
- *   <li>{@code exp} present and not passed, {@code nbf} / {@code iat} not in the future, each within
- *       {@code juristrack.integration.clock-skew-seconds};</li>
+ *   <li>{@code exp} present and not passed, {@code iat} present and, with {@code nbf}, not in the future (each within
+ *       {@code juristrack.integration.clock-skew-seconds}), {@code exp - iat} at most 10 minutes;</li>
+ *   <li>{@code jti} present and not seen before: a token is single-use, so JurisOne issues one per request (replay guard);</li>
  *   <li>the claims {@code sub} (JurisOne employee id), {@code email}, {@code name}, {@code businessId} and {@code businessName};
  *       {@code managerId} (null when absent) and {@code trackRole} (MANAGER or EMPLOYEE; ADMIN only when sent; anything else
  *       or nothing is EMPLOYEE).</li>
@@ -58,6 +62,12 @@ public class IntegrationTokenVerifier {
         }
     }
 
+    /** A token lives about 5 minutes; JurisOne may not issue one that lives longer than this (a leaked token stays usable only that long). */
+    static final Duration MAXIMUM_LIFETIME = Duration.ofMinutes(10);
+    private static final int MAXIMUM_REMEMBERED_TOKEN_IDS = 100_000;
+
+    /** The {@code jti} of every token accepted and until when it is remembered (single use), oldest first. */
+    private final Map<String, Long> usedTokenIds = new LinkedHashMap<>();
     private final boolean isEnabled;
     private final String issuer;
     private final String audience;
@@ -111,7 +121,30 @@ public class IntegrationTokenVerifier {
         }
         checkIssuerAndAudience(claims);
         checkTimes(claims, Instant.now());
-        return readClaims(claims);
+        IntegrationClaims integrationClaims = readClaims(claims);
+        rejectReplay(claims);
+        return integrationClaims;
+    }
+
+    /** A token is single-use: its {@code jti} is remembered until the token would have expired anyway. */
+    private void rejectReplay(JWTClaimsSet claims) {
+        String tokenId = claims.getJWTID();
+        if (tokenId == null || tokenId.isBlank()) throw new InvalidIntegrationTokenException("missing_claim: jti");
+        long now = System.currentTimeMillis();
+        long forgetAtMillis = claims.getExpirationTime().toInstant().plus(clockSkew).toEpochMilli();
+        synchronized (usedTokenIds) {
+            for (Iterator<Long> oldest = usedTokenIds.values().iterator(); oldest.hasNext();) {
+                if (oldest.next() > now) break;
+                oldest.remove();
+            }
+            if (usedTokenIds.containsKey(tokenId)) throw new InvalidIntegrationTokenException("replayed_token");
+            if (usedTokenIds.size() >= MAXIMUM_REMEMBERED_TOKEN_IDS) {
+                Iterator<Long> oldest = usedTokenIds.values().iterator();
+                oldest.next();
+                oldest.remove();
+            }
+            usedTokenIds.put(tokenId, forgetAtMillis);
+        }
     }
 
     private void checkIssuerAndAudience(JWTClaimsSet claims) {
@@ -127,7 +160,9 @@ public class IntegrationTokenVerifier {
         Date notBefore = claims.getNotBeforeTime();
         if (notBefore != null && notBefore.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("not_valid_yet");
         Date issuedAt = claims.getIssueTime();
-        if (issuedAt != null && issuedAt.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("issued_in_the_future");
+        if (issuedAt == null) throw new InvalidIntegrationTokenException("missing_issue_time");
+        if (issuedAt.toInstant().minus(clockSkew).isAfter(now)) throw new InvalidIntegrationTokenException("issued_in_the_future");
+        if (Duration.between(issuedAt.toInstant(), expiresAt.toInstant()).compareTo(MAXIMUM_LIFETIME) > 0) throw new InvalidIntegrationTokenException("lifetime_too_long");
     }
 
     private static IntegrationClaims readClaims(JWTClaimsSet claims) {

@@ -35,7 +35,8 @@ public final class WorkdayTimeline {
         WorkdayTotals totals = IntervalMath.computeTotals(new TimeInterval(startedAt, endedAt), workIntervals, breakIntervals, now);
         List<TimelineSegment> segments = orderedSegments(workSegments, breakSegments);
         boolean isOpen = status != TrackingStatus.DAY_ENDED;
-        return new WorkdaySnapshot(workdayId, date, status, startedAt, endedAt, isStale(isOpen, totals.spanSeconds(), staleWorkdayHours),
+        long staleSpanSeconds = IntervalMath.intervalSeconds(new TimeInterval(currentStretchStart(startedAt, workIntervals, breakIntervals, now), endedAt), now);
+        return new WorkdaySnapshot(workdayId, date, status, startedAt, endedAt, isStale(isOpen, staleSpanSeconds, staleWorkdayHours),
                 IntervalMath.closedSeconds(workIntervals), IntervalMath.closedSeconds(breakIntervals),
                 IntervalMath.findOpenInterval(workIntervals).map(TimeInterval::startedAt).orElse(null),
                 IntervalMath.findOpenInterval(breakIntervals).map(TimeInterval::startedAt).orElse(null),
@@ -64,11 +65,30 @@ public final class WorkdayTimeline {
     }
 
     /**
-     * An open workday whose span is longer than {@code staleWorkdayHours} ("not ended": probably forgotten). Duration-based only:
-     * crossing midnight is normal for a night shift.
+     * Where the day's last uninterrupted stretch began: the start of the day, or after a gap that no work or break interval covers
+     * (a day that ended and was started again: the closed hours in between are not part of what was forgotten). "Not ended" is
+     * measured from here, so a day reopened late in the evening is not flagged at once because of the morning.
      */
-    public static boolean isStale(boolean isOpen, long spanSeconds, int staleWorkdayHours) {
-        return isOpen && spanSeconds > staleWorkdayHours * SECONDS_PER_HOUR;
+    static Instant currentStretchStart(Instant startedAt, List<TimeInterval> workIntervals, List<TimeInterval> breakIntervals, Instant now) {
+        List<TimeInterval> intervals = new ArrayList<>(workIntervals);
+        intervals.addAll(breakIntervals);
+        intervals.sort(Comparator.comparing(TimeInterval::startedAt));
+        Instant stretchStart = startedAt;
+        Instant coveredUntil = startedAt;
+        for (TimeInterval interval : intervals) {
+            if (interval.startedAt().isAfter(coveredUntil)) stretchStart = interval.startedAt();
+            Instant intervalEnd = interval.isOpen() ? now : interval.endedAt();
+            if (intervalEnd.isAfter(coveredUntil)) coveredUntil = intervalEnd;
+        }
+        return stretchStart;
+    }
+
+    /**
+     * An open workday whose last uninterrupted stretch ({@code staleSeconds}, see {@link #currentStretchStart}) is longer than
+     * {@code staleWorkdayHours} ("not ended": probably forgotten). Duration-based only: crossing midnight is normal for a night shift.
+     */
+    public static boolean isStale(boolean isOpen, long staleSeconds, int staleWorkdayHours) {
+        return isOpen && staleSeconds > staleWorkdayHours * SECONDS_PER_HOUR;
     }
 
     private static List<TimeInterval> intervalsOf(List<TimelineSegment> segments) {
