@@ -4,6 +4,7 @@
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
 | 1.1 | 2026-10-24 | (a) The workday snapshot, the Team board row, the history rows and the report rows carry `lastBreak` (start and end of the break that started last); every table and card shows the time of the last break (FR-TIME-11, FR-TEAM-12, FR-HIST-4, FR-REP-14). (b) The day's start is labelled "Work started" everywhere (the CSV header "Start" became "Work started"), the CSV gets a "Last break" column. (c) Night shifts: an end (or interval end) on another calendar date than its start is shown with its date, in the tables and the CSV (FR-HIST-5) | Owner |
+| 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; FR-AUTH-15, FR-EMP-10 to FR-EMP-14, FR-INT-8 | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FLOW-JurisTrack.md](FLOW-JurisTrack.md) (the flow diagrams of every flow named here) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 Sources: `API.md` (the endpoint contract), `INTEGRATION.md`, `MIGRATION_PLAN.md`, `timetrack.txt` (the original brief), the backend code and the `juris-track-frontend` screens. Where the sources disagree this document says so in section 17 "Open points".
@@ -55,6 +56,7 @@ Y = allowed, N = refused with 403 `FORBIDDEN`, own = only for oneself. A signed-
 | List, create, view, edit, suspend businesses; link or unlink JurisOne | Y | N | N | N |
 | View and change own business settings | N | Y | N | N |
 | List, add, edit, deactivate, reactivate employees | N | Y | N | N |
+| Switch an employee's login off or on | N | Y (not own login) | N | N |
 | Own time: start, break, resume, end; own dashboard, My time, My history, own workday | N (403) | Y | Y | Y |
 | Team board, one person, their history and workdays | N | Y (everybody) | Y (own reporting line) | N |
 | Correct a work or break interval, end a forgotten workday | N | Y (everybody except self) | Y (own reporting line except self) | N |
@@ -102,6 +104,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 | Failed sign-ins per IP address | 20 | `failed_sign_ins_per_ip` |
 | Failed sign-ins per account | 10 (from any address) | `failed_sign_ins_per_email` |
 
+- FR-AUTH-15 A person whose login the owner switched off (FR-EMP-10) cannot sign in: a code request and a code check answer exactly as for an unknown account (same 200 text, same 401 message, no code sent), the audit reason is `login_disabled`, their sessions end at once and a refresh is refused (401). Switching the login on again restores sign-in only.
 - FR-AUTH-13 Above a limit the API answers 429 `RATE_LIMITED`; only failed sign-ins count, successful ones do not.
 - FR-AUTH-14 The IP address is the connection's. Only when the request comes from a **trusted proxy** (`juristrack.security.trusted-proxies`, default loopback only; in sqe/uat/prd set to the web server or gateway) is the client taken from `X-Forwarded-For` (the right-most hop that is not a proxy). A caller therefore cannot choose its own address by writing the header.
 
@@ -165,10 +168,15 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-EMP-7 `PUT /api/employees/{employeeId}/status` with `isActive` and optional `reason` deactivates or reactivates; it is idempotent (setting the state already held changes nothing and writes nothing).
 - FR-EMP-8 Deactivating (a) ends every session of the person, (b) stops new sign-in codes, (c) closes the person's open workday at that moment (work or break interval ends, day completed, totals recomputed), (d) leaves their reports with them as manager. Refusals: 422 `CANNOT_DEACTIVATE_SELF`, 422 `LAST_ACTIVE_OWNER` (the business must keep one active ADMIN).
 - FR-EMP-9 A refused change (any 422 above) is audited as `employee.change_refused` (DENIED, the code as reason) although nothing changes.
+- FR-EMP-10 **Login access** is separate from Deactivate. `PUT /api/employees/{employeeId}/login-access` with `isEnabled` and optional `reason` switches a person's sign-in off or on. A person with login off stays active, in the list, on the board and in the reports, and their history is kept; they only cannot sign in. It is idempotent (the state already held changes nothing and writes nothing). `isLoginEnabled` is part of every employee row and the detail (default true).
+- FR-EMP-11 Only the ADMIN (owner) of the same business calls it: MANAGER and EMPLOYEE get 403, a person of another business, the super admin or an unknown id 404.
+- FR-EMP-12 Switching off (a) ends every session of the person, so the next request is 401 and a refresh is refused, (b) closes the person's open workday at that moment, as FR-EMP-8 does, with the reason `login_disabled` (no day keeps running for somebody who cannot stop it, also across midnight for a night shift), (c) refuses sign-in as FR-AUTH-15 says. Switching on restores sign-in only; nothing is reopened.
+- FR-EMP-13 The owner cannot switch off their own login: 422 `CANNOT_DISABLE_OWN_LOGIN` (audited `employee.change_refused`). The web app hides the button on the owner's own page.
+- FR-EMP-14 The Employees list shows a "Login off" chip next to the status, and the employee page has a "Login access" card (state, "Disable login" / "Enable login", a confirmation with an optional reason).
 
-**Data kept.** `users`: employee code, names, unique email, role, `is_active`, last login, `manager_id` (same business), `jurisone_employee_id`. Database checks: the super admin is the only user without business; nobody is their own manager.
+**Data kept.** `users`: employee code, names, unique email, role, `is_active`, `is_login_enabled`, last login, `manager_id` (same business), `jurisone_employee_id`. Database checks: the super admin is the only user without business; nobody is their own manager.
 
-**Audit entries.** `employee.created`, `employee.updated` (the whole record before and after; only when something changed), `employee.deactivated` (after lists `endedSessions` and `closedWorkdayId`), `employee.reactivated`, `employee.change_refused`, `workday.closed`, `access.employee_list_viewed` (filters, `rowCount`, `total`), `access.employee_viewed` (not when the owner opens their own record).
+**Audit entries.** `employee.created`, `employee.updated` (the whole record before and after; only when something changed), `employee.deactivated` (after lists `endedSessions` and `closedWorkdayId`), `employee.reactivated`, `employee.login_disabled` and `employee.login_enabled` (with the reason; disabling lists `endedSessions` and `closedWorkdayId`), `employee.change_refused`, `workday.closed`, `access.employee_list_viewed` (filters, `rowCount`, `total`), `access.employee_viewed` (not when the owner opens their own record).
 
 ---
 
@@ -394,6 +402,7 @@ The full picture, diagrams and the token step by step are in [FLOW-JurisTrack-Ju
 - FR-INT-3 **Just-in-time provisioning:** the business is found by `jurisone_business_id` (created with defaults if new, renamed if JurisOne's name changed), the user by `jurisone_employee_id`, else by email **inside that business**, else created. **A token never adopts an existing standalone business by email**; only the super admin's explicit link (FR-BIZ-8) does, because otherwise any standalone owner could plant a JurisOne colleague's email and take over that company.
 - FR-INT-4 The token is authoritative on every call for name, email, role and manager: `trackRole` `MANAGER` or `EMPLOYEE` (anything else is EMPLOYEE; `ADMIN` only when sent), `managerId` resolved by the manager's JurisOne id within the business. Exception: an existing ADMIN keeps the owner role unless the token itself says otherwise. An unchanged user writes no entry.
 - FR-INT-5 Refused with 403: a deactivated user, an email that belongs to a user of another business or to the super admin (`integration.user_refused`, reasons `user_deactivated`, `email_of_another_business`, `conflict`; no business is created), a user of a suspended business (`BUSINESS_SUSPENDED`).
+- FR-INT-8 A user whose login the owner switched off (FR-EMP-10) is refused with 403 in the same way (`integration.user_refused`, reason `login_disabled`); the check comes before any change from the token is applied.
 - FR-INT-6 The Bearer token is accepted only when `juristrack.integration.enabled=true` and a public key is configured; requests are audited with source `INTEGRATION`.
 - FR-INT-7 Embedded, JurisTrack's pages (`src/track`) run inside JurisOne's shell through an injected `TrackContext` (API base path `/api/juris-track`, user, translate function, navigate, toast, `onUnauthorized`, `onBusinessSuspended`). The embedding itself is not built yet.
 - The roster push `PUT /api/integration/employees` is **not built** (open point 17.1).

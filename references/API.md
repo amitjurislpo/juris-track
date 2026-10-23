@@ -60,6 +60,7 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 | GET | `/api/employees/{employeeId}` | ADMIN | One employee |
 | PATCH | `/api/employees/{employeeId}` | ADMIN | Change an employee |
 | PUT | `/api/employees/{employeeId}/status` | ADMIN | Deactivate / reactivate |
+| PUT | `/api/employees/{employeeId}/login-access` | ADMIN | Switch the person's sign-in off / on (they stay in the business) |
 | GET | `/api/me/time` | ADMIN, MANAGER, EMPLOYEE | My current time state (timer, today's timeline) |
 | POST | `/api/me/time-events` | ADMIN, MANAGER, EMPLOYEE | Start work, break, resume, end the day |
 | GET | `/api/workdays/mine` | ADMIN, MANAGER, EMPLOYEE | My history: workdays of a date range, totals, daily series |
@@ -79,25 +80,25 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 
 ### POST /api/auth/otp-requests
 Body `{ email: string }`. Always 200 `{ ok, message: "If that account exists and is active, a 6-digit code is on its way to the email." }`; no code is sent
-to an unknown or deactivated account or to a user of a suspended business. 400 missing/invalid email; 429 too many requests (per IP and per email).
+to an unknown or deactivated account, to a person whose login the owner switched off, or to a user of a suspended business. 400 missing/invalid email; 429 too many requests (per IP and per email).
 The IP address is the connection's, or, behind a trusted proxy (`juristrack.security.trusted-proxies`, default loopback only), the client it forwarded in
 `X-Forwarded-For` (the right-most hop that is not a proxy): a caller cannot choose its own address by writing the header.
-Audit: `auth.sign_in_code_requested`, SUCCESS when a code was sent, DENIED with the reason (`unknown_email`, `inactive`, `business_suspended`) otherwise
+Audit: `auth.sign_in_code_requested`, SUCCESS when a code was sent, DENIED with the reason (`unknown_email`, `inactive`, `login_disabled`, `business_suspended`) otherwise
 (the answer is the same; a DENIED entry is written once per address, IP and window); a 429 writes `auth.rate_limited` once per limit, key and window.
 
 ### POST /api/auth/sessions
 Body `{ email: string, otp: string (6 digits), remember?: boolean }` (`remember` = keep me signed in). 201 with the `jt_at` / `jt_rt` cookies and
 `data = { id, firstName, lastName, email, role, businessName }` (`businessName` null for the SUPER_ADMIN). 400 malformed code; 401 wrong, expired or used
-code, unknown or deactivated account, or suspended business (always the same message); 429 after too many failures from one IP address (20 per window) or
+code, unknown or deactivated account, login switched off, or suspended business (always the same message); 429 after too many failures from one IP address (20 per window) or
 for one account (10 per window, from whatever address); only failed attempts count.
 Audit: `auth.signed_in`; a refusal writes `auth.sign_in_failed` with the reason (`wrong_code`, `expired_or_used_code`, `code_burnt`, `unknown_email`,
-`inactive`, `business_suspended`), the wrong try that uses up a code's 5 tries also `auth.sign_in_code_burnt`; a 429 writes `auth.rate_limited` (once per window).
+`inactive`, `login_disabled`, `business_suspended`), the wrong try that uses up a code's 5 tries also `auth.sign_in_code_burnt`; a 429 writes `auth.rate_limited` (once per window).
 
 ### POST /api/auth/session-refreshes
 No body; uses the `jt_rt` cookie. 201 with new cookies. A token used again within `refresh-reuse-grace-seconds` (two requests of one browser at once) gets
-a new `jt_at` only, no second `jt_rt` (so a copied token cannot start a parallel chain). 401 (cookies cleared) when the session ended, expired, the user was deactivated or the refresh
+a new `jt_at` only, no second `jt_rt` (so a copied token cannot start a parallel chain). 401 (cookies cleared) when the session ended, expired, the user was deactivated or their login switched off, or the refresh
 token was used twice. Audit: a successful refresh is not audited (every few minutes); a reused token writes `auth.session_revoked_refresh_reuse`, any
-other refusal `auth.session_refresh_failed` (reason `unknown`, `revoked`, `expired`, `inactive`; once per reason, IP address, user and window); a
+other refusal `auth.session_refresh_failed` (reason `unknown`, `revoked`, `expired`, `inactive`, `login_disabled`; once per reason, IP address, user and window); a
 request without the cookie writes nothing.
 
 ### DELETE /api/auth/sessions/current
@@ -181,8 +182,8 @@ ADMIN. Body and rules as `PATCH /api/businesses/{businessId}`. 200 `{ ok, messag
 Every user of the owner's business, the owner included (never the SUPER_ADMIN). A user of another business answers 404 everywhere.
 
 Employee (rows of the list and the single employee):
-`{ id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName, lastLoginAt, createdAt, activeReportCount }`
-(`managerName` = "First Last" of the manager, `lastLoginAt` null before the first sign-in, `activeReportCount` = active users whose manager this is).
+`{ id, employeeCode, firstName, lastName, email, role, isActive, isLoginEnabled, managerId, managerName, lastLoginAt, createdAt, activeReportCount }`
+(`isLoginEnabled` = false when the owner switched the person's sign-in off, see `PUT .../login-access`; `managerName` = "First Last" of the manager, `lastLoginAt` null before the first sign-in, `activeReportCount` = active users whose manager this is).
 
 ### GET /api/employees
 Query: list parameters, `sort` = `name` (default; first then last name) | `employeeCode` (empty codes last) | `email` | `role` (ADMIN, MANAGER, EMPLOYEE
@@ -221,6 +222,22 @@ completed and its totals are recomputed. Errors: 400 (`isActive`, `reason`), 404
 keep one active ADMIN). Audit: `employee.deactivated` (after includes `endedSessions`, and `closedWorkdayId` when a workday was closed) /
 `employee.reactivated`, with the reason; a closed workday also writes `workday.closed` (before `{ status, endedAt: null }`, after
 `{ status: "COMPLETED", endedAt }`, the reason given, else "Employee deactivated."); a 422 writes `employee.change_refused` (DENIED, the code as reason).
+
+### PUT /api/employees/{employeeId}/login-access
+Switches a person's sign-in off or on **without deactivating them**: they stay active, in the list, on the board and in the reports, and their history is kept;
+they only cannot sign in. Body `{ isEnabled: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Login disabled." | "Login enabled.",
+data: <employee> }`. Idempotent: setting the state the person already has changes nothing and writes no audit entry. Only the owner (ADMIN) of the
+person's business may call it (MANAGER and EMPLOYEE 403; another business's person, the SUPER_ADMIN and an unknown id 404).
+Switching off (a) ends every session of the person at once (their next request is 401; a refresh is refused too), (b) closes their open workday at that moment
+exactly as a deactivation does (the running interval ends, the day is completed and its totals are recomputed), (c) makes a sign-in code request and a code check
+answer exactly as for an unknown account (200 with the usual text, 401 "That code is wrong or has expired. Request a new one."; no code is sent), and (d)
+refuses a JurisOne token of that person with 403 `FORBIDDEN` (audited `integration.user_refused`, reason `login_disabled`). Switching on restores sign-in
+only; the closed workday is not reopened. Errors: 400 (`isEnabled`, `reason`), 404, 422 `CANNOT_DISABLE_OWN_LOGIN` (the owner cannot switch off their own
+sign-in; switching one's own on is a no-op 200).
+Audit: `employee.login_disabled` (before `{ isLoginEnabled: true }`, after includes `endedSessions`, and `closedWorkdayId` when a workday was closed) /
+`employee.login_enabled`, with the reason; a closed workday also writes `workday.closed` (reason `login_disabled`); a 422 writes `employee.change_refused`
+(DENIED, the code as reason). A refused sign-in or code request of a login-disabled person is audited `auth.sign_in_failed` / `auth.sign_in_code_requested`
+with the reason `login_disabled`.
 
 ## Time tracking (own)
 
@@ -532,10 +549,11 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `business.suspended` / `business.reactivated` | business | SUCCESS | the super admin suspended / reactivated a business (with the reason) |
 | `employee.created` / `employee.updated` | people | SUCCESS | a person was added / changed (whole record before and after, role and manager included) |
 | `employee.deactivated` / `employee.reactivated` | people | SUCCESS | with the reason; deactivation lists `endedSessions` and `closedWorkdayId` |
+| `employee.login_disabled` / `employee.login_enabled` | people | SUCCESS | the owner switched the person's sign-in off / on, with the reason; switching off lists `endedSessions` and `closedWorkdayId` |
 | `employee.change_refused` | people | DENIED | a 422 business rule refused a change (`MANAGER_CYCLE`, `LAST_ACTIVE_OWNER`, `CANNOT_DEACTIVATE_SELF`, `ROLE_NOT_ASSIGNABLE`, `MANAGER_*`, ...) |
 | `time.workday_started`, `time.workday_reopened`, `time.break_started`, `time.work_resumed`, `time.workday_ended` | time | SUCCESS | an applied time event |
 | `time.event_failed` | time | FAILED | a time event refused with 500 `TIME_RECORD_INCONSISTENT` |
-| `workday.closed` | time | SUCCESS | somebody else closed a workday because of a deactivation or a suspension of the business (reason `business_suspended`) |
+| `workday.closed` | time | SUCCESS | somebody else closed a workday because of a deactivation, a switched-off login (reason `login_disabled`) or a suspension of the business (reason `business_suspended`) |
 | `time.session_adjusted` | time | SUCCESS | a manager or the owner corrected a work or break interval (interval and workday totals before / after, the reason) |
 | `time.workday_closed` | time | SUCCESS | a manager or the owner ended somebody's open workday (`PUT /api/workdays/{workdayId}/status`), with the closed intervals |
 | `time.correction_refused` | time | DENIED | a 422 business rule refused a correction (`TIME_INTERVAL_OVERLAP`, `WORKDAY_OVERLAP`, `CORRECTION_OUT_OF_RANGE`, `WORKDAY_MUST_START_WITH_WORK`, `INTERVAL_STILL_RUNNING`, ...) |
@@ -549,7 +567,7 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `integration.business_updated` | integration | SUCCESS | the token renamed a linked business |
 | `integration.user_provisioned` / `integration.user_linked` / `integration.user_updated` | integration | SUCCESS | a token created / linked / changed a user |
 | `integration.token_rejected` | integration | DENIED | a refused JurisOne token: reason code only (`bad_signature`, `expired`, `wrong_issuer`, `wrong_audience`, `malformed_token`, `missing_issue_time`, `lifetime_too_long`, `replayed_token`, `missing_claim: <name>`, ...), never the token; once per reason, IP, window |
-| `integration.user_refused` | integration | DENIED | a valid token whose person may not use JurisTrack (`user_deactivated`, `email_of_another_business`, `conflict`); once per reason, user, window |
+| `integration.user_refused` | integration | DENIED | a valid token whose person may not use JurisTrack (`user_deactivated`, `login_disabled`, `email_of_another_business`, `conflict`); once per reason, user, window |
 
 **Volume decisions**: one entry per write; reads of somebody else's data one entry per request (the Team tab's live board, which refreshes every few
 seconds, is not recorded; opening one person, their history or workday, and every report and export is); never audited: reading one's own data

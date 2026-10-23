@@ -32,6 +32,7 @@ public class SessionService {
     static final String REVOKED_FOR_SIGN_OUT = "sign_out";
     static final String REVOKED_FOR_REFRESH_REUSE = "refresh_reuse";
     static final String REVOKED_FOR_INACTIVE_USER = "user_inactive";
+    static final String REVOKED_FOR_LOGIN_DISABLED = "login_disabled";
     /** Why a refresh was refused ({@link RefreshRefusedException#getMessage()}); also the reason in the audit log. */
     static final String REFRESH_MISSING = "missing";
     static final String REFRESH_UNKNOWN = "unknown";
@@ -39,6 +40,7 @@ public class SessionService {
     static final String REFRESH_TOKEN_REUSED = "reused";
     static final String REFRESH_SESSION_EXPIRED = "expired";
     static final String REFRESH_USER_INACTIVE = "inactive";
+    static final String REFRESH_LOGIN_DISABLED = "login_disabled";
 
     /** A new or renewed session: its id, its user and the cookies to set. */
     public record IssuedSession(String sessionId, UUID userId, List<ResponseCookie> cookies) {}
@@ -105,6 +107,10 @@ public class SessionService {
             sessionRepository.revoke(sessionId, REVOKED_FOR_INACTIVE_USER, now);
             throw new RefreshRefusedException(REFRESH_USER_INACTIVE, tokenSession.userId(), false);
         }
+        if (!tokenSession.isLoginEnabled()) {
+            sessionRepository.revoke(sessionId, REVOKED_FOR_LOGIN_DISABLED, now);
+            throw new RefreshRefusedException(REFRESH_LOGIN_DISABLED, tokenSession.userId(), false);
+        }
         sessionRepository.updateLastSeen(sessionId, now);
         Duration sessionLifetime = Duration.between(tokenSession.sessionCreatedAt(), tokenSession.sessionExpiresAt());
         boolean isRemembered = sessionLifetime.compareTo(Duration.ofHours(settings.shortSessionHours() + 1L)) > 0;
@@ -130,6 +136,12 @@ public class SessionService {
     @Transactional
     public int revokeAllOfUser(UUID userId) {
         return sessionRepository.revokeAllOfUser(userId, REVOKED_FOR_INACTIVE_USER, Instant.now().truncatedTo(ChronoUnit.MICROS));
+    }
+
+    /** Ends every session of a user whose login the owner switched off (in the caller's transaction); returns how many were ended. */
+    @Transactional
+    public int revokeAllOfUserForDisabledLogin(UUID userId) {
+        return sessionRepository.revokeAllOfUser(userId, REVOKED_FOR_LOGIN_DISABLED, Instant.now().truncatedTo(ChronoUnit.MICROS));
     }
 
     /**
