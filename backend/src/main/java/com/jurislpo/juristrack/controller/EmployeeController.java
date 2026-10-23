@@ -14,6 +14,7 @@ import com.jurislpo.juristrack.service.EmployeeService;
 import com.jurislpo.juristrack.service.EmployeeService.EmployeeChanges;
 import com.jurislpo.juristrack.service.EmployeeService.EmployeeInput;
 import com.jurislpo.juristrack.service.EmployeeService.EmployeeStatusChange;
+import com.jurislpo.juristrack.service.EmployeeService.ShiftAssignmentInput;
 import com.jurislpo.juristrack.service.EmployeeService.LoginAccessChange;
 import java.util.Map;
 import java.util.UUID;
@@ -64,6 +65,11 @@ public class EmployeeController {
     public ApiResult<EmployeeRow> updateEmployee(@PathVariable UUID employeeId, @RequestBody(required = false) JsonNode body) {
         CurrentUser owner = auth.requireRole(Role.ADMIN);
         return ApiResult.success("Employee saved.", employeeService.update(owner, employeeId, EmployeeChanges.from(PatchBody.of(body, objectMapper))));
+    }
+
+    @PutMapping("/{employeeId}/shift")
+    public ApiResult<EmployeeRow> assignEmployeeShift(@PathVariable UUID employeeId, @RequestBody(required = false) ShiftAssignmentInput body) {
+        return ApiResult.success("Shift saved.", employeeService.assignShift(auth.requireRole(Role.ADMIN), employeeId, body));
     }
 
     @PutMapping("/{employeeId}/status")

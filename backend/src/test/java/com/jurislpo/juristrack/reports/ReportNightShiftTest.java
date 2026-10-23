@@ -46,7 +46,7 @@ class ReportNightShiftTest extends ReportTestBase {
                 .andExpect(jsonPath("$.data.rows[0].key").value("2026-10-21"));
         String csvText = new String(csv(manager, "employeeId=" + nightEmployeeId + "&range=yesterday").andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
-        assertThat(csvText).endsWith("\r\n2026-10-21,Nina Night,N1,Maya Manager,Day Ended,22:00,2026-10-22 06:00,8.00,0.00,8.00,0,\r\n");
+        assertThat(csvText).endsWith("\r\n2026-10-21,Nina Night,N1,Maya Manager,Day Ended,22:00,2026-10-22 06:00,8.00,0.00,8.00,0,,0.00,General day,00:00,00:00,,\r\n");
     }
 
     private void recordEvent(Cookie accessCookie, String type) throws Exception {

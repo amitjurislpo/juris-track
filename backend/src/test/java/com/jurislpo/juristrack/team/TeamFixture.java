@@ -1,5 +1,6 @@
 package com.jurislpo.juristrack.team;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -96,6 +97,14 @@ final class TeamFixture {
 
     ResultActions read(UUID userId, String path) throws Exception {
         return mockMvc.perform(get(path).cookie(cookieOf(userId)));
+    }
+
+    ResultActions postJson(UUID userId, String path, String json) throws Exception {
+        return mockMvc.perform(SignIn.fromWebApp(post(path)).cookie(cookieOf(userId)).content(json));
+    }
+
+    ResultActions deleteJson(UUID userId, String path) throws Exception {
+        return mockMvc.perform(SignIn.fromWebApp(delete(path)).cookie(cookieOf(userId)));
     }
 
     ResultActions patchJson(UUID userId, String path, String json) throws Exception {

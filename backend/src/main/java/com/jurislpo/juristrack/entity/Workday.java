@@ -17,8 +17,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * One employee's workday. {@code workDate} is the calendar date in the business time zone when work started;
- * {@code activeEmployeeId} equals the employee while the day is open. The totals are a cache recomputed from the sessions.
+ * One employee's workday. {@code workDate} is the SHIFT DATE: the date of the shift occurrence the day was attributed to when it
+ * started, in the business time zone (the calendar date for the default shift; a night shift keeps the date it started on);
+ * {@code activeEmployeeId} equals the employee while the day is open. The shift fields are a snapshot taken when the day started. The totals are a cache recomputed from the sessions.
  */
 @Entity
 @Table(name = "workdays")
@@ -44,6 +45,31 @@ public class Workday {
 
     @Column(name = "time_zone", nullable = false)
     private String timeZone;
+
+    /** The shift the day was attributed to when it started; null for a record written without one. */
+    @Column(name = "shift_id")
+    private UUID shiftId;
+
+    @Column(name = "shift_name")
+    private String shiftName;
+
+    @Column(name = "scheduled_start_at")
+    private Instant scheduledStartAt;
+
+    @Column(name = "scheduled_end_at")
+    private Instant scheduledEndAt;
+
+    /** The day started in no shift's attribution window (the nearest shift was taken). */
+    @Column(name = "is_outside_shift", nullable = false)
+    private boolean isOutsideShift;
+
+    /** The day was started on a week off of the roster: all of its productive time is extra time. */
+    @Column(name = "is_off_day", nullable = false)
+    private boolean isOffDay;
+
+    /** Cached with the other totals when the day is completed: productive seconds outside the shift's scheduled window. */
+    @Column(name = "extra_seconds")
+    private Integer extraSeconds;
 
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;
@@ -100,6 +126,20 @@ public class Workday {
     public void setWorkDate(LocalDate workDate) { this.workDate = workDate; }
     public String getTimeZone() { return timeZone; }
     public void setTimeZone(String timeZone) { this.timeZone = timeZone; }
+    public UUID getShiftId() { return shiftId; }
+    public void setShiftId(UUID shiftId) { this.shiftId = shiftId; }
+    public String getShiftName() { return shiftName; }
+    public void setShiftName(String shiftName) { this.shiftName = shiftName; }
+    public Instant getScheduledStartAt() { return scheduledStartAt; }
+    public void setScheduledStartAt(Instant scheduledStartAt) { this.scheduledStartAt = scheduledStartAt; }
+    public Instant getScheduledEndAt() { return scheduledEndAt; }
+    public void setScheduledEndAt(Instant scheduledEndAt) { this.scheduledEndAt = scheduledEndAt; }
+    public boolean isOutsideShift() { return isOutsideShift; }
+    public void setOutsideShift(boolean isOutsideShift) { this.isOutsideShift = isOutsideShift; }
+    public boolean isOffDay() { return isOffDay; }
+    public void setOffDay(boolean isOffDay) { this.isOffDay = isOffDay; }
+    public Integer getExtraSeconds() { return extraSeconds; }
+    public void setExtraSeconds(Integer extraSeconds) { this.extraSeconds = extraSeconds; }
     public Instant getStartedAt() { return startedAt; }
     public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
     public Instant getEndedAt() { return endedAt; }

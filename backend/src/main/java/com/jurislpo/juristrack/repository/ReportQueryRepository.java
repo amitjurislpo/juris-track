@@ -38,7 +38,8 @@ public class ReportQueryRepository {
      */
     public record StoredWorkday(UUID id, LocalDate date, UUID employeeId, String employeeCode, String employeeFirstName,
             String employeeLastName, UUID managerId, String managerName, WorkdayStatus status, Instant startedAt, Instant endedAt,
-            Integer productiveSeconds, Integer breakSeconds, Integer breakCount) {}
+            Integer productiveSeconds, Integer breakSeconds, Integer breakCount, String timeZone, UUID shiftId, String shiftName,
+            Instant scheduledStartAt, Instant scheduledEndAt, boolean isOutsideShift, boolean isOffDay, Integer extraSeconds) {}
 
     /**
      * What to read.
@@ -59,7 +60,8 @@ public class ReportQueryRepository {
             SELECT workday.id, workday.work_date, workday.employee_id, employee.employee_code, employee.first_name, employee.last_name,
                    workday.manager_id, NULLIF(TRIM(manager.first_name || ' ' || manager.last_name), '') AS manager_name,
                    workday.status::text AS status, workday.started_at, workday.ended_at, workday.productive_seconds, workday.break_seconds,
-                   workday.break_count
+                   workday.break_count, workday.time_zone, workday.shift_id, workday.shift_name, workday.scheduled_start_at,
+                   workday.scheduled_end_at, workday.is_outside_shift, workday.is_off_day, workday.extra_seconds
             FROM workdays workday
             JOIN users employee ON employee.id = workday.employee_id
             LEFT JOIN users manager ON manager.id = workday.manager_id
@@ -70,7 +72,10 @@ public class ReportQueryRepository {
             resultSet.getObject("employee_id", UUID.class), resultSet.getString("employee_code"), resultSet.getString("first_name"),
             resultSet.getString("last_name"), resultSet.getObject("manager_id", UUID.class), resultSet.getString("manager_name"),
             WorkdayStatus.valueOf(resultSet.getString("status")), instantOf(resultSet, "started_at"), instantOf(resultSet, "ended_at"),
-            integerOf(resultSet, "productive_seconds"), integerOf(resultSet, "break_seconds"), integerOf(resultSet, "break_count"));
+            integerOf(resultSet, "productive_seconds"), integerOf(resultSet, "break_seconds"), integerOf(resultSet, "break_count"),
+            resultSet.getString("time_zone"), resultSet.getObject("shift_id", UUID.class), resultSet.getString("shift_name"),
+            instantOf(resultSet, "scheduled_start_at"), instantOf(resultSet, "scheduled_end_at"), resultSet.getBoolean("is_outside_shift"),
+            resultSet.getBoolean("is_off_day"), integerOf(resultSet, "extra_seconds"));
 
     private final JdbcTemplate jdbcTemplate;
 

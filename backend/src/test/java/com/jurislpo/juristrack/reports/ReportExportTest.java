@@ -24,7 +24,7 @@ import org.springframework.http.MediaType;
 class ReportExportTest extends ReportTestBase {
 
     private static final String HEADER = "Date,Employee,Employee ID,Manager,Status,Work started (%1$s),End (%1$s),Productive hours,Break hours,"
-            + "Span hours,Breaks,Last break (%1$s)";
+            + "Span hours,Breaks,Last break (%1$s),Extra hours,Shift,Scheduled start (%1$s),Scheduled end (%1$s),Outside shift,Week off";
 
     @Test
     void theOwnersExportHasEveryRowOfTheRangeByteForByte() throws Exception {
@@ -36,14 +36,14 @@ class ReportExportTest extends ReportTestBase {
                 .andReturn().getResponse().getContentAsByteArray();
         String expected = "﻿" + String.join("\r\n",
                 HEADER.formatted("IST"),
-                "2026-10-21,Esha Employee,E1,Maya Manager,Working,09:00,,2.00,0.00,2.00,0,",
-                "2026-10-21,Olivia Owner,O1,,Day Ended,08:00,10:00,2.00,0.00,2.00,0,",
-                "2026-10-20,Esha Employee,E1,Maya Manager,Day Ended,09:00,15:00,6.00,0.00,6.00,0,",
-                "2026-10-20,Ravi Indirect,EMPTHREE,Mark Lead,Day Ended,08:30,16:00,7.00,0.50,7.50,1,11:30",
-                "2026-10-20,Zed Other,E4,Olivia Owner,Not ended,09:00,,26.00,0.00,26.00,0,",
-                "2026-10-19,Esha Employee,E1,Olivia Owner,Day Ended,09:00,18:00,8.00,1.00,9.00,1,13:00",
-                "2026-10-19,Mark Lead,M2,Maya Manager,Day Ended,10:00,15:00,5.00,0.00,5.00,0,",
-                "2026-10-19,Zed Other,E4,Olivia Owner,Day Ended,09:00,13:00,4.00,0.00,4.00,0,") + "\r\n";
+                "2026-10-21,Esha Employee,E1,Maya Manager,Working,09:00,,2.00,0.00,2.00,0,,0.00,,,,,",
+                "2026-10-21,Olivia Owner,O1,,Day Ended,08:00,10:00,2.00,0.00,2.00,0,,0.00,,,,,",
+                "2026-10-20,Esha Employee,E1,Maya Manager,Day Ended,09:00,15:00,6.00,0.00,6.00,0,,0.00,,,,,",
+                "2026-10-20,Ravi Indirect,EMPTHREE,Mark Lead,Day Ended,08:30,16:00,7.00,0.50,7.50,1,11:30,0.00,,,,,",
+                "2026-10-20,Zed Other,E4,Olivia Owner,Not ended,09:00,,26.00,0.00,26.00,0,,0.00,,,,,",
+                "2026-10-19,Esha Employee,E1,Olivia Owner,Day Ended,09:00,18:00,8.00,1.00,9.00,1,13:00,0.00,,,,,",
+                "2026-10-19,Mark Lead,M2,Maya Manager,Day Ended,10:00,15:00,5.00,0.00,5.00,0,,0.00,,,,,",
+                "2026-10-19,Zed Other,E4,Olivia Owner,Day Ended,09:00,13:00,4.00,0.00,4.00,0,,0.00,,,,,") + "\r\n";
         assertThat(new String(body, StandardCharsets.UTF_8)).isEqualTo(expected);
         assertThat(Arrays.copyOf(body, 3)).containsExactly(0xEF, 0xBB, 0xBF);
         assertThat(body[body.length - 2]).isEqualTo((byte) '\r');
@@ -68,7 +68,7 @@ class ReportExportTest extends ReportTestBase {
         Cookie owner = signIn(ownerEmail);
         String newYork = csvText(owner, "timeZone=America/New_York");
         assertThat(newYork).startsWith("﻿" + HEADER.formatted("EDT") + "\r\n")
-                .contains("\r\n2026-10-20,Ravi Indirect,EMPTHREE,Mark Lead,Day Ended,23:00,2026-10-20 06:30,7.00,0.50,7.50,1,2026-10-20 02:00\r\n")
+                .contains("\r\n2026-10-20,Ravi Indirect,EMPTHREE,Mark Lead,Day Ended,23:00,2026-10-20 06:30,7.00,0.50,7.50,1,2026-10-20 02:00,0.00,,,,,\r\n")
                 .contains("\r\n2026-10-21,Esha Employee,E1,Maya Manager,Working,23:30,,");
         // the zone is matched in any case; the business zone may be named explicitly
         assertThat(csvText(owner, "timeZone=america/new_york")).startsWith("﻿" + HEADER.formatted("EDT"));
@@ -77,7 +77,7 @@ class ReportExportTest extends ReportTestBase {
         clock.setTo("2026-12-02T06:00:00Z");
         assertThat(csvText(owner, "timeZone=America/New_York&range=custom&from=2026-10-19&to=2026-10-19"))
                 .startsWith("﻿" + HEADER.formatted("EST"))
-                .contains("\r\n2026-10-19,Esha Employee,E1,Olivia Owner,Day Ended,23:30,2026-10-19 08:30,8.00,1.00,9.00,1,2026-10-19 03:30\r\n");
+                .contains("\r\n2026-10-19,Esha Employee,E1,Olivia Owner,Day Ended,23:30,2026-10-19 08:30,8.00,1.00,9.00,1,2026-10-19 03:30,0.00,,,,,\r\n");
     }
 
     @Test
@@ -88,7 +88,7 @@ class ReportExportTest extends ReportTestBase {
         Cookie owner = signIn(ownerEmail);
         clock.setTo("2026-03-08T12:00:00Z");
         assertThat(csvText(owner, "range=today&timeZone=America/New_York")).isEqualTo("﻿" + HEADER.formatted("EDT") + "\r\n"
-                + "2026-03-08,Dana Daylight,D1,Olivia Owner,Day Ended,01:00,04:00,2.00,0.00,2.00,0,\r\n");
+                + "2026-03-08,Dana Daylight,D1,Olivia Owner,Day Ended,01:00,04:00,2.00,0.00,2.00,0,,0.00,,,,,\r\n");
         // one second before the change the header still says EST
         clock.setTo("2026-03-08T06:59:59Z");
         assertThat(csvText(owner, "range=yesterday&timeZone=America/New_York")).isEqualTo("﻿" + HEADER.formatted("EST") + "\r\n");
@@ -103,7 +103,7 @@ class ReportExportTest extends ReportTestBase {
         jdbcTemplate.update("UPDATE users SET first_name = '@Olivia' WHERE id = ?", ownerId);
         Cookie owner = signIn(ownerEmail);
         assertThat(csvText(owner, "employeeId=" + trickyEmployeeId)).isEqualTo("﻿" + HEADER.formatted("IST") + "\r\n"
-                + "2026-10-21,\"'=cmd |calc, \"\"x\"\"\",'-5x,'@Olivia Owner,Day Ended,09:00,10:00,1.00,0.00,1.00,0,\r\n");
+                + "2026-10-21,\"'=cmd |calc, \"\"x\"\"\",'-5x,'@Olivia Owner,Day Ended,09:00,10:00,1.00,0.00,1.00,0,,0.00,,,,,\r\n");
     }
 
     @Test
