@@ -51,6 +51,10 @@ public class User {
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
+    /** False = the owner switched sign-in off: the person stays in the business but cannot sign in (EmployeeService#setLoginAccess). */
+    @Column(name = "is_login_enabled", nullable = false)
+    private boolean isLoginEnabled = true;
+
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
@@ -97,6 +101,8 @@ public class User {
     public void setRole(Role role) { this.role = role; }
     public boolean isActive() { return isActive; }
     public void setActive(boolean isActive) { this.isActive = isActive; }
+    public boolean isLoginEnabled() { return isLoginEnabled; }
+    public void setLoginEnabled(boolean isLoginEnabled) { this.isLoginEnabled = isLoginEnabled; }
     public Instant getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
     public UUID getManagerId() { return managerId; }

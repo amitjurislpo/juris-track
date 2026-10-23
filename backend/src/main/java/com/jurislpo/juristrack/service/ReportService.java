@@ -8,6 +8,7 @@ import com.jurislpo.juristrack.engine.CsvFormat;
 import com.jurislpo.juristrack.engine.DateRange;
 import com.jurislpo.juristrack.engine.DateRanges;
 import com.jurislpo.juristrack.engine.IntervalMath;
+import com.jurislpo.juristrack.engine.LastBreak;
 import com.jurislpo.juristrack.engine.RangePreset;
 import com.jurislpo.juristrack.engine.ReportingLine;
 import com.jurislpo.juristrack.engine.TimeInterval;
@@ -84,10 +85,11 @@ public class ReportService {
      * @param status  WORKING, ON_BREAK or DAY_ENDED
      * @param isStale open and longer than the business's stale workday hours ("Not ended")
      * @param manager null when the employee had no manager that day
+     * @param lastBreak the break that started last (its end is null while it runs), or null without a break
      */
     public record ReportRow(UUID id, LocalDate date, EmployeeReference employee, ManagerReference manager, TrackingStatus status,
             @JsonProperty("isStale") boolean isStale, Instant startedAt, Instant endedAt, long productiveSeconds, long breakSeconds,
-            long spanSeconds, int breakCount) {}
+            long spanSeconds, int breakCount, LastBreak lastBreak) {}
 
     /**
      * What every workday of the range adds up to (all pages).
@@ -250,15 +252,17 @@ public class ReportService {
         }
         String abbreviation = ZoneNames.zoneAbbreviation(displayZone, request.now());
         List<String> lines = new ArrayList<>();
-        lines.add(CsvFormat.line(List.of("Date", "Employee", "Employee ID", "Manager", "Status", "Start (" + abbreviation + ")",
-                "End (" + abbreviation + ")", "Productive hours", "Break hours", "Span hours", "Breaks")));
+        lines.add(CsvFormat.line(List.of("Date", "Employee", "Employee ID", "Manager", "Status", "Work started (" + abbreviation + ")",
+                "End (" + abbreviation + ")", "Productive hours", "Break hours", "Span hours", "Breaks",
+                "Last break (" + abbreviation + ")")));
         for (ReportRow row : rows) {
             lines.add(CsvFormat.line(List.of(row.date().toString(), row.employee().name(),
                     row.employee().employeeCode() == null ? "" : row.employee().employeeCode(),
                     row.manager() == null || row.manager().name() == null ? "" : row.manager().name(),
                     row.isStale() ? NOT_ENDED_LABEL : STATUS_LABELS.get(row.status()), CsvFormat.wallClockTime(row.startedAt(), displayZone),
-                    row.endedAt() == null ? "" : CsvFormat.wallClockTime(row.endedAt(), displayZone), CsvFormat.decimalHours(row.productiveSeconds()),
-                    CsvFormat.decimalHours(row.breakSeconds()), CsvFormat.decimalHours(row.spanSeconds()), row.breakCount())));
+                    row.endedAt() == null ? "" : timeCell(row.endedAt(), row.startedAt(), displayZone), CsvFormat.decimalHours(row.productiveSeconds()),
+                    CsvFormat.decimalHours(row.breakSeconds()), CsvFormat.decimalHours(row.spanSeconds()), row.breakCount(),
+                    lastBreakText(row, displayZone))));
         }
         String fileName = "juristrack-" + request.range().from() + "-to-" + request.range().to() + ".csv";
         reportAccessAudit.recordExport(currentUser, WORKDAYS_REPORT, request.auditFilters(), request.employeeId(), rows.size(),
@@ -400,6 +404,8 @@ public class ReportService {
         Map<UUID, List<BreakSession>> breakSessionsByWorkdayId = liveWorkdayIds.isEmpty() ? Map.of()
                 : breakSessionRepository.findByWorkdayIdInOrderByStartedAtAsc(liveWorkdayIds).stream()
                         .collect(Collectors.groupingBy(BreakSession::getWorkdayId));
+        Map<UUID, LastBreak> lastBreakByWorkdayId = reportQueryRepository.findLastBreaksByWorkdayId(
+                storedWorkdays.stream().filter(ReportService::hasStoredTotals).map(StoredWorkday::id).toList());
         List<ReportRow> rows = new ArrayList<>(storedWorkdays.size());
         for (StoredWorkday workday : storedWorkdays) {
             EmployeeReference employee = new EmployeeReference(workday.employeeId(), workday.employeeCode(),
@@ -409,17 +415,32 @@ public class ReportService {
                 long spanSeconds = IntervalMath.intervalSeconds(new TimeInterval(workday.startedAt(), workday.endedAt()), now);
                 rows.add(new ReportRow(workday.id(), workday.date(), employee, manager, TrackingStatus.DAY_ENDED, false, workday.startedAt(),
                         workday.endedAt(), workday.productiveSeconds(), workday.breakSeconds() == null ? 0 : workday.breakSeconds(), spanSeconds,
-                        workday.breakCount() == null ? 0 : workday.breakCount()));
+                        workday.breakCount() == null ? 0 : workday.breakCount(), lastBreakByWorkdayId.get(workday.id())));
             } else {
                 WorkdaySnapshot snapshot = WorkdayTimeline.snapshot(workday.id(), workday.date(), WorkdaySnapshots.statusOf(workday.status()),
                         workday.startedAt(), workday.endedAt(),
                         WorkdaySnapshots.workSegments(workSessionsByWorkdayId.getOrDefault(workday.id(), List.of())),
                         WorkdaySnapshots.breakSegments(breakSessionsByWorkdayId.getOrDefault(workday.id(), List.of())), now, staleWorkdayHours);
                 rows.add(new ReportRow(workday.id(), workday.date(), employee, manager, snapshot.status(), snapshot.isStale(), snapshot.startedAt(),
-                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount()));
+                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount(), snapshot.lastBreak()));
             }
         }
         return rows;
+    }
+
+    /** The start time of the row's last break in the display zone, or an empty cell without a break. */
+    private static String lastBreakText(ReportRow row, ZoneId displayZone) {
+        return row.lastBreak() == null ? "" : timeCell(row.lastBreak().startedAt(), row.startedAt(), displayZone);
+    }
+
+    /**
+     * {@code HH:mm}, or {@code yyyy-MM-dd HH:mm} when the moment falls on another calendar date (in {@code zone}) than {@code reference}:
+     * the end of a night shift is on the next date.
+     */
+    private static String timeCell(Instant instant, Instant reference, ZoneId zone) {
+        String time = CsvFormat.wallClockTime(instant, zone);
+        LocalDate date = instant.atZone(zone).toLocalDate();
+        return date.equals(reference.atZone(zone).toLocalDate()) ? time : date + " " + time;
     }
 
     private static boolean hasStoredTotals(StoredWorkday workday) {

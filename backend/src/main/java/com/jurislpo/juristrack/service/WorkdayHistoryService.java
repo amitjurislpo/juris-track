@@ -7,6 +7,7 @@ import com.jurislpo.juristrack.engine.BusinessCalendar;
 import com.jurislpo.juristrack.engine.DateRange;
 import com.jurislpo.juristrack.engine.DateRanges;
 import com.jurislpo.juristrack.engine.IntervalMath;
+import com.jurislpo.juristrack.engine.LastBreak;
 import com.jurislpo.juristrack.engine.RangePreset;
 import com.jurislpo.juristrack.engine.TimeInterval;
 import com.jurislpo.juristrack.engine.TrackingStatus;
@@ -21,6 +22,7 @@ import com.jurislpo.juristrack.exception.ApiException;
 import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.repository.BreakSessionRepository;
 import com.jurislpo.juristrack.repository.BusinessRepository;
+import com.jurislpo.juristrack.repository.ReportQueryRepository;
 import com.jurislpo.juristrack.repository.WorkSessionRepository;
 import com.jurislpo.juristrack.repository.WorkdayRepository;
 import com.jurislpo.juristrack.security.CurrentUser;
@@ -63,9 +65,10 @@ public class WorkdayHistoryService {
      * @param breakSeconds      break time (live while open)
      * @param spanSeconds       start to end (or now)
      * @param breakCount        breaks taken
+     * @param lastBreak         the break that started last (its end is null while it runs), or null without a break
      */
     public record WorkdayRow(UUID id, LocalDate date, TrackingStatus status, @JsonProperty("isStale") boolean isStale, Instant startedAt,
-            Instant endedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount) {}
+            Instant endedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount, LastBreak lastBreak) {}
 
     /**
      * The sums over every workday of the range (all pages). {@code averageProductiveSeconds}: productive seconds per workday of the range,
@@ -114,10 +117,11 @@ public class WorkdayHistoryService {
     private final WorkdaySnapshots workdaySnapshots;
     private final TeamAccessPolicy teamAccessPolicy;
     private final TeamAccessAudit teamAccessAudit;
+    private final ReportQueryRepository reportQueryRepository;
 
     public WorkdayHistoryService(Clock clock, WorkdayRepository workdayRepository, WorkSessionRepository workSessionRepository,
             BreakSessionRepository breakSessionRepository, BusinessRepository businessRepository, WorkdaySnapshots workdaySnapshots,
-            TeamAccessPolicy teamAccessPolicy, TeamAccessAudit teamAccessAudit) {
+            TeamAccessPolicy teamAccessPolicy, TeamAccessAudit teamAccessAudit, ReportQueryRepository reportQueryRepository) {
         this.clock = clock;
         this.workdayRepository = workdayRepository;
         this.workSessionRepository = workSessionRepository;
@@ -126,6 +130,7 @@ public class WorkdayHistoryService {
         this.workdaySnapshots = workdaySnapshots;
         this.teamAccessPolicy = teamAccessPolicy;
         this.teamAccessAudit = teamAccessAudit;
+        this.reportQueryRepository = reportQueryRepository;
     }
 
     /**
@@ -200,18 +205,20 @@ public class WorkdayHistoryService {
         Map<UUID, List<BreakSession>> breakSessionsByWorkdayId = liveWorkdayIds.isEmpty() ? Map.of()
                 : breakSessionRepository.findByWorkdayIdInOrderByStartedAtAsc(liveWorkdayIds).stream()
                         .collect(Collectors.groupingBy(BreakSession::getWorkdayId));
+        Map<UUID, LastBreak> lastBreakByWorkdayId = reportQueryRepository.findLastBreaksByWorkdayId(
+                workdays.stream().filter(WorkdayHistoryService::hasCachedTotals).map(Workday::getId).toList());
         List<WorkdayRow> rows = new ArrayList<>();
         for (Workday workday : workdays) {
             if (hasCachedTotals(workday)) {
                 long spanSeconds = IntervalMath.intervalSeconds(new TimeInterval(workday.getStartedAt(), workday.getEndedAt()), now);
                 rows.add(new WorkdayRow(workday.getId(), workday.getWorkDate(), TrackingStatus.DAY_ENDED, false, workday.getStartedAt(),
                         workday.getEndedAt(), workday.getProductiveSeconds(), workday.getBreakSeconds() == null ? 0 : workday.getBreakSeconds(),
-                        spanSeconds, workday.getBreakCount() == null ? 0 : workday.getBreakCount()));
+                        spanSeconds, workday.getBreakCount() == null ? 0 : workday.getBreakCount(), lastBreakByWorkdayId.get(workday.getId())));
             } else {
                 WorkdaySnapshot snapshot = WorkdaySnapshots.snapshotOf(workday, workSessionsByWorkdayId.getOrDefault(workday.getId(), List.of()),
                         breakSessionsByWorkdayId.getOrDefault(workday.getId(), List.of()), now, staleWorkdayHours);
                 rows.add(new WorkdayRow(snapshot.id(), snapshot.date(), snapshot.status(), snapshot.isStale(), snapshot.startedAt(),
-                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount()));
+                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount(), snapshot.lastBreak()));
             }
         }
         return rows;

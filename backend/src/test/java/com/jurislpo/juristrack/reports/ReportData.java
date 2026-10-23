@@ -35,6 +35,12 @@ final class ReportData {
         return workdayId;
     }
 
+    /** A closed break session of a workday (the stored totals of the workday are not touched). */
+    void breakSession(UUID businessId, UUID employeeId, UUID workdayId, String startedAt, String endedAt) {
+        jdbcTemplate.update("INSERT INTO break_sessions (business_id, employee_id, workday_id, started_at, ended_at) VALUES (?, ?, ?, ?, ?)",
+                businessId, employeeId, workdayId, timestamp(startedAt), timestamp(endedAt));
+    }
+
     /** An open (WORKING) workday with a running work session since it started; returns its id. */
     UUID openWorkday(UUID businessId, UUID employeeId, UUID managerId, String date, String startedAt) {
         UUID workdayId = UUID.randomUUID();
