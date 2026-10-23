@@ -1,5 +1,6 @@
 package com.jurislpo.juristrack.repository;
 
+import com.jurislpo.juristrack.engine.LastBreak;
 import com.jurislpo.juristrack.entity.WorkdayStatus;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -7,7 +8,10 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -108,6 +112,22 @@ public class ReportQueryRepository {
         }
         return jdbcTemplate.query(WORKDAY_SELECT + where + " ORDER BY workday.work_date DESC, workday.started_at, workday.id", WORKDAY_MAPPER,
                 arguments.toArray());
+    }
+
+    /**
+     * The break that started last of each of the given workdays (a workday without a break is absent from the answer); used for the
+     * rows that take their totals from the stored workday, so the last break needs no read of every interval.
+     */
+    public Map<UUID, LastBreak> findLastBreaksByWorkdayId(Collection<UUID> workdayIds) {
+        if (workdayIds.isEmpty()) return Map.of();
+        Map<UUID, LastBreak> lastBreaks = new HashMap<>();
+        jdbcTemplate.query("""
+                SELECT DISTINCT ON (workday_id) workday_id, started_at, ended_at
+                FROM break_sessions WHERE workday_id = ANY (?)
+                ORDER BY workday_id, started_at DESC""", resultSet -> {
+            lastBreaks.put(resultSet.getObject("workday_id", UUID.class), new LastBreak(instantOf(resultSet, "started_at"), instantOf(resultSet, "ended_at")));
+        }, (Object) workdayIds.toArray(new UUID[0]));
+        return lastBreaks;
     }
 
     private static Instant instantOf(ResultSet resultSet, String column) throws SQLException {

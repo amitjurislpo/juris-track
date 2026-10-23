@@ -162,6 +162,9 @@ class TeamBoardTest extends IntegrationTest {
         assertThat(onBreak.get("breakSeconds")).isEqualTo(1800);
         assertThat(onBreak.get("activeBreakStartedAt")).isEqualTo("2026-10-05T04:30:00Z");
         assertThat(onBreak.get("breakCount")).isEqualTo(1);
+        Map<String, Object> runningBreak = (Map<String, Object>) onBreak.get("lastBreak");
+        assertThat(runningBreak).containsEntry("startedAt", "2026-10-05T04:30:00Z").containsEntry("endedAt", null);
+        assertThat(working).containsEntry("lastBreak", null);
         Map<String, Object> ended = row(answer, team.managerBId);
         assertThat(ended.get("status")).isEqualTo("DAY_ENDED");
         assertThat(ended.get("productiveSeconds")).isEqualTo(3600);
@@ -179,7 +182,7 @@ class TeamBoardTest extends IntegrationTest {
 
         String notStarted = board(team.managerCId, "");
         assertThat(row(notStarted, team.employeeOfCId)).containsEntry("status", "NOT_STARTED").containsEntry("workdayId", null)
-                .containsEntry("productiveSeconds", 0).containsEntry("lastActivity", null).containsEntry("startedAt", null);
+                .containsEntry("productiveSeconds", 0).containsEntry("lastActivity", null).containsEntry("lastBreak", null).containsEntry("startedAt", null);
     }
 
     private static Map<String, Object> row(String answer, UUID employeeId) {

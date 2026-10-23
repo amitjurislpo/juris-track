@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * Empty database: Flyway applies V1__baseline.sql, V2, V3 and V11, then Hibernate validates every entity against it
+ * Empty database: Flyway applies V1__baseline.sql, V2, V3, V11 and V12, then Hibernate validates every entity against it
  * (ddl-auto=validate; the context would not start otherwise). Rows of every entity round-trip through JPA with native
  * enums, jsonb, text[] and the database defaults, and the CHECK constraints guard the "one open X" rules.
  */
@@ -50,9 +50,11 @@ class FreshDatabaseSchemaTest {
 
     @Test
     void flywayAppliedTheBaselineWithRowLevelSecurity() {
-        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3", "11", "20");
+        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3", "11", "12", "20");
         assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'is_suspended'",
                 String.class)).isEqualTo("false");
+        assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'is_login_enabled'",
+                String.class)).isEqualTo("true");
         assertThat(jdbcTemplate.queryForList("SELECT typname FROM pg_type WHERE typname IN ('user_role', 'workday_status') ORDER BY typname", String.class))
                 .containsExactly("user_role", "workday_status");
         assertThat(jdbcTemplate.queryForList("SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation' ORDER BY tablename", String.class))

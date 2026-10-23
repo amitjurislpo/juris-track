@@ -32,13 +32,13 @@ public class EmployeeQueryRepository {
      * @param activeReportCount how many active users report directly to this person
      */
     public record EmployeeRow(UUID id, String employeeCode, String firstName, String lastName, String email, Role role,
-            @JsonProperty("isActive") boolean isActive, UUID managerId, String managerName, Instant lastLoginAt, Instant createdAt,
-            long activeReportCount, ShiftSummary shift) {
+            @JsonProperty("isActive") boolean isActive, @JsonProperty("isLoginEnabled") boolean isLoginEnabled, UUID managerId,
+            String managerName, Instant lastLoginAt, Instant createdAt, long activeReportCount, ShiftSummary shift) {
 
         /** The same row with the person's current shift. */
         public EmployeeRow withShift(ShiftSummary currentShift) {
-            return new EmployeeRow(id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName, lastLoginAt, createdAt,
-                    activeReportCount, currentShift);
+            return new EmployeeRow(id, employeeCode, firstName, lastName, email, role, isActive, isLoginEnabled, managerId, managerName,
+                    lastLoginAt, createdAt, activeReportCount, currentShift);
         }
     }
 
@@ -64,7 +64,7 @@ public class EmployeeQueryRepository {
             "lastLoginAt", "person.last_login_at %s NULLS LAST");
 
     private static final String ROW_SELECT = """
-            SELECT person.id, person.employee_code, person.first_name, person.last_name, person.email, person.role::text AS role, person.is_active,
+            SELECT person.id, person.employee_code, person.first_name, person.last_name, person.email, person.role::text AS role, person.is_active, person.is_login_enabled,
                    person.manager_id, NULLIF(TRIM(manager.first_name || ' ' || manager.last_name), '') AS manager_name, person.last_login_at,
                    person.created_at,
                    (SELECT count(*) FROM users report WHERE report.manager_id = person.id AND report.is_active) AS active_report_count
@@ -74,7 +74,8 @@ public class EmployeeQueryRepository {
 
     private static final RowMapper<EmployeeRow> ROW_MAPPER = (resultSet, rowNumber) -> new EmployeeRow(resultSet.getObject("id", UUID.class),
             resultSet.getString("employee_code"), resultSet.getString("first_name"), resultSet.getString("last_name"), resultSet.getString("email"),
-            Role.valueOf(resultSet.getString("role")), resultSet.getBoolean("is_active"), resultSet.getObject("manager_id", UUID.class),
+            Role.valueOf(resultSet.getString("role")), resultSet.getBoolean("is_active"),
+            resultSet.getBoolean("is_login_enabled"), resultSet.getObject("manager_id", UUID.class),
             resultSet.getString("manager_name"), instantOf(resultSet, "last_login_at"), instantOf(resultSet, "created_at"),
             resultSet.getLong("active_report_count"), null);
 

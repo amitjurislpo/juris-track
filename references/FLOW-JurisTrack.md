@@ -3,13 +3,15 @@
 | Version | Date | What changed | Requested by |
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
+| 1.1 | 2026-10-24 | Section 3 and 7: the snapshot and the board row carry `lastBreak`, shown as the time of the last break (FRD 1.1: FR-TIME-11, FR-TEAM-12); history and report rows and the CSV carry it too and label the day's start "Work started" and show an end after midnight with its date (FR-HIST-6, FR-HIST-7, FR-REP-14). | Owner |
+| 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; sign-in flow and a new employee login access flow (section 15) | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation (new section 14: shift occurrence, attribution, the START decision, roster); sections 3, 4 and 5 rewritten from the calendar day to the shift occurrence | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FRD-JurisTrack.md](FRD-JurisTrack.md) (the requirements, ids `FR-...` are quoted below) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 
 How to read: boxes are steps, diamonds are decisions, the label on an arrow is the answer or the error code. Roles: **Super admin**, **Owner** (role ADMIN), **Manager**, **Employee**. Every diagram has a one-sentence caption.
 
-Contents: 1 System overview, 2 Sign-in and session, 3 Start work, break, resume and end day, 4 Reopening after End Day, 5 Forgotten days: no auto-close and the Not ended flag, 6 Time correction, 7 Team scope, 8 Reports and CSV, 9 Audit write and read, 10 Business creation and owner, 11 Business suspension and reactivation, 12 Employee deactivation, 13 Embedded in JurisOne, 14 Shifts and the roster (occurrence, attribution, the START decision).
+Contents: 1 System overview, 2 Sign-in and session, 3 Start work, break, resume and end day, 4 Reopening after End Day, 5 Forgotten days: no auto-close and the Not ended flag, 6 Time correction, 7 Team scope, 8 Reports and CSV, 9 Audit write and read, 10 Business creation and owner, 11 Business suspension and reactivation, 12 Employee deactivation, 13 Embedded in JurisOne, 14 Shifts and the roster (occurrence, attribution, the START decision), 15 Employee login access.
 
 ---
 
@@ -77,12 +79,12 @@ sequenceDiagram
         A->>D: Audit auth.rate_limited once per window
         A-->>W: 429 RATE_LIMITED
     else allowed
-        A->>D: Find user, must be active and business not suspended
+        A->>D: Find user, must be active, login not switched off and business not suspended
         alt known active user
             A->>D: Store code hash, valid 10 minutes
             A->>M: Send 6 digit code
             A->>D: Audit auth.sign_in_code_requested SUCCESS
-        else unknown, inactive or suspended
+        else unknown, inactive, login disabled or suspended
             A->>D: Audit auth.sign_in_code_requested DENIED with reason, once per window
         end
         A-->>W: 200 same text in every case
@@ -93,7 +95,7 @@ sequenceDiagram
     alt too many failures
         A->>D: Audit auth.rate_limited
         A-->>W: 429 RATE_LIMITED
-    else code wrong, expired, used or burnt, or account unknown, inactive, suspended
+    else code wrong, expired, used or burnt, or account unknown, inactive, login disabled, suspended
         A->>D: Audit auth.sign_in_failed with reason
         Note over A,D: 5th wrong try also writes auth.sign_in_code_burnt
         A-->>W: 401 same message for every cause
@@ -111,7 +113,7 @@ sequenceDiagram
         W->>A: Repeat the original call once
     else used again within 30 seconds grace
         A-->>W: 201 new jt_at only
-    else used again later, session ended, expired or user deactivated
+    else used again later, session ended, expired, user deactivated or login disabled
         A->>D: Audit auth.session_revoked_refresh_reuse or auth.session_refresh_failed
         A-->>W: 401 and cookies cleared
         W->>U: Back to the sign-in page
@@ -189,6 +191,8 @@ flowchart TD
 ```
 
 Caption: every press is checked against the stored state under a lock, a repeat is harmless, an impossible move gets a clear 409, and only a real change is audited.
+
+The answer after a press (and the team board row) also carries `lastBreak`, the break that started last (FR-TIME-11, FR-TEAM-12); the employee and the manager see its start time next to the break count.
 
 ---
 
@@ -541,7 +545,7 @@ flowchart LR
     JB -->|"one signed token per request, Bearer"| TK["JurisTrack API<br/>checks signature, issuer, audience,<br/>lifetime at most 10 minutes, single use"]
     TK -->|"token ok"| P["Find or create business and user,<br/>never adopt a standalone business by email"]
     TK -->|"token bad or replayed"| R["401 and audit integration.token_rejected"]
-    P -->|"deactivated, other business email, suspended"| F["403 and audit integration.user_refused"]
+    P -->|"deactivated, login disabled, other business email, suspended"| F["403 and audit integration.user_refused"]
     P -->|"ok"| RULES["Same rules, same endpoints as standalone"]
 ```
 
@@ -647,6 +651,49 @@ flowchart TD
 ```
 
 Caption: only the owner writes shifts, assignments and the roster; every change is audited and never rewrites a workday that already exists.
+## 15. Employee login access (FR-EMP-10 to FR-EMP-14, FR-AUTH-15, FR-INT-8)
+
+```mermaid
+flowchart TD
+    A["Owner opens an employee and presses Disable login or Enable login, optional reason"] --> B["PUT /api/employees/:employeeId/login-access with isEnabled"]
+    B --> C{"Caller is the owner and the person is in the business?"}
+    C -->|"no"| X1["403 FORBIDDEN or 404 NOT_FOUND"]
+    C -->|"yes"| D{"Same state as now?"}
+    D -->|"yes"| G["200 unchanged, nothing audited"]
+    D -->|"no"| E{"Enable or disable?"}
+    E -->|"enable"| ON["Set login on. Sign-in works again, nothing is reopened. Audit employee.login_enabled"]
+    E -->|"disable"| F{"Is it the owner's own account?"}
+    F -->|"yes"| R1["422 CANNOT_DISABLE_OWN_LOGIN, audit employee.change_refused DENIED"]
+    F -->|"no"| H{"Person has an open workday?"}
+    H -->|"yes"| K["Lock the person, end the running work or break now, day completed, totals recomputed, audit workday.closed with reason login_disabled"]
+    H -->|"no"| L["Nothing to close"]
+    K --> M["Set login off, end every session of the person"]
+    L --> M
+    M --> N["Audit employee.login_disabled with endedSessions and closedWorkdayId"]
+    N --> O["Effects: next request 401 and refresh refused, code request and code check answer as for an unknown account, JurisOne token refused with 403, person stays active in list, board and reports"]
+```
+
+Caption: switching a login off signs the person out everywhere and stops their clock, but unlike Deactivate they stay in the business, the list and the reports.
+
+The person's own attempts afterwards:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor E as Employee with login off
+    participant A as API
+    participant D as Database
+    E->>A: POST /api/auth/otp-requests with their email
+    A->>D: Audit auth.sign_in_code_requested DENIED reason login_disabled, once per window
+    A-->>E: 200 the usual text, no code is sent
+    E->>A: POST /api/auth/sessions with any code
+    A->>D: Audit auth.sign_in_failed reason login_disabled
+    A-->>E: 401 That code is wrong or has expired, same as an unknown account
+    E->>A: Request with an old cookie or a JurisOne token
+    A-->>E: 401 for the cookie (session ended), 403 for the token with audit integration.user_refused login_disabled
+```
+
+Caption: the person learns nothing from the answers; only the audit log tells the owner why the sign-in was refused.
 
 ---
 

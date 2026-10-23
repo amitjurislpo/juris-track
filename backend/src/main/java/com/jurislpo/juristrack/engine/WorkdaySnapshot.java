@@ -28,6 +28,7 @@ import java.util.UUID;
  * @param spanSeconds             from the start of the day to its end (or now); a reopened day's gap is inside the span (but not in
  *                                "not ended": see {@code isStale})
  * @param breakCount              breaks taken, the running one included
+ * @param lastBreak              the break that started last (its end is null while it runs), or null when the day has no break
  * @param lastActivity            the last thing that happened
  * @param segments                every work and break interval, oldest first
  * @param shift                   the shift the day was attributed to when it started (null for a record without one)
@@ -40,7 +41,7 @@ import java.util.UUID;
  */
 public record WorkdaySnapshot(UUID id, LocalDate date, TrackingStatus status, Instant startedAt, Instant endedAt,
         @JsonProperty("isStale") boolean isStale, long closedProductiveSeconds, long closedBreakSeconds, Instant activeWorkStartedAt,
-        Instant activeBreakStartedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount, LastActivity lastActivity,
-        List<TimelineSegment> segments, WorkdayShift shift, @JsonProperty("isOutsideShift") boolean isOutsideShift, Long varianceSeconds,
-        @JsonProperty("isOffDay") boolean isOffDay, long extraSeconds) {
+        Instant activeBreakStartedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount, LastBreak lastBreak,
+        LastActivity lastActivity, List<TimelineSegment> segments, WorkdayShift shift, @JsonProperty("isOutsideShift") boolean isOutsideShift,
+        Long varianceSeconds, @JsonProperty("isOffDay") boolean isOffDay, long extraSeconds) {
 }

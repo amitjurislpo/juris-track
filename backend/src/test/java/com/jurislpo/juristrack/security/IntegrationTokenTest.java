@@ -179,6 +179,21 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
     }
 
     @Test
+    void aLoginDisabledUserIsRefusedWith403AndAudited() throws Exception {
+        Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
+        callMe(IntegrationTokens.tokenFor(employee)).andExpect(status().isOk());
+        UUID userId = (UUID) userRow(employee.employeeId()).get("id");
+        jdbcTemplate.update("UPDATE users SET is_login_enabled = false WHERE id = ?", userId);
+        callMe(IntegrationTokens.tokenFor(employee)).andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'integration.user_refused' AND subject_id = ? "
+                + "AND reason = 'login_disabled' AND outcome = 'DENIED'", Integer.class, userId)).isEqualTo(1);
+        // switched on again, the same person is let in
+        jdbcTemplate.update("UPDATE users SET is_login_enabled = true WHERE id = ?", userId);
+        callMe(IntegrationTokens.tokenFor(employee)).andExpect(status().isOk());
+    }
+
+    @Test
     void refusedTokensAnswer401WithoutDetails() throws Exception {
         Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
         Instant past = Instant.now().minusSeconds(3600);

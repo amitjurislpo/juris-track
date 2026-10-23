@@ -3,6 +3,8 @@
 | Version | Date | What changed | Requested by |
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
+| 1.1 | 2026-10-24 | (a) The workday snapshot, the Team board row, the history rows and the report rows carry `lastBreak` (start and end of the break that started last); every table and card shows the time of the last break (FR-TIME-11, FR-TEAM-12, FR-HIST-6, FR-REP-14). (b) The day's start is labelled "Work started" everywhere (the CSV header "Start" became "Work started"), the CSV gets a "Last break" column. (c) Night shifts: an end (or interval end) on another calendar date than its start is shown with its date, in the tables and the CSV (FR-HIST-7) | Owner |
+| 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; FR-AUTH-15, FR-EMP-10 to FR-EMP-14, FR-INT-8 | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation: time is attributed per shift, not per calendar day (new module SHIFT with shifts, assignments and the rotational roster; workday date = shift date; "Not started after midnight" rule replaced; extra time; week-off figure on the board; shift fields on every workday, report and CSV; JurisOne roster contract with shifts specified) | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FLOW-JurisTrack.md](FLOW-JurisTrack.md) (the flow diagrams of every flow named here) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
@@ -60,6 +62,7 @@ Y = allowed, N = refused with 403 `FORBIDDEN`, own = only for oneself. A signed-
 | Read the shifts of the business | N | Y | Y | Y |
 | Read the roster (`/api/schedule-entries`) | N | Y (everybody) | Y (own reporting line) | N |
 | Read one's own roster (`/api/me/schedule`) | N | Y | Y | Y |
+| Switch an employee's login off or on | N | Y (not own login) | N | N |
 | Own time: start, break, resume, end; own dashboard, My time, My history, own workday | N (403) | Y | Y | Y |
 | Team board, one person, their history and workdays | N | Y (everybody) | Y (own reporting line) | N |
 | Correct a work or break interval, end a forgotten workday | N | Y (everybody except self) | Y (own reporting line except self) | N |
@@ -107,6 +110,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 | Failed sign-ins per IP address | 20 | `failed_sign_ins_per_ip` |
 | Failed sign-ins per account | 10 (from any address) | `failed_sign_ins_per_email` |
 
+- FR-AUTH-15 A person whose login the owner switched off (FR-EMP-10) cannot sign in: a code request and a code check answer exactly as for an unknown account (same 200 text, same 401 message, no code sent), the audit reason is `login_disabled`, their sessions end at once and a refresh is refused (401). Switching the login on again restores sign-in only.
 - FR-AUTH-13 Above a limit the API answers 429 `RATE_LIMITED`; only failed sign-ins count, successful ones do not.
 - FR-AUTH-14 The IP address is the connection's. Only when the request comes from a **trusted proxy** (`juristrack.security.trusted-proxies`, default loopback only; in sqe/uat/prd set to the web server or gateway) is the client taken from `X-Forwarded-For` (the right-most hop that is not a proxy). A caller therefore cannot choose its own address by writing the header.
 
@@ -170,12 +174,17 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-EMP-7 `PUT /api/employees/{employeeId}/status` with `isActive` and optional `reason` deactivates or reactivates; it is idempotent (setting the state already held changes nothing and writes nothing).
 - FR-EMP-8 Deactivating (a) ends every session of the person, (b) stops new sign-in codes, (c) closes the person's open workday at that moment (work or break interval ends, day completed, totals recomputed), (d) leaves their reports with them as manager. Refusals: 422 `CANNOT_DEACTIVATE_SELF`, 422 `LAST_ACTIVE_OWNER` (the business must keep one active ADMIN).
 - FR-EMP-9 A refused change (any 422 above) is audited as `employee.change_refused` (DENIED, the code as reason) although nothing changes.
+- FR-EMP-10 **Login access** is separate from Deactivate. `PUT /api/employees/{employeeId}/login-access` with `isEnabled` and optional `reason` switches a person's sign-in off or on. A person with login off stays active, in the list, on the board and in the reports, and their history is kept; they only cannot sign in. It is idempotent (the state already held changes nothing and writes nothing). `isLoginEnabled` is part of every employee row and the detail (default true).
+- FR-EMP-11 Only the ADMIN (owner) of the same business calls it: MANAGER and EMPLOYEE get 403, a person of another business, the super admin or an unknown id 404.
+- FR-EMP-12 Switching off (a) ends every session of the person, so the next request is 401 and a refresh is refused, (b) closes the person's open workday at that moment, as FR-EMP-8 does, with the reason `login_disabled` (no day keeps running for somebody who cannot stop it, also across midnight for a night shift), (c) refuses sign-in as FR-AUTH-15 says. Switching on restores sign-in only; nothing is reopened.
+- FR-EMP-13 The owner cannot switch off their own login: 422 `CANNOT_DISABLE_OWN_LOGIN` (audited `employee.change_refused`). The web app hides the button on the owner's own page.
+- FR-EMP-14 The Employees list shows a "Login off" chip next to the status, and the employee page has a "Login access" card (state, "Disable login" / "Enable login", a confirmation with an optional reason).
 
-- FR-EMP-10 Every employee row and the single employee carry `shift` (id, name, `startTime`, `endTime`): the shift assigned today, "General day" without an assignment (module SHIFT).
+- FR-EMP-15 Every employee row and the single employee carry `shift` (id, name, `startTime`, `endTime`): the shift assigned today, "General day" without an assignment (module SHIFT).
 
-**Data kept.** `users`: employee code, names, unique email, role, `is_active`, last login, `manager_id` (same business), `jurisone_employee_id`. Database checks: the super admin is the only user without business; nobody is their own manager.
+**Data kept.** `users`: employee code, names, unique email, role, `is_active`, `is_login_enabled`, last login, `manager_id` (same business), `jurisone_employee_id`. Database checks: the super admin is the only user without business; nobody is their own manager.
 
-**Audit entries.** `employee.created`, `employee.updated` (the whole record before and after; only when something changed), `employee.deactivated` (after lists `endedSessions` and `closedWorkdayId`), `employee.reactivated`, `employee.change_refused`, `workday.closed`, `access.employee_list_viewed` (filters, `rowCount`, `total`), `access.employee_viewed` (not when the owner opens their own record).
+**Audit entries.** `employee.created`, `employee.updated` (the whole record before and after; only when something changed), `employee.deactivated` (after lists `endedSessions` and `closedWorkdayId`), `employee.reactivated`, `employee.login_disabled` and `employee.login_enabled` (with the reason; disabling lists `endedSessions` and `closedWorkdayId`), `employee.change_refused`, `workday.closed`, `access.employee_list_viewed` (filters, `rowCount`, `total`), `access.employee_viewed` (not when the owner opens their own record).
 
 ---
 
@@ -205,6 +214,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-TIME-7 Requests of one person are serialized (row lock on the user), so parallel requests never create a second workday or a second open interval; exactly one of them answers 201. A collision that no concurrent request explains answers 500 `TIME_RECORD_INCONSISTENT` and writes `time.event_failed` (FAILED); an administrator must correct the day.
 - FR-TIME-8 Time comes from stored timestamps, never from a counter in the browser. Events are stamped to the millisecond and never before the latest instant already recorded for the person, so a clock that steps back cannot put an interval before the previous one.
 - FR-TIME-9 The screen keeps a timer running from `closedProductiveSeconds + (now - activeWorkStartedAt)` on the **server's** clock (offset measured on every answer), ticks once a second, stops while the tab is hidden, re-reads every 30 seconds, on focus and when the network returns. A refresh, a sleeping tab or a wrong browser clock never changes a figure.
+- FR-TIME-11 Besides `breakCount`, the workday snapshot carries `lastBreak` = `{ startedAt, endedAt }` of the break that started last (`endedAt` null while it runs), null when the day has no break. The employee's own screens (Today card, My time, workday summary) show its start time in the display time zone ("Last break 01:14", "... Â· running" while it runs).
 - FR-TIME-10 A time button is disabled while its request runs, so a double click sends one event.
 
 ### 7.3 Business rules
@@ -233,6 +243,8 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-HIST-0 "Today" in History (and the end of Yesterday, This week and This month) is the person's **current shift date**, so a night shift that runs past midnight, or just ended, is in "Today". Rows carry the shift snapshot, `varianceSeconds` (productive minus scheduled, once ended), `extraSeconds`, `isOutsideShift`, `isOffDay`; `totals` carry `extraSeconds`.
 - FR-HIST-1 `GET /api/workdays/mine` returns the person's workdays dated (shift date) in the range: `range` = `today`, `yesterday`, `week` (Monday to today), `month` (the 1st to today), `custom` with `from` and `to` (`YYYY-MM-DD`). Missing `from` = this week's Monday, missing `to` = today, reversed ends are swapped, at most 366 days (an earlier `from` is moved up). Unknown range or malformed date is 400.
 - FR-HIST-2 Sort keys `date` (default), `startedAt`, `endedAt` (open days last when ascending), `productiveSeconds`, `breakSeconds`, `spanSeconds`, `breakCount`; **default direction is `desc`** (newest first); `page` from 1, `pageSize` 1 to 100 (default 25).
+- FR-HIST-6 Each history row (`GET /api/workdays/mine`, a team member's workdays) carries `lastBreak` = `{ startedAt, endedAt }` of the break that started last, null without a break. The history table shows the columns "Work started", "Work ended" and "Last break" (not sortable).
+- FR-HIST-7 Wherever a workday's end, or the end of one of its intervals, falls on another calendar date (in the display zone) than its start (a night shift), the screens write it with its date ("25 Oct, 06:30"); "Work started" and "Last break" also show their date when it is not today.
 - FR-HIST-3 The answer has `rows`, `total`, `page`, `pageSize`, `totals` (workdays, productive, break, span, break count, average) over the whole range, and `dailySeries` with one point for every date from `from` to `to` (zero where nothing was recorded).
 - FR-HIST-4 An ended day shows its stored totals; an open day is computed to now.
 - FR-HIST-5 `GET /api/workdays/{workdayId}` returns the workday with every work and break interval. It works for one's own workday and, for MANAGER and ADMIN, for a workday of somebody in scope. Any other id, another business's id or an unknown id is 404 "Workday not found."; a malformed id is 400.
@@ -257,6 +269,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-TEAM-8 The board is read in batches (people, workdays, work intervals, break intervals: one query each) whatever its size. It refreshes every 15 seconds while the tab is visible, on focus and when the network returns. Reading the board is **not** audited.
 - FR-TEAM-9 `GET /api/team/members/{employeeId}` returns the person's employee data, `today`, state and the full workday snapshot; a deactivated person can be opened; outside the scope 404 "Employee not found."; own id 404; malformed id 400. Audited as `access.team_member_viewed`, one per request.
 - FR-TEAM-10 `GET /api/team/members/{employeeId}/workdays` works like FR-HIST-1 to FR-HIST-3 for that person (default `desc`); outside scope 404. Audited as `access.team_member_workdays_viewed` (after `{range, from, to}`).
+- FR-TEAM-12 Each board row and the workday of a team member carry the same `lastBreak` (FR-TIME-11); the board's Break column and the member page (status card, today's totals) show the time of the last break next to the break count; "-" when there was none.
 - FR-TEAM-11 The screen shows "Employee not found / This person is not in your team" for a 404.
 
 **Audit entries.** `access.team_member_viewed`, `access.team_member_workdays_viewed`, `access.workday_viewed`, `security.out_of_scope_access` (first probe per user and window), `security.access_denied` (403).
@@ -330,13 +343,14 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-REP-4 `status` takes one or more of `WORKING`, `ON_BREAK`, `DAY_ENDED`, `NOT_ENDED` (comma-separated). `NOT_ENDED` = an open day that is stale; such a day also matches `WORKING` or `ON_BREAK`.
 - FR-REP-5 Every bad parameter is reported at once as 400 `VALIDATION_FAILED` with `errors[].field`. Order of checks: 400, then 403, then 404; for the CSV the `timeZone` check (400) and the row cap (422) come after.
 - FR-REP-6 **What counts.** A workday belongs to the date it **started** on in the business time zone. Deactivated people stay in scope. The owner's `all` includes the owner. An ended day shows its stored totals, an open day is computed to the request time. `totals` and `dailySeries` cover the whole range (all pages) and always add up to the rows; `dailySeries` has a point for every date.
-- FR-REP-7 *Workdays* rows: date, employee (id, code, name), manager of the day, status, `isStale`, start, end, productive, break, span, break count. Sort `date` (default), `employee`, `startedAt`, `productiveSeconds`, `breakSeconds`, `spanSeconds`, `breakCount`; default direction `desc`.
+- FR-REP-7 *Workdays* rows: date, employee (id, code, name), manager of the day, status, `isStale`, work started, end, productive, break, span, break count, `lastBreak`. Sort `date` (default), `employee`, `startedAt`, `productiveSeconds`, `breakSeconds`, `spanSeconds`, `breakCount`; default direction `desc`.
 - FR-REP-8 *Summaries* `groupBy` = `employee` (default), `manager` (manager of the day; workdays without one form the group `none`, always last) or `date`; rows add workdays, employees, productive, break, span, break count, average per workday, first start, last end. Default direction `asc`, `desc` for `groupBy=date`.
 - FR-REP-9 **CSV.** The workdays report with `Accept: text/csv` returns **every row of the range** in the requested order (paging ignored). Extra parameter `timeZone` = the business time zone (default) or one of its display zones (any case); anything else is 400 on `timeZone`.
-- FR-REP-10 File format: `text/csv;charset=UTF-8`, byte order mark, CRLF, `Content-Disposition: attachment; filename="juristrack-<from>-to-<to>.csv"`, `Cache-Control: no-store`. Header `Date,Employee,Employee ID,Manager,Status,Start (<zone>),End (<zone>),Productive hours,Break hours,Span hours,Breaks`; status words `Working`, `On Break`, `Day Ended`, `Not ended`; start and end as `HH:mm` in the chosen zone; hours with two decimals.
+- FR-REP-10 File format: `text/csv;charset=UTF-8`, byte order mark, CRLF, `Content-Disposition: attachment; filename="juristrack-<from>-to-<to>.csv"`, `Cache-Control: no-store`. Header `Date,Employee,Employee ID,Manager,Status,Work started (<zone>),End (<zone>),Productive hours,Break hours,Span hours,Breaks,Last break (<zone>),Extra hours,Shift,Scheduled start (<zone>),Scheduled end (<zone>),Outside shift,Week off`; status words `Working`, `On Break`, `Day Ended`, `Not ended`; work started, end and last break as `HH:mm` in the chosen zone (`yyyy-MM-dd HH:mm` for an end or last break on another date than the start: FR-HIST-7); hours with two decimals.
 - FR-REP-11 **Formula safety.** A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`; a cell with `"`, `,`, LF or CR is quoted.
 - FR-REP-12 **Limit.** More than 50,000 rows (`juristrack.reports.maximum-export-rows`) answers 422 `EXPORT_TOO_LARGE` ("... Choose a shorter date range or fewer people."); nothing is exported or audited.
 - FR-REP-13 A report filtered on the caller themselves (owner only) reads one's own data and is not audited.
+- FR-REP-14 Each workday report row carries `lastBreak` (as FR-HIST-6); the workday report table shows "Work started", "Work ended" and "Last break" (not sortable). The summaries table (groups of many days) shows no last break: a group has no single last break, so none is invented.
 
 **Audit entries.** `reports.viewed` (entity `report`, after `{report, filters, rowCount}`; one per request, never one per row), `reports.exported` (adds `timeZone`, `fileName`), `security.access_denied`, `security.out_of_scope_access`.
 
@@ -386,7 +400,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 
 - FR-TZ-1 All instants are stored and sent in UTC. Dates (`YYYY-MM-DD`) are calendar dates in the **business time zone**. Durations are whole seconds computed from the recorded intervals.
 - FR-TZ-2 The top bar's "Show times in" switcher (every user of a business) offers the business time zone and the business's display time zones (up to 8), each with its current time. The choice is per browser (`localStorage` key `juristrack.displayTimeZone`; when storage is blocked it lasts until reload). It changes **clock times** on the time pages (starts, ends, intervals, board times, correction forms, audit time); workday dates, date ranges and durations never change. The super admin gets the browser's zone and no choice.
-- FR-TZ-3 The CSV `timeZone` is chosen at export time and named in the header (e.g. `Start (IST)`).
+- FR-TZ-3 The CSV `timeZone` is chosen at export time and named in the header (e.g. `Work started (IST)`).
 - FR-TZ-4 The business time zone is set by the owner or super admin and applies to workdays started afterwards; a workday remembers the zone it started in.
 - FR-I18N-1 The interface is available in English and Hindi. The English text is the translation key; a missing Hindi text shows the English text. A language switcher is in the shell. API messages (`detail`) are mapped to clear screen messages by problem `code`.
 - FR-I18N-2 Dates, times and durations are formatted by the app, not the API (the API returns raw values).
@@ -413,7 +427,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 
 **Languages.** English and Hindi (FR-I18N-1).
 
-**Reliability and operations.** Schema owned by Flyway (migrations V1, V2, V3, V11, each with a rollback; the next is V12; applied migrations are never edited). Backups with `scripts/backup.sh` / `restore.sh` (14 days). Health at `/actuator/health`. Environments dev, sqe, uat, prd with their own ports and databases. Rate limits and replay guards are in memory per instance, so a second API instance needs a shared store (open point 17.8).
+**Reliability and operations.** Schema owned by Flyway (migrations V1, V2, V3, V11, V12, V20, each with a rollback; the next is V21; applied migrations are never edited). Backups with `scripts/backup.sh` / `restore.sh` (14 days). Health at `/actuator/health`. Environments dev, sqe, uat, prd with their own ports and databases. Rate limits and replay guards are in memory per instance, so a second API instance needs a shared store (open point 17.8).
 
 ---
 
@@ -428,6 +442,7 @@ The full picture, diagrams and the token step by step are in [FLOW-JurisTrack-Ju
 - FR-INT-3 **Just-in-time provisioning:** the business is found by `jurisone_business_id` (created with defaults if new, renamed if JurisOne's name changed), the user by `jurisone_employee_id`, else by email **inside that business**, else created. **A token never adopts an existing standalone business by email**; only the super admin's explicit link (FR-BIZ-8) does, because otherwise any standalone owner could plant a JurisOne colleague's email and take over that company.
 - FR-INT-4 The token is authoritative on every call for name, email, role and manager: `trackRole` `MANAGER` or `EMPLOYEE` (anything else is EMPLOYEE; `ADMIN` only when sent), `managerId` resolved by the manager's JurisOne id within the business. Exception: an existing ADMIN keeps the owner role unless the token itself says otherwise. An unchanged user writes no entry.
 - FR-INT-5 Refused with 403: a deactivated user, an email that belongs to a user of another business or to the super admin (`integration.user_refused`, reasons `user_deactivated`, `email_of_another_business`, `conflict`; no business is created), a user of a suspended business (`BUSINESS_SUSPENDED`).
+- FR-INT-8 A user whose login the owner switched off (FR-EMP-10) is refused with 403 in the same way (`integration.user_refused`, reason `login_disabled`); the check comes before any change from the token is applied.
 - FR-INT-6 The Bearer token is accepted only when `juristrack.integration.enabled=true` and a public key is configured; requests are audited with source `INTEGRATION`.
 - FR-INT-7 Embedded, JurisTrack's pages (`src/track`) run inside JurisOne's shell through an injected `TrackContext` (API base path `/api/juris-track`, user, translate function, navigate, toast, `onUnauthorized`, `onBusinessSuspended`). The embedding itself is not built yet.
 - The roster push `PUT /api/integration/employees` is **not built** (open point 17.1). Version 2.0 specifies that it also carries the shifts, each employee's shift code and per-date schedule, and an optional token claim `shiftCode` (open point 17.13).

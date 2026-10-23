@@ -3,6 +3,7 @@
 | Version | Date | What changed | Requested by |
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
+| 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; a JurisOne token of a login-disabled user is refused with 403 | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation: the roster request carries shifts, each employee's shift and per-date schedule (week offs); optional token claim `shiftCode` (all `[S]`, nothing built on the JurisOne side); open points for shift codes and the roster master | Owner |
 
 Master copy: `juris-track-backend/references/`. The `Juris-one` backend keeps an identical copy with the same version (see "Documents" in both `INSTRUCTIONS.md`).
@@ -203,7 +204,7 @@ sequenceDiagram
         GW-->>UI: 403 and the host shows the access is paused screen [P], the hook onBusinessSuspended is [B]
     end
     PS->>DB: Find user by jurisone_employee_id, else by email inside that business, else create [B]
-    alt User is deactivated or email belongs to the SUPER_ADMIN or to another business
+    alt User is deactivated, has login switched off by the owner, or email belongs to the SUPER_ADMIN or to another business
         PS->>DB: Audit integration.user_refused with reason [B]
         TF-->>GW: 403 [B]
     end
@@ -390,6 +391,7 @@ Rules of the mapping (`[B]`):
 | Business suspended in JurisTrack | Token user refused; open workdays were closed at suspension | 403 `BUSINESS_SUSPENDED`, audit `integration.user_refused` once per user and window | `[B]` |
 | Business suspended or subscription ended in JurisOne | JurisOne gate answers first (402, or read-only when ended); JurisTrack is not told, so data stays and open workdays stay open | 402 from JurisOne | `[P]`, open point 6 |
 | Employee deactivated in JurisTrack | Token refused | 403, `integration.user_refused` reason `user_deactivated` | `[B]` |
+| Employee's login switched off in JurisTrack (`PUT /api/employees/{employeeId}/login-access`) | The person stays in the business and the reports, but their token is refused; open workday closed when the login was switched off | 403, `integration.user_refused` reason `login_disabled`, once per user and window | `[B]` |
 | Employee deactivated or left in JurisOne | Gateway stops signing tokens at once; JurisTrack user deactivated by the next roster push (open workday closed) | 403 from the first push on | `[B]` token side, `[S]` roster |
 | Email of a user of another business, or of the `SUPER_ADMIN` | Refused, no business created | 403, `email_of_another_business` | `[B]` |
 | JurisOne business unknown and person new | Business and user created just in time | 200, `integration.business_provisioned` | `[B]` |

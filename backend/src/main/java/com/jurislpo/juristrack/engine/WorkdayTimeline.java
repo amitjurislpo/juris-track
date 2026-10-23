@@ -48,9 +48,15 @@ public final class WorkdayTimeline {
                 IntervalMath.findOpenInterval(workIntervals).map(TimeInterval::startedAt).orElse(null),
                 IntervalMath.findOpenInterval(breakIntervals).map(TimeInterval::startedAt).orElse(null),
                 totals.productiveSeconds(), totals.breakSeconds(), totals.spanSeconds(), totals.breakCount(),
-                lastActivity(startedAt, endedAt, segments), segments, shift, isOutsideShift,
+                lastBreakOf(breakSegments), lastActivity(startedAt, endedAt, segments), segments, shift, isOutsideShift,
                 shift == null || isOpen ? null : isOffDay ? Long.valueOf(totals.productiveSeconds()) : Long.valueOf(shift.varianceOf(totals.productiveSeconds())),
                 isOffDay, extraSeconds(shift, isOffDay, workIntervals, now));
+    }
+
+    /** The break that started last (null when there is none); its end is null while it runs. */
+    public static LastBreak lastBreakOf(List<TimelineSegment> breakSegments) {
+        return breakSegments.stream().max(Comparator.comparing(TimelineSegment::startedAt))
+                .map(segment -> new LastBreak(segment.startedAt(), segment.endedAt())).orElse(null);
     }
 
     /**

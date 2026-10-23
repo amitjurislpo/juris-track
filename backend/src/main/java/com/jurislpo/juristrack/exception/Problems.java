@@ -48,6 +48,8 @@ public final class Problems {
     public static final String ROLE_NOT_ASSIGNABLE = "ROLE_NOT_ASSIGNABLE";
     /** 422: the owner cannot deactivate their own account. */
     public static final String CANNOT_DEACTIVATE_SELF = "CANNOT_DEACTIVATE_SELF";
+    /** 422: the owner cannot switch off their own login (they would lock themselves out). */
+    public static final String CANNOT_DISABLE_OWN_LOGIN = "CANNOT_DISABLE_OWN_LOGIN";
     /** 422: the business must keep at least one active owner (ADMIN). */
     public static final String LAST_ACTIVE_OWNER = "LAST_ACTIVE_OWNER";
     /** 409: the business is already linked to a JurisOne business (unlink it first). */
