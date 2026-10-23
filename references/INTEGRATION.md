@@ -61,7 +61,7 @@ can never leave a business without its owner) and manager (`manager_id` is resol
 manager is not known yet; never the user themself). Granting or removing the JurisTrack manager role in JurisOne therefore needs no action in JurisTrack. An
 unchanged user writes no audit entry. Rules: if the token's JurisOne business is not known yet and the email (or the employee id) already belongs to a user
 anywhere, the token is refused with 403 (`integration.user_refused`, reason `email_of_another_business`; no business is created for it); an email that belongs
-to the `SUPER_ADMIN` is refused with 403; a deactivated user is refused with 403; a user of a **suspended business** is refused with 403 `BUSINESS_SUSPENDED`
+to the `SUPER_ADMIN` is refused with 403; a deactivated user, or one whose login the owner switched off, is refused with 403; a user of a **suspended business** is refused with 403 `BUSINESS_SUSPENDED`
 (the super admin suspends businesses, which also closes their open workdays); any invalid token answers 401 without details and is never logged.
 
 **Roster sync (part of the first version):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the

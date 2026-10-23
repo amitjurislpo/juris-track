@@ -132,6 +132,8 @@ class TimeTrackingFlowTest extends IntegrationTest {
         assertThat((Integer) JsonPath.read(state, "$.data.workday.productiveSeconds")).isEqualTo(3600);
         assertThat((Integer) JsonPath.read(state, "$.data.workday.breakSeconds")).isEqualTo(1800);
         assertThat((Integer) JsonPath.read(state, "$.data.workday.breakCount")).isEqualTo(1);
+        assertThat((String) JsonPath.read(state, "$.data.workday.lastBreak.startedAt")).isEqualTo("2026-10-01T04:30:00Z");
+        assertThat((Object) JsonPath.read(state, "$.data.workday.lastBreak.endedAt")).isNull();
 
         tracker.send("END").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("BREAK_IN_PROGRESS"))
                 .andExpect(jsonPath("$.detail").value("You are on a break. Select Back to Work before ending your workday."));
@@ -155,6 +157,8 @@ class TimeTrackingFlowTest extends IntegrationTest {
         advance(10);
         tracker.send("RESUME").andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.state.workday.breakCount").value(2))
+                .andExpect(jsonPath("$.data.state.workday.lastBreak.startedAt").value("2026-10-01T05:45:00Z"))
+                .andExpect(jsonPath("$.data.state.workday.lastBreak.endedAt").value("2026-10-01T05:55:00Z"))
                 .andExpect(jsonPath("$.data.state.workday.breakSeconds").value(25 * 60))
                 .andExpect(jsonPath("$.data.state.workday.productiveSeconds").value(120 * 60));
         assertThat(count("SELECT count(*) FROM work_sessions WHERE employee_id = ?")).isEqualTo(3);

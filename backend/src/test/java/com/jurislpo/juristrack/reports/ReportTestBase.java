@@ -72,12 +72,14 @@ abstract class ReportTestBase extends IntegrationTest {
                 "EMPTHREE");
         otherEmployeeId = testData.createUser(businessId, "EMPLOYEE", TestData.uniqueEmail("report.other"), ownerId, "Zed", "Other", "E4");
 
-        reportData.endedWorkday(businessId, employeeId, ownerId, "2026-10-19", "2026-10-19T03:30:00Z", "2026-10-19T12:30:00Z", 8 * 3600, 3600, 1);
+        UUID eshaBreakWorkdayId = reportData.endedWorkday(businessId, employeeId, ownerId, "2026-10-19", "2026-10-19T03:30:00Z", "2026-10-19T12:30:00Z", 8 * 3600, 3600, 1);
+        reportData.breakSession(businessId, employeeId, eshaBreakWorkdayId, "2026-10-19T07:30:00Z", "2026-10-19T08:30:00Z");
         reportData.endedWorkday(businessId, employeeId, managerId, "2026-10-20", "2026-10-20T03:30:00Z", "2026-10-20T09:30:00Z", 6 * 3600, 0, 0);
         employeeOpenWorkdayId = reportData.openWorkday(businessId, employeeId, managerId, "2026-10-21", "2026-10-21T03:30:00Z");
         reportData.endedWorkday(businessId, leadId, managerId, "2026-10-19", "2026-10-19T04:30:00Z", "2026-10-19T09:30:00Z", 5 * 3600, 0, 0);
-        reportData.endedWorkday(businessId, indirectEmployeeId, leadId, "2026-10-20", "2026-10-20T03:00:00Z", "2026-10-20T10:30:00Z", 7 * 3600,
+        UUID raviBreakWorkdayId = reportData.endedWorkday(businessId, indirectEmployeeId, leadId, "2026-10-20", "2026-10-20T03:00:00Z", "2026-10-20T10:30:00Z", 7 * 3600,
                 1800, 1);
+        reportData.breakSession(businessId, indirectEmployeeId, raviBreakWorkdayId, "2026-10-20T06:00:00Z", "2026-10-20T06:30:00Z");
         reportData.endedWorkday(businessId, otherEmployeeId, ownerId, "2026-10-19", "2026-10-19T03:30:00Z", "2026-10-19T07:30:00Z", 4 * 3600, 0, 0);
         otherStaleWorkdayId = reportData.openWorkday(businessId, otherEmployeeId, ownerId, "2026-10-20", "2026-10-20T03:30:00Z");
         reportData.endedWorkday(businessId, ownerId, null, "2026-10-21", "2026-10-21T02:30:00Z", "2026-10-21T04:30:00Z", 2 * 3600, 0, 0);

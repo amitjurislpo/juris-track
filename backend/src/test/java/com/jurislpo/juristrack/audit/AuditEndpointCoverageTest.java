@@ -65,6 +65,8 @@ class AuditEndpointCoverageTest extends IntegrationTest {
             Map.entry("PATCH /api/employees/{employeeId}", List.of("employee.updated", "employee.change_refused")),
             Map.entry("PUT /api/employees/{employeeId}/status", List.of("employee.deactivated", "workday.closed", "employee.reactivated",
                     "employee.change_refused")),
+            Map.entry("PUT /api/employees/{employeeId}/login-access", List.of("employee.login_disabled", "workday.closed", "employee.login_enabled",
+                    "employee.change_refused")),
             Map.entry("POST /api/me/time-events", List.of("time.workday_started", "time.break_started", "time.work_resumed", "time.workday_ended",
                     "time.workday_reopened")),
             Map.entry("PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
@@ -328,6 +330,32 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(put("/api/employees/" + ownerId + "/status"))).cookie(ownerCookie)
                 .content("{\"isActive\":false}")).andExpect(status().isUnprocessableEntity());
         assertThat(refusedTrace.entry("employee.change_refused")).containsEntry("reason", "CANNOT_DEACTIVATE_SELF").containsEntry("subject_id", ownerId);
+    }
+
+    @Test
+    void switchingLoginAccessOffClosesTheWorkdayAndOnIsAuditedAndRefusalsToo() throws Exception {
+        String email = TestData.uniqueEmail("covered.login");
+        UUID employeeId = testData.createUser(businessId, "EMPLOYEE", email, managerId);
+        Cookie employeeCookie = SignIn.session(mockMvc, email).accessCookie();
+        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
+
+        AuditTrace trace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/login-access"))).cookie(ownerCookie)
+                .content("{\"isEnabled\":false,\"reason\":\"Audit\"}")).andExpect(status().isOk());
+        assertThat(trace.entry("employee.login_disabled")).containsEntry("subject_id", employeeId).containsEntry("actor_id", ownerId)
+                .containsEntry("category", "people").containsEntry("entity_type", "user").containsEntry("reason", "Audit");
+        assertThat(trace.entry("workday.closed")).containsEntry("subject_id", employeeId).containsEntry("reason", "login_disabled");
+
+        AuditTrace enableTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(enableTrace.on(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/login-access"))).cookie(ownerCookie)
+                .content("{\"isEnabled\":true}")).andExpect(status().isOk());
+        assertThat(enableTrace.entry("employee.login_enabled")).containsEntry("subject_id", employeeId).containsEntry("actor_id", ownerId);
+
+        AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(put("/api/employees/" + ownerId + "/login-access"))).cookie(ownerCookie)
+                .content("{\"isEnabled\":false}")).andExpect(status().isUnprocessableEntity());
+        assertThat(refusedTrace.entry("employee.change_refused")).containsEntry("reason", "CANNOT_DISABLE_OWN_LOGIN").containsEntry("subject_id", ownerId);
+        assertThat(refusedTrace.count("employee.login_disabled")).isZero();
     }
 
     @Test

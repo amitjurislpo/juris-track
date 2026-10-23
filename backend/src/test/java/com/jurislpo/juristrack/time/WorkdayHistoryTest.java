@@ -97,6 +97,11 @@ class WorkdayHistoryTest extends IntegrationTest {
                 .andExpect(jsonPath("$.data.rows[1].breakSeconds").value(1800))
                 .andExpect(jsonPath("$.data.rows[1].spanSeconds").value(6 * 3600))
                 .andExpect(jsonPath("$.data.rows[1].breakCount").value(1))
+                // the break of a finished day comes from its break session, a day without a break has none
+                .andExpect(jsonPath("$.data.rows[1].lastBreak.startedAt").value("2026-10-20T06:30:00Z"))
+                .andExpect(jsonPath("$.data.rows[1].lastBreak.endedAt").value("2026-10-20T07:00:00Z"))
+                .andExpect(jsonPath("$.data.rows[0].lastBreak").value(nullValue()))
+                .andExpect(jsonPath("$.data.rows[2].lastBreak").value(nullValue()))
                 .andExpect(jsonPath("$.data.totals.workdays").value(4))
                 .andExpect(jsonPath("$.data.totals.productiveSeconds").value(18 * 3600 + 1800))
                 .andExpect(jsonPath("$.data.totals.breakSeconds").value(5400))

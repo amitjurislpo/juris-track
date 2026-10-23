@@ -14,6 +14,7 @@ import com.jurislpo.juristrack.service.EmployeeService;
 import com.jurislpo.juristrack.service.EmployeeService.EmployeeChanges;
 import com.jurislpo.juristrack.service.EmployeeService.EmployeeInput;
 import com.jurislpo.juristrack.service.EmployeeService.EmployeeStatusChange;
+import com.jurislpo.juristrack.service.EmployeeService.LoginAccessChange;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -69,5 +70,11 @@ public class EmployeeController {
     public ApiResult<EmployeeRow> setEmployeeStatus(@PathVariable UUID employeeId, @RequestBody(required = false) EmployeeStatusChange body) {
         EmployeeRow employee = employeeService.setStatus(auth.requireRole(Role.ADMIN), employeeId, body);
         return ApiResult.success(employee.isActive() ? "Employee is active." : "Employee deactivated.", employee);
+    }
+
+    @PutMapping("/{employeeId}/login-access")
+    public ApiResult<EmployeeRow> setEmployeeLoginAccess(@PathVariable UUID employeeId, @RequestBody(required = false) LoginAccessChange body) {
+        EmployeeRow employee = employeeService.setLoginAccess(auth.requireRole(Role.ADMIN), employeeId, body);
+        return ApiResult.success(employee.isLoginEnabled() ? "Login enabled." : "Login disabled.", employee);
     }
 }
