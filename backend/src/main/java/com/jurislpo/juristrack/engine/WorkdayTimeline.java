@@ -41,7 +41,13 @@ public final class WorkdayTimeline {
                 IntervalMath.findOpenInterval(workIntervals).map(TimeInterval::startedAt).orElse(null),
                 IntervalMath.findOpenInterval(breakIntervals).map(TimeInterval::startedAt).orElse(null),
                 totals.productiveSeconds(), totals.breakSeconds(), totals.spanSeconds(), totals.breakCount(),
-                lastActivity(startedAt, endedAt, segments), segments);
+                lastBreakOf(breakSegments), lastActivity(startedAt, endedAt, segments), segments);
+    }
+
+    /** The break that started last (null when there is none); its end is null while it runs. */
+    public static LastBreak lastBreakOf(List<TimelineSegment> breakSegments) {
+        return breakSegments.stream().max(Comparator.comparing(TimelineSegment::startedAt))
+                .map(segment -> new LastBreak(segment.startedAt(), segment.endedAt())).orElse(null);
     }
 
     /** Work and break segments together, oldest first (a work and a break starting at the same instant: work first). */

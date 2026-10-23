@@ -61,6 +61,40 @@ class WorkdayTimelineTest {
         assertEquals(new LastActivity(ActivityType.ENDED_DAY, at("18:00")), snapshot.lastActivity());
     }
 
+    private static LastBreak lastBreakOf(TrackingStatus status, Instant endedAt, List<TimelineSegment> workSegments, List<TimelineSegment> breakSegments) {
+        return WorkdayTimeline.snapshot(WORKDAY_ID, DATE, status, at("09:00"), endedAt, workSegments, breakSegments, at("20:00"), 14).lastBreak();
+    }
+
+    @Test
+    void aDayWithoutABreakHasNoLastBreak() {
+        assertNull(lastBreakOf(TrackingStatus.WORKING, null, List.of(work("09:00", null)), List.of()));
+    }
+
+    @Test
+    void theLastBreakOfOneClosedBreakIsThatBreak() {
+        assertEquals(new LastBreak(at("11:00"), at("11:15")),
+                lastBreakOf(TrackingStatus.WORKING, null, List.of(work("09:00", "11:00"), work("11:15", null)), List.of(pause("11:00", "11:15"))));
+    }
+
+    @Test
+    void theLastBreakOfSeveralIsTheOneThatStartedLastWhateverTheOrder() {
+        assertEquals(new LastBreak(at("14:00"), at("14:10")), lastBreakOf(TrackingStatus.DAY_ENDED, at("18:00"),
+                List.of(work("09:00", "11:00"), work("11:15", "14:00"), work("14:10", "18:00")),
+                List.of(pause("14:00", "14:10"), pause("11:00", "11:15"))));
+    }
+
+    @Test
+    void theLastBreakOfARunningBreakHasNoEnd() {
+        assertEquals(new LastBreak(at("11:00"), null),
+                lastBreakOf(TrackingStatus.ON_BREAK, null, List.of(work("09:00", "11:00")), List.of(pause("10:00", "10:05"), pause("11:00", null))));
+    }
+
+    @Test
+    void aReopenedDayKeepsTheBreakFromBeforeTheGap() {
+        assertEquals(new LastBreak(at("11:00"), at("11:15")), lastBreakOf(TrackingStatus.WORKING, null,
+                List.of(work("09:00", "11:00"), work("11:15", "12:00"), work("15:00", null)), List.of(pause("11:00", "11:15"))));
+    }
+
     @Test
     void theLastActivityIsTheStartOfTheLastSegment() {
         assertEquals(new LastActivity(ActivityType.STARTED_WORK, at("09:00")), WorkdayTimeline.lastActivity(at("09:00"), null, List.of()));

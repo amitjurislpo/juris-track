@@ -237,10 +237,11 @@ nor break time (it stays inside `spanSeconds`). A break must be ended with `RESU
 **Workday** (snapshot; `GET /api/me/time` as `workday`, `GET /api/workdays/{workdayId}` as `data`):
 `{ id, date, status: "WORKING" | "ON_BREAK" | "DAY_ENDED", startedAt, endedAt | null, isStale, closedProductiveSeconds, closedBreakSeconds,
 activeWorkStartedAt | null, activeBreakStartedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount,
+lastBreak: { startedAt, endedAt | null } | null,
 lastActivity: { type: "STARTED_WORK" | "STARTED_BREAK" | "RESUMED_WORK" | "ENDED_DAY", at }, segments: [{ id, type: "WORK" | "BREAK", startedAt, endedAt | null }] }`.
 `productiveSeconds` / `breakSeconds` include the running interval up to `serverTime`; a client keeps a timer running with
 `closedProductiveSeconds + (now - activeWorkStartedAt)` and `closedBreakSeconds + (now - activeBreakStartedAt)`. `spanSeconds` = start of the day to its end
-(or now). `breakCount` counts the running break too. `isStale` ("not ended") = the day is still open and its last uninterrupted stretch (from the start, or from
+(or now). `breakCount` counts the running break too. `lastBreak` is the break that started last (`endedAt` null while it runs), null when the day has no break. `isStale` ("not ended") = the day is still open and its last uninterrupted stretch (from the start, or from
 the last time it was started again after the day had ended) is more than the business's
 `staleWorkdayHours` (computed when read), so a day reopened late in the evening is not "not ended" because of the morning. `segments` are oldest first.
 **Precision**: events are stamped to the millisecond (what a browser keeps), never before the latest instant already recorded for the person (a clock that
@@ -281,7 +282,8 @@ earlier `from` is moved up); `sort` = `date` (default) | `startedAt` | `endedAt`
 `spanSeconds` | `breakCount`; `sortDirection` (**default `desc` here**: newest first), `page`, `pageSize` (list parameters; `search` is ignored).
 "Today" is the date in the business time zone. 400 for an unknown `range`, a malformed `from` / `to` or a bad list parameter.
 `data = { rows, total, page, pageSize, range, from, to, totals, dailySeries }`:
-- row `{ id, date, status, isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount }` (an open day's figures run to
+- row `{ id, date, status, isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount,
+  lastBreak: { startedAt, endedAt | null } | null }` (`lastBreak` = the break that started last, null without a break; an open day's figures run to
   `now`; an ended day's come from the totals stored when it ended);
 - `totals = { workdays, productiveSeconds, breakSeconds, spanSeconds, breakCount, averageProductiveSeconds }` over the whole range (every page);
   `averageProductiveSeconds` = productive seconds per workday of the range, rounded half up, 0 without workdays (see "Averages");
@@ -335,7 +337,7 @@ workday whatever its date (a night shift started yesterday is `WORKING` with yes
   `serverTime` lets the client measure its clock offset.
 - row: `{ employee: { id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName }, status, workdayId | null, date | null,
   startedAt | null, endedAt | null, isStale, closedProductiveSeconds, closedBreakSeconds, activeWorkStartedAt | null, activeBreakStartedAt | null,
-  productiveSeconds, breakSeconds, spanSeconds, breakCount, lastActivity: { type, at } | null }`. The time fields mean exactly what they mean in the
+  productiveSeconds, breakSeconds, spanSeconds, breakCount, lastBreak: { startedAt, endedAt | null } | null, lastActivity: { type, at } | null }`. The time fields mean exactly what they mean in the
   workday snapshot (live values up to `serverTime`), so the client runs the same live timer. `NOT_STARTED` rows have every number 0 and every time /
   id null. `managerName` = "First Last" of the person's manager, null without one.
 - `metrics = { total, working, onBreak, notStarted, dayEnded, stale, totalProductiveSeconds, totalBreakSeconds, averageProductiveSeconds }` over
@@ -446,7 +448,7 @@ Sort keys: `date` (default), `employee` (name, case-insensitive), `startedAt`, `
 **Default `sortDirection` is `desc`** (newest first). Ties: date (newest first), employee name, start, id.
 `data = { rows, total, page, pageSize, range, from, to, scope, totals, dailySeries }`, row: `{ id, date, employee: { id, employeeCode | null, name },
 manager: { id, name } | null, status: "WORKING" | "ON_BREAK" | "DAY_ENDED", isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds,
-spanSeconds, breakCount }`. `manager` is the employee's manager **when the workday started** (snapshot), with that person's current name.
+spanSeconds, breakCount, lastBreak: { startedAt, endedAt | null } | null }`. `manager` is the employee's manager **when the workday started** (snapshot), with that person's current name.
 Audit (access): `reports.viewed`, entity `report` / `workdays`, subject = the `employeeId` filter (else null), after `{ report, filters, rowCount }`
 (`filters = { range, from, to, scope, employeeId, managerId, status: [...], search, sort, sortDirection }`, resolved values); one per request, never one
 per row.
@@ -455,10 +457,10 @@ per row.
 checks; **every row of the range** in the requested order (paging ignored). One more parameter, `timeZone` = the business time zone (default) or one of
 its `displayTimeZones` (IANA id, any case; anything else 400 field `timeZone`). Answer 200, `text/csv;charset=UTF-8`,
 `Content-Disposition: attachment; filename="juristrack-<from>-to-<to>.csv"`, `Cache-Control: no-store`; errors stay `application/problem+json`.
-File (as the old app's export): UTF-8 with a byte order mark, CRLF, header `Date,Employee,Employee ID,Manager,Status,Start (<abbr>),End (<abbr>),
-Productive hours,Break hours,Span hours,Breaks` (`<abbr>` = the display zone's abbreviation at the moment of the export, from `engine/ZoneNames`), rows
-with the date, "First Last", employee code, manager of the day, status (`Working`, `On Break`, `Day Ended`, `Not ended` for a stale open day), start and
-end `HH:mm` in the display zone, hours with two decimals (`toFixed(2)`), breaks. A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`;
+File (as the old app's export): UTF-8 with a byte order mark, CRLF, header `Date,Employee,Employee ID,Manager,Status,Work started (<abbr>),End (<abbr>),
+Productive hours,Break hours,Span hours,Breaks,Last break (<abbr>)` (`<abbr>` = the display zone's abbreviation at the moment of the export, from `engine/ZoneNames`), rows
+with the date, "First Last", employee code, manager of the day, status (`Working`, `On Break`, `Day Ended`, `Not ended` for a stale open day), work started, end and last break (the start of the break that started last, empty without one) as `HH:mm` in the display zone; an end or
+last break on another calendar date than the day's start (a night shift) is written `yyyy-MM-dd HH:mm`, hours with two decimals (`toFixed(2)`), breaks. A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`;
 a cell with `"`, `,`, LF or CR is quoted. More than `juristrack.reports.maximum-export-rows` rows (default 50000) is 422 `EXPORT_TOO_LARGE` ("This
 export has N rows; at most M fit in one file. Choose a shorter date range or fewer people."), nothing exported or audited.
 Audit (access): `reports.exported`, after `{ report, filters, rowCount, timeZone, fileName }`.

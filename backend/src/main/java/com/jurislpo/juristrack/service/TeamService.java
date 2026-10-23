@@ -5,6 +5,7 @@ import com.jurislpo.juristrack.common.InputValidator;
 import com.jurislpo.juristrack.common.ListQuery;
 import com.jurislpo.juristrack.engine.BusinessCalendar;
 import com.jurislpo.juristrack.engine.LastActivity;
+import com.jurislpo.juristrack.engine.LastBreak;
 import com.jurislpo.juristrack.engine.ReportingLine;
 import com.jurislpo.juristrack.engine.TrackingStatus;
 import com.jurislpo.juristrack.engine.WorkdaySnapshot;
@@ -72,7 +73,7 @@ public class TeamService {
     public record TeamMemberRow(TeamMemberEmployee employee, TrackingStatus status, UUID workdayId, LocalDate date, Instant startedAt,
             Instant endedAt, @JsonProperty("isStale") boolean isStale, long closedProductiveSeconds, long closedBreakSeconds,
             Instant activeWorkStartedAt, Instant activeBreakStartedAt, long productiveSeconds, long breakSeconds, long spanSeconds,
-            int breakCount, LastActivity lastActivity) {}
+            int breakCount, LastBreak lastBreak, LastActivity lastActivity) {}
 
     /**
      * Today's figures over everybody in the chosen scope (independent of {@code search}, {@code status} and paging).
@@ -252,14 +253,14 @@ public class TeamService {
         return members.stream().map(employee -> {
             Workday workday = workdayByEmployeeId.get(employee.id());
             if (workday == null) {
-                return new TeamMemberRow(employee, TrackingStatus.NOT_STARTED, null, null, null, null, false, 0, 0, null, null, 0, 0, 0, 0, null);
+                return new TeamMemberRow(employee, TrackingStatus.NOT_STARTED, null, null, null, null, false, 0, 0, null, null, 0, 0, 0, 0, null, null);
             }
             WorkdaySnapshot snapshot = WorkdaySnapshots.snapshotOf(workday, workSessionsByWorkdayId.getOrDefault(workday.getId(), List.of()),
                     breakSessionsByWorkdayId.getOrDefault(workday.getId(), List.of()), now, staleWorkdayHours);
             return new TeamMemberRow(employee, snapshot.status(), snapshot.id(), snapshot.date(), snapshot.startedAt(), snapshot.endedAt(),
                     snapshot.isStale(), snapshot.closedProductiveSeconds(), snapshot.closedBreakSeconds(), snapshot.activeWorkStartedAt(),
                     snapshot.activeBreakStartedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(),
-                    snapshot.breakCount(), snapshot.lastActivity());
+                    snapshot.breakCount(), snapshot.lastBreak(), snapshot.lastActivity());
         }).toList();
     }
 

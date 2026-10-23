@@ -65,7 +65,8 @@ Add new lines at the bottom of the right section. Hindi, Hinglish or English are
 
 ## Requirements (add yours here)
 
-- 
+- **Night shifts (US / UK shifts worked from India):** a workday may start on one calendar date and end on the next. Every calculation (productive and break time, break count, last break, averages, the live board and its tiles, history, reports and CSV, corrections, the "Not ended" flag, the daily chart) must work on the workday's own intervals, never on calendar midnight. The workday belongs to the date it started (in the business time zone); its end may be on the next date and the screens then show the end with its date. Working across midnight must not change any total, and a person who is still working after midnight is "Working", not "Not started".
+- **Shift-based calculation (reference: Time Doctor):** time is calculated per shift, not per calendar day. Typical shifts, in India time: US shift 19:30 to 04:30, UK shift 14:00 to 23:00 (9 hours each); some people work different times, so a shift is defined by the owner and assigned per employee (the default shift is the calendar day, 00:00 to 24:00, which is how the app behaved before). A workday belongs to one shift occurrence and carries that shift's date; a 19:30 to 04:30 shift gives exactly the productive time worked in it (about 9 hours), never a part on one calendar day and a part on the next, and work of the next or the previous shift is never added on to it. "Today" on the timer, the dashboard and the live board means the current shift occurrence. Reports, history and CSV group by shift date and show the shift.
 
 ## Decisions already taken
 

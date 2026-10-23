@@ -3,6 +3,7 @@
 | Version | Date | What changed | Requested by |
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
+| 1.1 | 2026-10-24 | Section 3 and 7: the snapshot and the board row carry `lastBreak`, shown as the time of the last break (FRD 1.1: FR-TIME-11, FR-TEAM-12); history and report rows and the CSV carry it too and label the day's start "Work started"; an end after midnight is shown with its date (FR-HIST-4, FR-HIST-5, FR-REP-14). | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FRD-JurisTrack.md](FRD-JurisTrack.md) (the requirements, ids `FR-...` are quoted below) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 
@@ -186,6 +187,8 @@ flowchart TD
 ```
 
 Caption: every press is checked against the stored state under a lock, a repeat is harmless, an impossible move gets a clear 409, and only a real change is audited.
+
+The answer after a press (and the team board row) also carries `lastBreak`, the break that started last (FR-TIME-11, FR-TEAM-12); the employee and the manager see its start time next to the break count.
 
 ---
 
