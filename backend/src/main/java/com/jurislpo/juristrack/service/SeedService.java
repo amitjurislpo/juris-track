@@ -3,9 +3,11 @@ package com.jurislpo.juristrack.service;
 import com.jurislpo.juristrack.config.JuristrackProperties;
 import com.jurislpo.juristrack.entity.Business;
 import com.jurislpo.juristrack.entity.Role;
+import com.jurislpo.juristrack.entity.Shift;
 import com.jurislpo.juristrack.entity.User;
 import com.jurislpo.juristrack.tenancy.TenantContext;
 import jakarta.persistence.EntityManager;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
@@ -18,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>the platform super admin ({@code juristrack.seed.super-admin-email}), who belongs to no business;</li>
  *   <li>with {@code juristrack.seed.demo=true} (dev, sqe): one demo business with its owner (ADMIN), a MANAGER, four
- *       EMPLOYEEs who report to the manager (the manager reports to the owner). Every demo address ends in {@value #DEMO_EMAIL_DOMAIN} (a reserved, never-delivered domain).</li>
+ *       EMPLOYEEs who report to the manager (the manager reports to the owner) and the shifts "US shift" (19:30-04:30) and "UK shift" (14:00-23:00). Every demo address ends in {@value #DEMO_EMAIL_DOMAIN} (a reserved, never-delivered domain).</li>
  * </ul>
  */
 @Service
@@ -87,6 +89,9 @@ public class SeedService {
         Business business = new Business();
         business.setName("Demo Company");
         entityManager.persist(business);
+        // the default shift "General day" comes with the business (a database trigger); the demo adds the two usual offshore shifts
+        persistDemoShift(business, "US shift", LocalTime.of(19, 30), LocalTime.of(4, 30));
+        persistDemoShift(business, "UK shift", LocalTime.of(14, 0), LocalTime.of(23, 0));
 
         // persisted in reporting order (owner, manager, employees), so every manager row exists before its reports
         User owner = null;
@@ -109,6 +114,15 @@ public class SeedService {
         }
         log.info("Seed: created the demo business {} with {} people (owner {})", business.getId(), DEMO_PEOPLE.size(), DEMO_OWNER_EMAIL);
         return true;
+    }
+
+    private void persistDemoShift(Business business, String name, LocalTime startTime, LocalTime endTime) {
+        Shift shift = new Shift();
+        shift.setBusinessId(business.getId());
+        shift.setName(name);
+        shift.setStartTime(startTime);
+        shift.setEndTime(endTime);
+        entityManager.persist(shift);
     }
 
     private User findUserByEmail(String email) {

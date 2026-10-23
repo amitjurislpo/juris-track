@@ -50,7 +50,7 @@ class FreshDatabaseSchemaTest {
 
     @Test
     void flywayAppliedTheBaselineWithRowLevelSecurity() {
-        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3", "11", "12");
+        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3", "11", "12", "20");
         assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'is_suspended'",
                 String.class)).isEqualTo("false");
         assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'is_login_enabled'",
@@ -58,7 +58,8 @@ class FreshDatabaseSchemaTest {
         assertThat(jdbcTemplate.queryForList("SELECT typname FROM pg_type WHERE typname IN ('user_role', 'workday_status') ORDER BY typname", String.class))
                 .containsExactly("user_role", "workday_status");
         assertThat(jdbcTemplate.queryForList("SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation' ORDER BY tablename", String.class))
-                .containsExactly("audit_logs", "break_sessions", "businesses", "users", "work_sessions", "workdays");
+                .containsExactly("audit_logs", "break_sessions", "businesses", "employee_schedule_entries", "employee_shift_assignments", "shifts", "users",
+                        "work_sessions", "workdays");
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND column_name LIKE '%password%'", Integer.class)).isZero();
     }
 

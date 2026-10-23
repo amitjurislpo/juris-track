@@ -4,6 +4,7 @@
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
 | 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; a JurisOne token of a login-disabled user is refused with 403 | Owner |
+| 2.0 | 2026-10-24 | Shift-based calculation: the roster request carries shifts, each employee's shift and per-date schedule (week offs); optional token claim `shiftCode` (all `[S]`, nothing built on the JurisOne side); open points for shift codes and the roster master | Owner |
 
 Master copy: `juris-track-backend/references/`. The `Juris-one` backend keeps an identical copy with the same version (see "Documents" in both `INSTRUCTIONS.md`).
 Related documents: [FRD-JurisOne.md](FRD-JurisOne.md), [FLOW-JurisOne.md](FLOW-JurisOne.md), [FRD-JurisTrack.md](FRD-JurisTrack.md), [FLOW-JurisTrack.md](FLOW-JurisTrack.md). Design source: `INTEGRATION.md`, `MIGRATION_PLAN.md`, `API.md` (this folder).
@@ -273,7 +274,7 @@ sequenceDiagram
 flowchart TD
     T1["Trigger  employee joined, left, reactivated, name or email changed, manager changed, JurisTrack manager grant changed"]:::planned
     T2["Trigger  nightly full roster and on module grant"]:::planned
-    BUILD["JurisOne builds the list for ONE business  id, code, name, email, managerId, isActive, trackRole"]:::planned
+    BUILD["JurisOne builds the list for ONE business  shifts (code, name, times, grace) and employees: id, code, name, email, managerId, isActive, trackRole, shiftCode, schedule (date, shiftCode or null = week off)"]:::planned
     SIGN["JurisOne signs a service token  aud juristrack, scope employees:sync, short lifetime, jti"]:::planned
     CALL["PUT /api/integration/employees  whole roster or a batch of changes"]:::specified
     CHK{"Token valid, scope employees:sync, business known and linked?"}:::specified
@@ -288,6 +289,8 @@ flowchart TD
     DEACT["Deactivate user  close open workday, keep history, refuse next tokens with 403"]:::specified
     REACT["Reactivate if it was deactivated by the roster"]:::specified
     MGR["Second pass  resolve managerId to users of the business, null if unknown, never self, no loop"]:::specified
+    SHIFTS["First, upsert the shifts by code  future occurrences only"]:::specified
+    ASSIGN["Per employee  assign shiftCode from today, set schedule entries per date, skip dates that already have a workday, audit like the manual change"]:::specified
     AUD["Audit integration.roster_synced with counts and per person changes, source INTEGRATION"]:::specified
     RESP["200  created, updated, deactivated, unchanged, errors per row"]:::specified
 
@@ -295,7 +298,7 @@ flowchart TD
     T2 --> BUILD
     BUILD --> SIGN --> CALL --> CHK
     CHK -- "no" --> FAIL
-    CHK -- "yes" --> EACH --> Q1
+    CHK -- "yes" --> SHIFTS --> EACH --> Q1
     Q1 -- "yes" --> UPD
     Q1 -- "no" --> Q2
     Q2 -- "yes" --> LINKU --> UPD
@@ -303,7 +306,7 @@ flowchart TD
     UPD --> ACT
     ACT -- "yes" --> DEACT --> MGR
     ACT -- "no" --> REACT --> MGR
-    MGR --> AUD --> RESP
+    MGR --> ASSIGN --> AUD --> RESP
 
     classDef built fill:#d8f3dc,stroke:#2d6a4f,color:#1b4332
     classDef specified fill:#fff3bf,stroke:#b08900,color:#5c4500
@@ -320,6 +323,10 @@ What happens on each event (all `[S]` for JurisTrack, `[P]` for the JurisOne tri
 | Manager changes | `manager_id` updated; workdays already recorded keep their manager snapshot; the new manager sees the person from now on |
 | JurisTrack manager grant given or removed | `trackRole` changes `MANAGER` / `EMPLOYEE`; an existing `ADMIN` is not downgraded |
 | Email or name changed | Updated on the linked user, matched by `jurisone_employee_id` |
+| Employee onboarded with a shift (JurisOne form, `[P]`) | `shiftCode` assigns the shift from today; the first workday is attributed to that shift's occurrence `[S]` |
+| Shift roster / weekly off changed | `schedule` entries upserted per date (null = week off); a date with a workday is skipped and reported `[S]` |
+| Shift template changed in JurisOne | `shifts` entry updated by code; future occurrences only, old workdays keep their snapshot `[S]` |
+| First sign-in before any push | Optional token claim `shiftCode` assigns the shift once, if the person has none `[S]` |
 | Push never arrives | The token path (section 3) still provisions and refreshes whoever signs in `[B]` |
 
 Details of the roster response and the audit names `integration.roster_synced` and `integration.roster_rejected` are proposals of this document; `INTEGRATION.md` only fixes the request, the scope and the idempotence. Idempotent: the same list twice changes nothing and writes no further audit entry. The roster endpoint is the only endpoint a service token may call; the user token cannot call it.
@@ -423,6 +430,8 @@ Later versions
 - [ ] IAM JCG / Sita sign-in (not part of version 1.0; the document will move to 2.0)
 
 ## 10. Open points for the owner
+
+0. **Shifts (version 2.0).** (a) The mapping of JurisOne shift codes to JurisTrack shifts: the roster's `code` is the key; who creates the codes and keeps them stable? (b) Who is the master of the roster when a business is linked: JurisOne (proposal) or either side with "the next push wins for the dates it lists"? (c) Does JurisOne send the week-off pattern as explicit dates (specified) or as a rotation rule that JurisTrack expands? (d) Time zone of the shift times: the business time zone (specified); a JurisOne business in several zones would need a zone per shift.
 
 1. **Token issuer value.** `INTEGRATION.md` says `iss=jurisone`; the settings use JurisOne's public URL (`http://localhost:3005`, `https://people.example.com`). Pick one value and use it on both sides.
 2. **Gateway path.** Default `/api/juris-track/**` extending the existing placeholder `GET /api/juris-track`. Confirm.

@@ -89,7 +89,8 @@ class WorkdayCalendarTest extends IntegrationTest {
         assertThat((String) JsonPath.read(state, "$.data.today")).isEqualTo("2026-10-23");
         assertThat((String) JsonPath.read(state, "$.data.status")).as("the open day from yesterday is still the current one").isEqualTo("WORKING");
         assertThat((String) JsonPath.read(state, "$.data.workday.date")).isEqualTo("2026-10-22");
-        // once ended, today (the 23rd) has no workday yet, so the state says NOT_STARTED; the answer names the ended day
+        // the business has only the default shift (the calendar day): once ended, today (the 23rd) has no workday yet, so the state
+        // says NOT_STARTED; the answer names the ended day. A night shift is a shift of its own (see NightShiftTest).
         String endAnswer = tracker.send("END").andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.state.status").value("NOT_STARTED"))
                 .andExpect(jsonPath("$.data.state.workday").value(nullValue()))

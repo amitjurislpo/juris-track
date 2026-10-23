@@ -94,6 +94,18 @@ public enum AuditAction {
     /** The owner switched an employee's sign-in on again. */
     EMPLOYEE_LOGIN_ENABLED("employee.login_enabled", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
     /** A business rule refused a change to an employee (422: manager rules, role, last owner, own account; the code is the reason). */
+    /** The owner gave an employee a shift from a date on ({@code PUT /api/employees/{employeeId}/shift}): {@code before} / {@code after} hold the shift and the date. */
+    EMPLOYEE_SHIFT_CHANGED("employee.shift_changed", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
+    /** The owner set one date of an employee's roster to a shift or a week off. */
+    SCHEDULE_ENTRY_SET("schedule.entry_set", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
+    /** The owner removed a roster entry: the date follows the employee's assigned shift again. */
+    SCHEDULE_ENTRY_REMOVED("schedule.entry_removed", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
+    /** The owner created a shift. */
+    SHIFT_CREATED("shift.created", AuditCategory.BUSINESS, AuditOutcome.SUCCESS),
+    /** The owner changed a shift's name, times or grace (future occurrences only). */
+    SHIFT_UPDATED("shift.updated", AuditCategory.BUSINESS, AuditOutcome.SUCCESS),
+    /** The owner deactivated or reactivated a shift. */
+    SHIFT_STATUS_CHANGED("shift.status_changed", AuditCategory.BUSINESS, AuditOutcome.SUCCESS),
     EMPLOYEE_CHANGE_REFUSED("employee.change_refused", AuditCategory.PEOPLE, AuditOutcome.DENIED),
 
     // ── time tracking ──

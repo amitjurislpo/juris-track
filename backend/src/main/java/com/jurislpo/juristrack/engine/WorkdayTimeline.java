@@ -30,6 +30,13 @@ public final class WorkdayTimeline {
      */
     public static WorkdaySnapshot snapshot(UUID workdayId, LocalDate date, TrackingStatus status, Instant startedAt, Instant endedAt,
             List<TimelineSegment> workSegments, List<TimelineSegment> breakSegments, Instant now, int staleWorkdayHours) {
+        return snapshot(workdayId, date, status, startedAt, endedAt, workSegments, breakSegments, now, staleWorkdayHours, null, false, false);
+    }
+
+    /** As above, with the shift the workday was attributed to ({@code shift} may be null). */
+    public static WorkdaySnapshot snapshot(UUID workdayId, LocalDate date, TrackingStatus status, Instant startedAt, Instant endedAt,
+            List<TimelineSegment> workSegments, List<TimelineSegment> breakSegments, Instant now, int staleWorkdayHours, WorkdayShift shift,
+            boolean isOutsideShift, boolean isOffDay) {
         List<TimeInterval> workIntervals = intervalsOf(workSegments);
         List<TimeInterval> breakIntervals = intervalsOf(breakSegments);
         WorkdayTotals totals = IntervalMath.computeTotals(new TimeInterval(startedAt, endedAt), workIntervals, breakIntervals, now);
@@ -41,13 +48,35 @@ public final class WorkdayTimeline {
                 IntervalMath.findOpenInterval(workIntervals).map(TimeInterval::startedAt).orElse(null),
                 IntervalMath.findOpenInterval(breakIntervals).map(TimeInterval::startedAt).orElse(null),
                 totals.productiveSeconds(), totals.breakSeconds(), totals.spanSeconds(), totals.breakCount(),
-                lastBreakOf(breakSegments), lastActivity(startedAt, endedAt, segments), segments);
+                lastBreakOf(breakSegments), lastActivity(startedAt, endedAt, segments), segments, shift, isOutsideShift,
+                shift == null || isOpen ? null : isOffDay ? Long.valueOf(totals.productiveSeconds()) : Long.valueOf(shift.varianceOf(totals.productiveSeconds())),
+                isOffDay, extraSeconds(shift, isOffDay, workIntervals, now));
     }
 
     /** The break that started last (null when there is none); its end is null while it runs. */
     public static LastBreak lastBreakOf(List<TimelineSegment> breakSegments) {
         return breakSegments.stream().max(Comparator.comparing(TimelineSegment::startedAt))
                 .map(segment -> new LastBreak(segment.startedAt(), segment.endedAt())).orElse(null);
+    }
+
+    /**
+     * The productive seconds outside the shift's scheduled window: all of them on a week off, none for a 24-hour shift (the default
+     * calendar-day shift) or a workday without a shift snapshot. Part of the productive time, not added to it.
+     */
+    public static long extraSeconds(WorkdayShift shift, boolean isOffDay, List<TimeInterval> workIntervals, Instant now) {
+        if (isOffDay) return IntervalMath.sumSeconds(workIntervals, now);
+        if (shift == null || shift.startTime().equals(shift.endTime())) return 0;
+        long windowStart = shift.scheduledStartAt().toEpochMilli();
+        long windowEnd = shift.scheduledEndAt().toEpochMilli();
+        long extra = 0;
+        for (TimeInterval interval : workIntervals) {
+            long start = interval.startedAt().toEpochMilli();
+            long end = interval.isOpen() ? now.toEpochMilli() : interval.endedAt().toEpochMilli();
+            if (end <= start) continue;
+            long inside = Math.max(0, Math.min(end, windowEnd) - Math.max(start, windowStart));
+            extra += Math.floorDiv(end - start - inside, 1000);
+        }
+        return extra;
     }
 
     /** Work and break segments together, oldest first (a work and a break starting at the same instant: work first). */

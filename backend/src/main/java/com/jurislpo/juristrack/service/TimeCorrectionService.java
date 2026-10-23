@@ -6,6 +6,7 @@ import com.jurislpo.juristrack.engine.IntervalMath;
 import com.jurislpo.juristrack.engine.SegmentType;
 import com.jurislpo.juristrack.engine.TimeInterval;
 import com.jurislpo.juristrack.engine.WorkdaySnapshot;
+import com.jurislpo.juristrack.engine.WorkdayTimeline;
 import com.jurislpo.juristrack.engine.WorkdayTotals;
 import com.jurislpo.juristrack.entity.BreakSession;
 import com.jurislpo.juristrack.entity.WorkSession;
@@ -87,6 +88,7 @@ public class TimeCorrectionService {
     private static final String WORKDAY_NOT_FOUND = "Workday not found.";
     private static final String INTERVAL_NOT_FOUND = "Time record not found.";
     private static final String STATUS_DAY_ENDED = "DAY_ENDED";
+    private static final java.time.Duration MAXIMUM_GRACE = java.time.Duration.ofHours(12);
     private static final String FUTURE_TIME = "Times cannot be in the future.";
 
     private final Clock clock;
@@ -306,8 +308,8 @@ public class TimeCorrectionService {
      */
     private void requireInsideWindow(Workday workday, EditableInterval corrected, boolean isFirstInterval) {
         ZoneId zone = ZoneId.of(workday.getTimeZone());
-        Instant windowStart = workday.getWorkDate().atStartOfDay(zone).toInstant();
-        Instant windowEnd = workday.getWorkDate().plusDays(2).atStartOfDay(zone).toInstant();
+        Instant windowStart = windowStartOf(workday, zone);
+        Instant windowEnd = windowEndOf(workday, zone);
         boolean isStartInside = !corrected.startedAt().isBefore(windowStart) && corrected.startedAt().isBefore(windowEnd);
         boolean isEndInside = corrected.endedAt() == null || (corrected.endedAt().isAfter(windowStart) && !corrected.endedAt().isAfter(windowEnd));
         boolean isFirstOnTheDate = !isFirstInterval || corrected.startedAt().isBefore(workday.getWorkDate().plusDays(1).atStartOfDay(zone).toInstant());
@@ -317,14 +319,35 @@ public class TimeCorrectionService {
     /** The end of a closed workday must lie in the same window. */
     private void requireInsideWindow(Workday workday, Instant end) {
         ZoneId zone = ZoneId.of(workday.getTimeZone());
-        Instant windowStart = workday.getWorkDate().atStartOfDay(zone).toInstant();
-        Instant windowEnd = workday.getWorkDate().plusDays(2).atStartOfDay(zone).toInstant();
+        Instant windowStart = windowStartOf(workday, zone);
+        Instant windowEnd = windowEndOf(workday, zone);
         if (!end.isAfter(windowStart) || end.isAfter(windowEnd)) throw outOfRange(workday);
+    }
+
+    /** The start of the shift date, or 12 hours before the scheduled start (the largest grace) when that is earlier. */
+    private static Instant windowStartOf(Workday workday, ZoneId zone) {
+        Instant startOfDate = workday.getWorkDate().atStartOfDay(zone).toInstant();
+        Instant scheduledStart = workday.getScheduledStartAt();
+        return scheduledStart != null && !isFullDay(workday) && scheduledStart.minus(MAXIMUM_GRACE).isBefore(startOfDate) ? scheduledStart.minus(MAXIMUM_GRACE) : startOfDate;
+    }
+
+    /** The end of the day after the shift date, or the scheduled end plus 12 hours when that is later. */
+    private static Instant windowEndOf(Workday workday, ZoneId zone) {
+        Instant endOfNextDate = workday.getWorkDate().plusDays(2).atStartOfDay(zone).toInstant();
+        Instant scheduledEnd = workday.getScheduledEndAt();
+        return scheduledEnd != null && !isFullDay(workday) && scheduledEnd.plus(MAXIMUM_GRACE).isAfter(endOfNextDate) ? scheduledEnd.plus(MAXIMUM_GRACE) : endOfNextDate;
+    }
+
+    /** The default calendar-day shift (a 23 to 25 hour occurrence) keeps the plain date window. */
+    private static boolean isFullDay(Workday workday) {
+        return workday.getScheduledStartAt() != null && workday.getScheduledEndAt() != null
+                && java.time.Duration.between(workday.getScheduledStartAt(), workday.getScheduledEndAt()).toHours() >= 23;
     }
 
     private static ApiException outOfRange(Workday workday) {
         return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.CORRECTION_OUT_OF_RANGE,
-                "A time must be on the workday's date (" + workday.getWorkDate() + ") or the day after, in the business time zone.");
+                "Choose a time on " + workday.getWorkDate() + " or " + workday.getWorkDate().plusDays(1)
+                        + ", in the business time zone. To close a forgotten shift, give the time it really ended.");
     }
 
     /** The corrected workday (first start to last end, or until now while it runs) must not overlap another workday of the person. */
@@ -372,6 +395,7 @@ public class TimeCorrectionService {
             workday.setProductiveSeconds(null);
             workday.setBreakSeconds(null);
             workday.setBreakCount(null);
+            workday.setExtraSeconds(null);
         } else {
             WorkdayTotals totals = IntervalMath.computeTotals(new TimeInterval(workday.getStartedAt(), workday.getEndedAt()),
                     workSessions.stream().map(session -> new TimeInterval(session.getStartedAt(), session.getEndedAt())).toList(),
@@ -380,6 +404,8 @@ public class TimeCorrectionService {
             workday.setProductiveSeconds(Math.toIntExact(totals.productiveSeconds()));
             workday.setBreakSeconds(Math.toIntExact(totals.breakSeconds()));
             workday.setBreakCount(totals.breakCount());
+            workday.setExtraSeconds(Math.toIntExact(WorkdayTimeline.extraSeconds(WorkdaySnapshots.shiftOf(workday), workday.isOffDay(),
+                    workSessions.stream().map(session -> new TimeInterval(session.getStartedAt(), session.getEndedAt())).toList(), workday.getEndedAt())));
         }
         workdayRepository.saveAndFlush(workday);
     }

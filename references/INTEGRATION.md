@@ -47,6 +47,7 @@ leaves the JurisOne backend, JurisOne keeps control of who may use the module (p
 | `email`, `name` | for provisioning and display |
 | `businessId`, `businessName` | JurisOne business id and name |
 | `managerId` (optional) | JurisOne employee id of this employee's assigned manager (null if none): JurisTrack keeps it as `manager_id` and refreshes it on every token |
+| `shiftCode` (optional, **specified, not built**) | The code of the shift JurisOne has assigned to this employee (a `code` from the roster's `shifts` list). A first-time user who signs in before any roster push gets this shift assigned from today, so their first workday is attributed to the right shift. Later changes come with the roster; a claim never changes an assignment that already exists |
 | `trackRole` (optional) | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` (optional `ADMIN` only if JurisOne wants an owner-type user). Sent on **every** token; JurisTrack follows it, so granting or removing the role in JurisOne takes effect on the next call |
 | `exp`, `iat`, `jti` | all three required: expiry (short, `exp - iat` at most 10 minutes), issue time, unique id. A `jti` is accepted **once**: a replayed token answers 401 and is audited (`replayed_token`), so the gateway issues a fresh token for every request |
 
@@ -68,6 +69,31 @@ to the `SUPER_ADMIN` is refused with 403; a deactivated user, or one whose login
 roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees
 { id, code, name, email, managerId, isActive } and creates/updates/deactivates users accordingly (idempotent, whole roster or a batch of changes). JurisOne calls
 it when employees or manager assignments change and on a schedule. Just-in-time provisioning from the user token still works as a fallback.
+
+**Roster contract including shifts (specified, not built; version 2.0 of the documents).** JurisTrack calculates time per shift (`API.md`, "Shifts and the
+roster"). JurisOne onboards employees too, so it sends their shift in the same request. Body (JSON, one business per call, the business is the one the
+service token names):
+
+```json
+{
+  "shifts": [ { "code": "US", "name": "US shift", "startTime": "19:30", "endTime": "04:30", "earlyStartMinutes": 180, "lateEndMinutes": 180 } ],
+  "employees": [ { "employeeId": "<JurisOne id>", "email": "a@b.c", "firstName": "A", "lastName": "B", "employeeCode": "E1", "role": "EMPLOYEE",
+                   "managerEmployeeId": "<JurisOne id>", "isActive": true, "shiftCode": "US",
+                   "schedule": [ { "date": "2026-11-02", "shiftCode": null }, { "date": "2026-11-03", "shiftCode": "UK" } ] } ]
+}
+```
+- `shifts`: the business's shift templates by a JurisOne-chosen `code` (unique per business). JurisTrack creates or updates the shift with that code
+  (name, times, grace; changes affect future occurrences only) and remembers the code on it; a shift missing from a later call is left as it is.
+  Times are `HH:mm` on the **business time zone's** wall clock; an end at or before the start means the next day; the grace defaults to 180 minutes.
+- `employees[].shiftCode`: the shift assigned to the employee from today on (the same assignment as `PUT /api/employees/{id}/shift`; the history is
+  kept; the same shift again changes nothing). Absent or null: the assignment is left as it is.
+- `employees[].schedule`: the roster for up to the next 62 days, one entry per date; `shiftCode` null is a **week off** (weeks off are rotational).
+  Entries are the same records as `PUT /api/employees/{id}/schedule-entries`: idempotent upsert per date, a date that already has a workday is skipped
+  and reported, dates beyond 365 days are refused. Dates not listed are left as they are.
+- Idempotent: the same body twice changes nothing and writes no further audit entry beyond `integration.roster_synced` (counts only). Every changed
+  shift, assignment or roster entry is audited like the manual change (`shift.*`, `employee.shift_changed`, `schedule.entry_set`) with source `INTEGRATION`.
+- JurisOne is the master of the roster when the business is linked (open point: who is master while both sides can edit; until then the owner's
+  screens in JurisTrack stay editable and the next push wins for the dates it lists).
 
 **Audit of the integration:** Bearer requests are audited with source `INTEGRATION`; the gateway may pass an `X-Request-Id` that is stored with the entries; refused tokens (`integration.token_rejected`, reason code only, never the token) and refused users (`integration.user_refused`) are audited, and a renamed linked business is audited as `integration.business_updated`.
 

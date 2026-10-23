@@ -3,6 +3,7 @@ package com.jurislpo.juristrack.service;
 import com.jurislpo.juristrack.engine.SegmentType;
 import com.jurislpo.juristrack.engine.TimelineSegment;
 import com.jurislpo.juristrack.engine.TrackingStatus;
+import com.jurislpo.juristrack.engine.WorkdayShift;
 import com.jurislpo.juristrack.engine.WorkdaySnapshot;
 import com.jurislpo.juristrack.engine.WorkdayTimeline;
 import com.jurislpo.juristrack.entity.BreakSession;
@@ -12,6 +13,7 @@ import com.jurislpo.juristrack.entity.WorkdayStatus;
 import com.jurislpo.juristrack.repository.BreakSessionRepository;
 import com.jurislpo.juristrack.repository.WorkSessionRepository;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -37,7 +39,14 @@ class WorkdaySnapshots {
     static WorkdaySnapshot snapshotOf(Workday workday, List<WorkSession> workSessions, List<BreakSession> breakSessions, Instant now,
             int staleWorkdayHours) {
         return WorkdayTimeline.snapshot(workday.getId(), workday.getWorkDate(), statusOf(workday.getStatus()), workday.getStartedAt(),
-                workday.getEndedAt(), workSegments(workSessions), breakSegments(breakSessions), now, staleWorkdayHours);
+                workday.getEndedAt(), workSegments(workSessions), breakSegments(breakSessions), now, staleWorkdayHours, shiftOf(workday),
+                workday.isOutsideShift(), workday.isOffDay());
+    }
+
+    /** The shift snapshot stored on the workday, or null for a record without one. */
+    static WorkdayShift shiftOf(Workday workday) {
+        return WorkdayShift.of(workday.getShiftId(), workday.getShiftName(), workday.getScheduledStartAt(), workday.getScheduledEndAt(),
+                ZoneId.of(workday.getTimeZone()));
     }
 
     /** The stored status as the API shows it: COMPLETED is DAY_ENDED. */
