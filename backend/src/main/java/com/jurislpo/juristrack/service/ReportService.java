@@ -12,6 +12,7 @@ import com.jurislpo.juristrack.engine.RangePreset;
 import com.jurislpo.juristrack.engine.ReportingLine;
 import com.jurislpo.juristrack.engine.TimeInterval;
 import com.jurislpo.juristrack.engine.TrackingStatus;
+import com.jurislpo.juristrack.engine.WorkdayShift;
 import com.jurislpo.juristrack.engine.WorkdaySnapshot;
 import com.jurislpo.juristrack.engine.WorkdayTimeline;
 import com.jurislpo.juristrack.engine.ZoneNames;
@@ -84,18 +85,23 @@ public class ReportService {
      * @param status  WORKING, ON_BREAK or DAY_ENDED
      * @param isStale open and longer than the business's stale workday hours ("Not ended")
      * @param manager null when the employee had no manager that day
+     * @param date    the shift date
+     * @param shift   the shift the day was attributed to (null for a record without one)
+     * @param extraSeconds productive time outside the scheduled window (included in productiveSeconds)
      */
     public record ReportRow(UUID id, LocalDate date, EmployeeReference employee, ManagerReference manager, TrackingStatus status,
             @JsonProperty("isStale") boolean isStale, Instant startedAt, Instant endedAt, long productiveSeconds, long breakSeconds,
-            long spanSeconds, int breakCount) {}
+            long spanSeconds, int breakCount, WorkdayShift shift, @JsonProperty("isOutsideShift") boolean isOutsideShift,
+            @JsonProperty("isOffDay") boolean isOffDay, Long varianceSeconds, long extraSeconds) {}
 
     /**
      * What every workday of the range adds up to (all pages).
      *
      * @param averageProductiveSeconds productive seconds per workday, rounded (0 without workdays)
+     * @param extraSeconds             extra time (outside the scheduled windows), included in productiveSeconds
      */
     public record ReportTotals(int workdays, int employees, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount,
-            long averageProductiveSeconds) {}
+            long averageProductiveSeconds, long extraSeconds) {}
 
     /** {@code GET /api/reports/workdays}: one page of workdays plus the totals and the daily series of the whole range. */
     public record WorkdayReport(List<ReportRow> rows, long total, int page, int pageSize, String range, LocalDate from, LocalDate to,
@@ -112,7 +118,8 @@ public class ReportService {
      * @param lastEndedAt    the latest end of the group's ended workdays, or null
      */
     public record SummaryRow(String key, String label, String employeeCode, int workdays, int employees, long productiveSeconds,
-            long breakSeconds, long spanSeconds, int breakCount, long averageProductiveSeconds, Instant firstStartedAt, Instant lastEndedAt) {}
+            long breakSeconds, long spanSeconds, int breakCount, long averageProductiveSeconds, Instant firstStartedAt, Instant lastEndedAt,
+            long extraSeconds) {}
 
     /** {@code GET /api/reports/summaries}: one page of groups plus the totals and the daily series of the whole range. */
     public record SummaryReport(List<SummaryRow> rows, long total, int page, int pageSize, String groupBy, String range, LocalDate from,
@@ -251,14 +258,19 @@ public class ReportService {
         String abbreviation = ZoneNames.zoneAbbreviation(displayZone, request.now());
         List<String> lines = new ArrayList<>();
         lines.add(CsvFormat.line(List.of("Date", "Employee", "Employee ID", "Manager", "Status", "Start (" + abbreviation + ")",
-                "End (" + abbreviation + ")", "Productive hours", "Break hours", "Span hours", "Breaks")));
+                "End (" + abbreviation + ")", "Productive hours", "Break hours", "Span hours", "Breaks", "Extra hours", "Shift",
+                "Scheduled start (" + abbreviation + ")", "Scheduled end (" + abbreviation + ")", "Outside shift", "Week off")));
         for (ReportRow row : rows) {
             lines.add(CsvFormat.line(List.of(row.date().toString(), row.employee().name(),
                     row.employee().employeeCode() == null ? "" : row.employee().employeeCode(),
                     row.manager() == null || row.manager().name() == null ? "" : row.manager().name(),
                     row.isStale() ? NOT_ENDED_LABEL : STATUS_LABELS.get(row.status()), CsvFormat.wallClockTime(row.startedAt(), displayZone),
                     row.endedAt() == null ? "" : CsvFormat.wallClockTime(row.endedAt(), displayZone), CsvFormat.decimalHours(row.productiveSeconds()),
-                    CsvFormat.decimalHours(row.breakSeconds()), CsvFormat.decimalHours(row.spanSeconds()), row.breakCount())));
+                    CsvFormat.decimalHours(row.breakSeconds()), CsvFormat.decimalHours(row.spanSeconds()), row.breakCount(),
+                    CsvFormat.decimalHours(row.extraSeconds()), row.shift() == null ? "" : row.shift().name(),
+                    row.shift() == null ? "" : CsvFormat.wallClockTime(row.shift().scheduledStartAt(), displayZone),
+                    row.shift() == null ? "" : CsvFormat.wallClockTime(row.shift().scheduledEndAt(), displayZone),
+                    row.isOutsideShift() ? "Yes" : "", row.isOffDay() ? "Yes" : "")));
         }
         String fileName = "juristrack-" + request.range().from() + "-to-" + request.range().to() + ".csv";
         reportAccessAudit.recordExport(currentUser, WORKDAYS_REPORT, request.auditFilters(), request.employeeId(), rows.size(),
@@ -405,18 +417,24 @@ public class ReportService {
             EmployeeReference employee = new EmployeeReference(workday.employeeId(), workday.employeeCode(),
                     (workday.employeeFirstName() + " " + workday.employeeLastName()).trim());
             ManagerReference manager = workday.managerId() == null ? null : new ManagerReference(workday.managerId(), workday.managerName());
+            WorkdayShift shift = WorkdayShift.of(workday.shiftId(), workday.shiftName(), workday.scheduledStartAt(), workday.scheduledEndAt(),
+                    ZoneId.of(workday.timeZone()));
             if (hasStoredTotals(workday)) {
                 long spanSeconds = IntervalMath.intervalSeconds(new TimeInterval(workday.startedAt(), workday.endedAt()), now);
                 rows.add(new ReportRow(workday.id(), workday.date(), employee, manager, TrackingStatus.DAY_ENDED, false, workday.startedAt(),
                         workday.endedAt(), workday.productiveSeconds(), workday.breakSeconds() == null ? 0 : workday.breakSeconds(), spanSeconds,
-                        workday.breakCount() == null ? 0 : workday.breakCount()));
+                        workday.breakCount() == null ? 0 : workday.breakCount(), shift, workday.isOutsideShift(), workday.isOffDay(),
+                        shift == null ? null : workday.isOffDay() ? Long.valueOf(workday.productiveSeconds()) : Long.valueOf(shift.varianceOf(workday.productiveSeconds())),
+                        workday.extraSeconds() == null ? 0 : workday.extraSeconds()));
             } else {
                 WorkdaySnapshot snapshot = WorkdayTimeline.snapshot(workday.id(), workday.date(), WorkdaySnapshots.statusOf(workday.status()),
                         workday.startedAt(), workday.endedAt(),
                         WorkdaySnapshots.workSegments(workSessionsByWorkdayId.getOrDefault(workday.id(), List.of())),
-                        WorkdaySnapshots.breakSegments(breakSessionsByWorkdayId.getOrDefault(workday.id(), List.of())), now, staleWorkdayHours);
+                        WorkdaySnapshots.breakSegments(breakSessionsByWorkdayId.getOrDefault(workday.id(), List.of())), now, staleWorkdayHours, shift,
+                        workday.isOutsideShift(), workday.isOffDay());
                 rows.add(new ReportRow(workday.id(), workday.date(), employee, manager, snapshot.status(), snapshot.isStale(), snapshot.startedAt(),
-                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount()));
+                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount(),
+                        snapshot.shift(), snapshot.isOutsideShift(), snapshot.isOffDay(), snapshot.varianceSeconds(), snapshot.extraSeconds()));
             }
         }
         return rows;
@@ -439,7 +457,8 @@ public class ReportService {
         long productiveSeconds = rows.stream().mapToLong(ReportRow::productiveSeconds).sum();
         return new ReportTotals(rows.size(), (int) rows.stream().map(row -> row.employee().id()).distinct().count(), productiveSeconds,
                 rows.stream().mapToLong(ReportRow::breakSeconds).sum(), rows.stream().mapToLong(ReportRow::spanSeconds).sum(),
-                rows.stream().mapToInt(ReportRow::breakCount).sum(), WorkdayHistoryService.averageOf(productiveSeconds, rows.size()));
+                rows.stream().mapToInt(ReportRow::breakCount).sum(), WorkdayHistoryService.averageOf(productiveSeconds, rows.size()),
+                rows.stream().mapToLong(ReportRow::extraSeconds).sum());
     }
 
     /** One point per calendar day from {@code from} to {@code to}, zero-filled (the old {@code dailySeries}). */
@@ -472,7 +491,8 @@ public class ReportService {
                     groupRows.stream().mapToLong(ReportRow::breakSeconds).sum(), groupRows.stream().mapToLong(ReportRow::spanSeconds).sum(),
                     groupRows.stream().mapToInt(ReportRow::breakCount).sum(), WorkdayHistoryService.averageOf(productiveSeconds, groupRows.size()),
                     groupRows.stream().map(ReportRow::startedAt).min(Comparator.naturalOrder()).orElse(null),
-                    groupRows.stream().map(ReportRow::endedAt).filter(endedAt -> endedAt != null).max(Comparator.naturalOrder()).orElse(null)));
+                    groupRows.stream().map(ReportRow::endedAt).filter(endedAt -> endedAt != null).max(Comparator.naturalOrder()).orElse(null),
+                    groupRows.stream().mapToLong(ReportRow::extraSeconds).sum()));
         });
         return groups;
     }

@@ -1,14 +1,19 @@
 package com.jurislpo.juristrack.service;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.jurislpo.juristrack.common.InputValidator;
 import com.jurislpo.juristrack.engine.BusinessCalendar;
 import com.jurislpo.juristrack.engine.IntervalMath;
+import com.jurislpo.juristrack.engine.ShiftAttribution;
+import com.jurislpo.juristrack.engine.ShiftOccurrence;
 import com.jurislpo.juristrack.engine.TimeEventType;
 import com.jurislpo.juristrack.engine.TimeInterval;
 import com.jurislpo.juristrack.engine.TimeStateMachine;
 import com.jurislpo.juristrack.engine.TimeTransition;
 import com.jurislpo.juristrack.engine.TrackingStatus;
 import com.jurislpo.juristrack.engine.WorkdaySnapshot;
+import com.jurislpo.juristrack.engine.WorkdayTimeline;
+import com.jurislpo.juristrack.engine.WorkdayShift;
 import com.jurislpo.juristrack.engine.WorkdayTotals;
 import com.jurislpo.juristrack.entity.Business;
 import com.jurislpo.juristrack.entity.BreakSession;
@@ -57,9 +62,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>A repeated event (a double-click) answers the current state with {@code alreadyApplied = true} and creates nothing. The
  *       unique "open key" columns make a second open workday or interval impossible even if this code were bypassed; a unique-key
  *       collision means inconsistent records and is reported (500 {@code TIME_RECORD_INCONSISTENT}), never hidden as a repeat.</li>
- *   <li>A workday belongs to the calendar date in the business time zone when it started and may run past midnight. Starting again
- *       after the day ended on the same date reopens that workday with a new work session; the gap counts as neither productive nor
- *       break time (owner decision D5).</li>
+ *   <li>Time is calculated per shift: a workday belongs to the shift occurrence its START fell into ({@link ShiftResolver}) and its
+ *       date is that occurrence's shift date (the calendar date for the default shift). A START in an occurrence that already has a
+ *       workday reopens it with a new work session (the gap counts as neither productive nor break time, owner decision D5); a START in
+ *       another occurrence creates a new workday. BREAK, RESUME and END act on the open workday whatever its date, and a repeated END
+ *       after midnight is a repeat, not a refusal.</li>
  *   <li>The cached totals on the workday are recomputed from the intervals after every change: values once the day is completed,
  *       empty while it is open. Never incremented.</li>
  *   <li>The manager at the start of the day is kept on the workday ({@code manager_id}, the reporting snapshot).</li>
@@ -84,19 +91,22 @@ public class TimeTrackingService {
      * @param displayTimeZones  the business's configured display time zones (IANA ids) for the time-zone switcher; the business
      *                          time zone itself is always offered by the client
      * @param status            NOT_STARTED, WORKING, ON_BREAK or DAY_ENDED
-     * @param workday           the open workday (from any date), else today's ended workday, else null
+     * @param shiftDate         the date of the shift occurrence "now" belongs to for this employee (the calendar date for the default shift)
+     * @param isOffDay          the shift date is a week off in the roster (work is allowed and counts as extra time)
+     * @param shift             that occurrence's shift (name, times, scheduled length), so the timer can show it before the day starts
+     * @param workday           the current workday: the open one (from any date), else the one of the current shift occurrence (DAY_ENDED,
+     *                          with its own date), else null
      */
     public record TimeState(UUID employeeId, Instant serverTime, LocalDate today, String businessTimeZone, int staleWorkdayHours,
-            List<String> displayTimeZones, TrackingStatus status, WorkdaySnapshot workday) {}
+            List<String> displayTimeZones, TrackingStatus status, LocalDate shiftDate,
+            @JsonProperty("isOffDay") boolean isOffDay, WorkdayShift shift, WorkdaySnapshot workday) {}
 
     /**
      * What a time event answers.
      *
      * @param type           the event
      * @param alreadyApplied true when it was a repeat and nothing was created or changed
-     * @param workdayId      the workday the event applied to (for a repeat: the current one, null when there is none). It differs from
-     *                       {@code state.workday} when a night shift ended after midnight: the state then shows today (not started)
-     *                       and the ended day is read with {@code GET /api/workdays/{workdayId}}
+     * @param workdayId      the workday the event applied to (for a repeat: the current one, null when there is none)
      * @param state          the state afterwards
      */
     public record TimeEventResult(TimeEventType type, boolean alreadyApplied, UUID workdayId, TimeState state) {}
@@ -113,6 +123,7 @@ public class TimeTrackingService {
     private final TransactionTemplate readTransaction;
     private final EmployeeLockRepository employeeLockRepository;
     private final WorkdayRepository workdayRepository;
+    private final ShiftResolver shiftResolver;
     private final WorkSessionRepository workSessionRepository;
     private final BreakSessionRepository breakSessionRepository;
     private final BusinessRepository businessRepository;
@@ -121,7 +132,8 @@ public class TimeTrackingService {
 
     public TimeTrackingService(Clock clock, PlatformTransactionManager transactionManager, EmployeeLockRepository employeeLockRepository,
             WorkdayRepository workdayRepository, WorkSessionRepository workSessionRepository, BreakSessionRepository breakSessionRepository,
-            BusinessRepository businessRepository, WorkdaySnapshots workdaySnapshots, AuditService auditService) {
+            BusinessRepository businessRepository, WorkdaySnapshots workdaySnapshots, AuditService auditService,
+            ShiftResolver shiftResolver) {
         this.clock = clock;
         this.writeTransaction = new TransactionTemplate(transactionManager);
         this.readTransaction = new TransactionTemplate(transactionManager);
@@ -130,6 +142,7 @@ public class TimeTrackingService {
         this.readTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         this.employeeLockRepository = employeeLockRepository;
         this.workdayRepository = workdayRepository;
+        this.shiftResolver = shiftResolver;
         this.workSessionRepository = workSessionRepository;
         this.breakSessionRepository = breakSessionRepository;
         this.businessRepository = businessRepository;
@@ -138,8 +151,9 @@ public class TimeTrackingService {
     }
 
     /**
-     * The current state: the open workday if there is one (even one started on an earlier date), otherwise today's ended workday,
-     * otherwise NOT_STARTED without a workday.
+     * The current state: the open workday if there is one (even one started on an earlier date), otherwise the workday of the shift
+     * occurrence "now" belongs to (DAY_ENDED, with its own shift date: a night shift that ended after midnight is still the current
+     * one until its attribution window is over), otherwise NOT_STARTED without a workday but with the occurrence's shift.
      */
     public TimeState currentState(CurrentUser currentUser) {
         return readTransaction.execute(transactionStatus -> loadState(currentUser.userId(), currentUser.businessId()));
@@ -211,11 +225,15 @@ public class TimeTrackingService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Business not found."));
         Instant now = now();
         LocalDate today = BusinessCalendar.toDateKey(now, BusinessCalendar.zoneOf(business.getTimeZone()));
+        ZoneId zone = BusinessCalendar.zoneOf(business.getTimeZone());
+        ShiftAttribution attribution = shiftResolver.attributionOf(businessId, employeeId, now, zone);
+        ShiftOccurrence occurrence = attribution.occurrence();
         Optional<Workday> workday = workdayRepository.findByActiveEmployeeId(employeeId)
-                .or(() -> workdayRepository.findByEmployeeIdAndWorkDate(employeeId, today));
+                .or(() -> workdayRepository.findByEmployeeIdAndWorkDate(employeeId, occurrence.date()));
         WorkdaySnapshot snapshot = workday.map(day -> workdaySnapshots.snapshotOf(day, now, business.getStaleWorkdayHours())).orElse(null);
         return new TimeState(employeeId, now, today, business.getTimeZone(), business.getStaleWorkdayHours(),
-                List.copyOf(business.getDisplayTimeZones()), snapshot == null ? TrackingStatus.NOT_STARTED : snapshot.status(), snapshot);
+                List.copyOf(business.getDisplayTimeZones()), snapshot == null ? TrackingStatus.NOT_STARTED : snapshot.status(), occurrence.date(),
+                attribution.isOffDay(), WorkdayShift.of(occurrence, zone), snapshot);
     }
 
     /** One event inside the write transaction. */
@@ -225,10 +243,12 @@ public class TimeTrackingService {
         if (!employee.isActive()) throw new ApiException(HttpStatus.FORBIDDEN, "This account is deactivated.");
         Instant now = stampFor(employeeId);
         ZoneId zone = BusinessCalendar.zoneOf(employee.businessTimeZone());
-        LocalDate today = BusinessCalendar.toDateKey(now, zone);
+        // the shift occurrence this moment belongs to: START opens (or reopens) the workday of that occurrence; the other events act on
+        // the open workday whatever its date, and a repeated END after the shift ended finds the ended workday of the occurrence
+        ShiftAttribution attribution = shiftResolver.attributionOf(employee.businessId(), employeeId, now, zone);
         Optional<Workday> openWorkday = workdayRepository.findByActiveEmployeeId(employeeId);
         Optional<Workday> endedWorkdayToday = openWorkday.isPresent() ? Optional.empty()
-                : workdayRepository.findByEmployeeIdAndWorkDate(employeeId, today);
+                : workdayRepository.findByEmployeeIdAndWorkDate(employeeId, attribution.occurrence().date());
         TrackingStatus status = openWorkday.map(workday -> WorkdaySnapshots.statusOf(workday.getStatus()))
                 .orElse(endedWorkdayToday.isPresent() ? TrackingStatus.DAY_ENDED : TrackingStatus.NOT_STARTED);
 
@@ -245,7 +265,7 @@ public class TimeTrackingService {
             case REJECTED_BREAK_IN_PROGRESS -> throw new ApiException(HttpStatus.CONFLICT, Problems.BREAK_IN_PROGRESS,
                     "You are on a break. Select Back to Work before ending your workday.");
             case START_WORKDAY -> {
-                workday = startWorkday(employee, zone, today, now);
+                workday = startWorkday(employee, zone, attribution, now);
                 auditAction = AuditAction.WORKDAY_STARTED;
             }
             case REOPEN_WORKDAY -> {
@@ -274,13 +294,20 @@ public class TimeTrackingService {
         return new AppliedEvent(false, workday.getId());
     }
 
-    private Workday startWorkday(LockedEmployee employee, ZoneId zone, LocalDate today, Instant now) {
+    private Workday startWorkday(LockedEmployee employee, ZoneId zone, ShiftAttribution attribution, Instant now) {
+        ShiftOccurrence occurrence = attribution.occurrence();
         Workday workday = new Workday();
         workday.setBusinessId(employee.businessId());
         workday.setEmployeeId(employee.employeeId());
         workday.setManagerId(employee.managerId());
-        workday.setWorkDate(today);
+        workday.setWorkDate(occurrence.date());
         workday.setTimeZone(zone.getId());
+        workday.setShiftId(occurrence.shift().id());
+        workday.setShiftName(occurrence.shift().name());
+        workday.setScheduledStartAt(occurrence.scheduledStartAt());
+        workday.setScheduledEndAt(occurrence.scheduledEndAt());
+        workday.setOutsideShift(attribution.isOutsideShift());
+        workday.setOffDay(attribution.isOffDay());
         workday.setStartedAt(now);
         workday.setStatus(WorkdayStatus.WORKING);
         workday.setActiveEmployeeId(employee.employeeId());
@@ -289,7 +316,7 @@ public class TimeTrackingService {
         return workday;
     }
 
-    /** Today's ended workday runs again with a new work session; the gap since it ended is neither productive nor break time. */
+    /** The ended workday of the current shift occurrence runs again with a new work session; the gap since it ended is neither productive nor break time. */
     private Workday reopenWorkday(Workday workday, Instant now) {
         workday.setStatus(WorkdayStatus.WORKING);
         workday.setEndedAt(null);
@@ -400,6 +427,7 @@ public class TimeTrackingService {
             workday.setProductiveSeconds(null);
             workday.setBreakSeconds(null);
             workday.setBreakCount(null);
+            workday.setExtraSeconds(null);
         } else {
             List<TimeInterval> workIntervals = workSessionRepository.findByWorkdayIdOrderByStartedAtAsc(workday.getId()).stream()
                     .map(session -> new TimeInterval(session.getStartedAt(), session.getEndedAt())).toList();
@@ -410,6 +438,8 @@ public class TimeTrackingService {
             workday.setProductiveSeconds(Math.toIntExact(totals.productiveSeconds()));
             workday.setBreakSeconds(Math.toIntExact(totals.breakSeconds()));
             workday.setBreakCount(totals.breakCount());
+            workday.setExtraSeconds(Math.toIntExact(WorkdayTimeline.extraSeconds(WorkdaySnapshots.shiftOf(workday), workday.isOffDay(), workIntervals,
+                    workday.getEndedAt())));
         }
         workdayRepository.saveAndFlush(workday);
     }

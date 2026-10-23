@@ -9,6 +9,7 @@ import com.jurislpo.juristrack.engine.DateRanges;
 import com.jurislpo.juristrack.engine.IntervalMath;
 import com.jurislpo.juristrack.engine.RangePreset;
 import com.jurislpo.juristrack.engine.TimeInterval;
+import com.jurislpo.juristrack.engine.WorkdayShift;
 import com.jurislpo.juristrack.engine.TrackingStatus;
 import com.jurislpo.juristrack.engine.WorkdaySnapshot;
 import com.jurislpo.juristrack.engine.WorkdayTimeline;
@@ -27,6 +28,7 @@ import com.jurislpo.juristrack.security.CurrentUser;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -63,16 +65,21 @@ public class WorkdayHistoryService {
      * @param breakSeconds      break time (live while open)
      * @param spanSeconds       start to end (or now)
      * @param breakCount        breaks taken
+     * @param shift             the shift the day was attributed to (null for a record without one)
+     * @param varianceSeconds   productive minus scheduled time once the day has ended, else null
+     * @param extraSeconds      productive time outside the scheduled window (included in productiveSeconds)
      */
     public record WorkdayRow(UUID id, LocalDate date, TrackingStatus status, @JsonProperty("isStale") boolean isStale, Instant startedAt,
-            Instant endedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount) {}
+            Instant endedAt, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount, WorkdayShift shift,
+            @JsonProperty("isOutsideShift") boolean isOutsideShift, @JsonProperty("isOffDay") boolean isOffDay, Long varianceSeconds,
+            long extraSeconds) {}
 
     /**
      * The sums over every workday of the range (all pages). {@code averageProductiveSeconds}: productive seconds per workday of the range,
      * rounded half up, 0 without workdays (the one definition of the reports too).
      */
     public record WorkdayTotalsSummary(int workdays, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount,
-            long averageProductiveSeconds) {}
+            long averageProductiveSeconds, long extraSeconds) {}
 
     /** One day of the chart; every date of the range is present (zero-filled). */
     public record DailyPoint(LocalDate date, long productiveSeconds, long breakSeconds, int workdays) {}
@@ -112,18 +119,20 @@ public class WorkdayHistoryService {
     private final BreakSessionRepository breakSessionRepository;
     private final BusinessRepository businessRepository;
     private final WorkdaySnapshots workdaySnapshots;
+    private final ShiftResolver shiftResolver;
     private final TeamAccessPolicy teamAccessPolicy;
     private final TeamAccessAudit teamAccessAudit;
 
     public WorkdayHistoryService(Clock clock, WorkdayRepository workdayRepository, WorkSessionRepository workSessionRepository,
             BreakSessionRepository breakSessionRepository, BusinessRepository businessRepository, WorkdaySnapshots workdaySnapshots,
-            TeamAccessPolicy teamAccessPolicy, TeamAccessAudit teamAccessAudit) {
+            ShiftResolver shiftResolver, TeamAccessPolicy teamAccessPolicy, TeamAccessAudit teamAccessAudit) {
         this.clock = clock;
         this.workdayRepository = workdayRepository;
         this.workSessionRepository = workSessionRepository;
         this.breakSessionRepository = breakSessionRepository;
         this.businessRepository = businessRepository;
         this.workdaySnapshots = workdaySnapshots;
+        this.shiftResolver = shiftResolver;
         this.teamAccessPolicy = teamAccessPolicy;
         this.teamAccessAudit = teamAccessAudit;
     }
@@ -160,7 +169,9 @@ public class WorkdayHistoryService {
 
         Business business = loadBusiness(businessId);
         Instant now = now();
-        LocalDate today = BusinessCalendar.toDateKey(now, BusinessCalendar.zoneOf(business.getTimeZone()));
+        // "today" is the person's current shift date, so a night shift that runs past midnight (or just ended) is in "Today"
+        ZoneId zone = BusinessCalendar.zoneOf(business.getTimeZone());
+        LocalDate today = shiftResolver.attributionOf(businessId, employeeId, now, zone).occurrence().date();
         DateRange range = DateRanges.resolveRange(rangeKey, fromText, toText, today, RangePreset.MONTH);
 
         List<Workday> workdays = workdayRepository.findByEmployeeIdAndWorkDateBetween(employeeId, range.from(), range.to());
@@ -206,15 +217,24 @@ public class WorkdayHistoryService {
                 long spanSeconds = IntervalMath.intervalSeconds(new TimeInterval(workday.getStartedAt(), workday.getEndedAt()), now);
                 rows.add(new WorkdayRow(workday.getId(), workday.getWorkDate(), TrackingStatus.DAY_ENDED, false, workday.getStartedAt(),
                         workday.getEndedAt(), workday.getProductiveSeconds(), workday.getBreakSeconds() == null ? 0 : workday.getBreakSeconds(),
-                        spanSeconds, workday.getBreakCount() == null ? 0 : workday.getBreakCount()));
+                        spanSeconds, workday.getBreakCount() == null ? 0 : workday.getBreakCount(), WorkdaySnapshots.shiftOf(workday),
+                        workday.isOutsideShift(), workday.isOffDay(), varianceOf(workday),
+                        workday.getExtraSeconds() == null ? 0 : workday.getExtraSeconds()));
             } else {
                 WorkdaySnapshot snapshot = WorkdaySnapshots.snapshotOf(workday, workSessionsByWorkdayId.getOrDefault(workday.getId(), List.of()),
                         breakSessionsByWorkdayId.getOrDefault(workday.getId(), List.of()), now, staleWorkdayHours);
                 rows.add(new WorkdayRow(snapshot.id(), snapshot.date(), snapshot.status(), snapshot.isStale(), snapshot.startedAt(),
-                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount()));
+                        snapshot.endedAt(), snapshot.productiveSeconds(), snapshot.breakSeconds(), snapshot.spanSeconds(), snapshot.breakCount(), snapshot.shift(),
+                        snapshot.isOutsideShift(), snapshot.isOffDay(), snapshot.varianceSeconds(), snapshot.extraSeconds()));
             }
         }
         return rows;
+    }
+
+    private static Long varianceOf(Workday workday) {
+        WorkdayShift shift = WorkdaySnapshots.shiftOf(workday);
+        if (workday.getProductiveSeconds() == null || shift == null) return null;
+        return workday.isOffDay() ? Long.valueOf(workday.getProductiveSeconds()) : Long.valueOf(shift.varianceOf(workday.getProductiveSeconds()));
     }
 
     private static boolean hasCachedTotals(Workday workday) {
@@ -224,7 +244,8 @@ public class WorkdayHistoryService {
     static WorkdayTotalsSummary totalsOf(List<WorkdayRow> rows) {
         return new WorkdayTotalsSummary(rows.size(), rows.stream().mapToLong(WorkdayRow::productiveSeconds).sum(),
                 rows.stream().mapToLong(WorkdayRow::breakSeconds).sum(), rows.stream().mapToLong(WorkdayRow::spanSeconds).sum(),
-                rows.stream().mapToInt(WorkdayRow::breakCount).sum(), averageOf(rows.stream().mapToLong(WorkdayRow::productiveSeconds).sum(), rows.size()));
+                rows.stream().mapToInt(WorkdayRow::breakCount).sum(), averageOf(rows.stream().mapToLong(WorkdayRow::productiveSeconds).sum(), rows.size()),
+                rows.stream().mapToLong(WorkdayRow::extraSeconds).sum());
     }
 
     /** Seconds per workday rounded half up (like JavaScript's {@code Math.round}); 0 without workdays. */

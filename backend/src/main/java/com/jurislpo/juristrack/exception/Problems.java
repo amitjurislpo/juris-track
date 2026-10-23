@@ -56,6 +56,22 @@ public final class Problems {
     public static final String JURISONE_BUSINESS_IN_USE = "JURISONE_BUSINESS_IN_USE";
     /** 413: the request body is larger than the API accepts. */
     public static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
+    /** 409: another shift of the business has this name. */
+    public static final String SHIFT_NAME_IN_USE = "SHIFT_NAME_IN_USE";
+    /** 422: the shift is unknown in this business (also a shift of another business). */
+    public static final String SHIFT_NOT_FOUND = "SHIFT_NOT_FOUND";
+    /** 422: the shift is deactivated and cannot be given to an employee or put on the roster. */
+    public static final String SHIFT_INACTIVE = "SHIFT_INACTIVE";
+    /** 422: active employees still work this shift (give them another shift first). */
+    public static final String SHIFT_IN_USE = "SHIFT_IN_USE";
+    /** 422: the business's default shift (the calendar day) cannot be deactivated. */
+    public static final String DEFAULT_SHIFT_REQUIRED = "DEFAULT_SHIFT_REQUIRED";
+    /** 422: a shift assignment cannot start on a date that has passed. */
+    public static final String SHIFT_EFFECTIVE_DATE_IN_PAST = "SHIFT_EFFECTIVE_DATE_IN_PAST";
+    /** 422: a roster entry is more than 365 days ahead. */
+    public static final String SCHEDULE_DATE_TOO_FAR = "SCHEDULE_DATE_TOO_FAR";
+    /** 422: the employee already has a workday on that date, so its schedule can no longer change. */
+    public static final String SCHEDULE_DATE_HAS_WORKDAY = "SCHEDULE_DATE_HAS_WORKDAY";
     /** 422: a corrected time lies outside the workday's window (its date and the next day, in the business time zone). */
     public static final String CORRECTION_OUT_OF_RANGE = "CORRECTION_OUT_OF_RANGE";
     /** 422: the corrected workday would overlap another workday of the same person. */

@@ -2,6 +2,7 @@ package com.jurislpo.juristrack.repository;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.jurislpo.juristrack.common.ListQuery;
+import com.jurislpo.juristrack.engine.ShiftSummary;
 import com.jurislpo.juristrack.entity.Role;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -32,7 +33,14 @@ public class EmployeeQueryRepository {
      */
     public record EmployeeRow(UUID id, String employeeCode, String firstName, String lastName, String email, Role role,
             @JsonProperty("isActive") boolean isActive, UUID managerId, String managerName, Instant lastLoginAt, Instant createdAt,
-            long activeReportCount) {}
+            long activeReportCount, ShiftSummary shift) {
+
+        /** The same row with the person's current shift. */
+        public EmployeeRow withShift(ShiftSummary currentShift) {
+            return new EmployeeRow(id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName, lastLoginAt, createdAt,
+                    activeReportCount, currentShift);
+        }
+    }
 
     /**
      * Filters of the owner's employee list.
@@ -68,7 +76,7 @@ public class EmployeeQueryRepository {
             resultSet.getString("employee_code"), resultSet.getString("first_name"), resultSet.getString("last_name"), resultSet.getString("email"),
             Role.valueOf(resultSet.getString("role")), resultSet.getBoolean("is_active"), resultSet.getObject("manager_id", UUID.class),
             resultSet.getString("manager_name"), instantOf(resultSet, "last_login_at"), instantOf(resultSet, "created_at"),
-            resultSet.getLong("active_report_count"));
+            resultSet.getLong("active_report_count"), null);
 
     private final JdbcTemplate jdbcTemplate;
 

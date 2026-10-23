@@ -5,13 +5,21 @@ import com.jurislpo.juristrack.common.InputValidator;
 import com.jurislpo.juristrack.common.ListPage;
 import com.jurislpo.juristrack.common.ListQuery;
 import com.jurislpo.juristrack.common.PatchBody;
+import com.jurislpo.juristrack.engine.BusinessCalendar;
+import com.jurislpo.juristrack.engine.EmployeeSchedule;
 import com.jurislpo.juristrack.engine.ReportingLine;
+import com.jurislpo.juristrack.engine.ShiftSummary;
+import com.jurislpo.juristrack.entity.Business;
+import com.jurislpo.juristrack.entity.Shift;
+import com.jurislpo.juristrack.entity.ShiftAssignment;
 import com.jurislpo.juristrack.entity.Role;
 import com.jurislpo.juristrack.entity.User;
 import com.jurislpo.juristrack.exception.ApiException;
 import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.exception.Problems;
+import com.jurislpo.juristrack.repository.BusinessRepository;
 import com.jurislpo.juristrack.repository.EmployeeLockRepository;
+import com.jurislpo.juristrack.repository.ShiftAssignmentRepository;
 import com.jurislpo.juristrack.repository.EmployeeQueryRepository;
 import com.jurislpo.juristrack.repository.EmployeeQueryRepository.EmployeeFilter;
 import com.jurislpo.juristrack.repository.EmployeeQueryRepository.EmployeeRow;
@@ -19,6 +27,9 @@ import com.jurislpo.juristrack.repository.EmployeeQueryRepository.UserProfileDet
 import com.jurislpo.juristrack.repository.UserRepository;
 import com.jurislpo.juristrack.security.CurrentUser;
 import com.jurislpo.juristrack.service.AuditService.AuditEntry;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -78,6 +89,9 @@ public class EmployeeService {
     /** {@code PUT /api/employees/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
     public record EmployeeStatusChange(@JsonProperty("isActive") Boolean isActive, String reason) {}
 
+    /** {@code PUT /api/employees/{id}/shift} body: the shift and the first shift date it applies to (default today in the business zone). */
+    public record ShiftAssignmentInput(UUID shiftId, String effectiveFrom) {}
+
     /** The sort keys of {@code GET /api/employees}, in the order the API documents them. */
     public static final List<String> SORT_KEYS = List.of("name", "employeeCode", "email", "role", "status", "lastLoginAt");
     private static final List<Role> LISTED_ROLES = List.of(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE);
@@ -93,10 +107,21 @@ public class EmployeeService {
     private final TimeTrackingService timeTrackingService;
     private final EmployeeLockRepository employeeLockRepository;
     private final TransactionTemplate transactionTemplate;
+    private final Clock clock;
+    private final BusinessRepository businessRepository;
+    private final ShiftService shiftService;
+    private final ShiftAssignmentRepository shiftAssignmentRepository;
+    private final ShiftResolver shiftResolver;
 
     public EmployeeService(UserRepository userRepository, EmployeeQueryRepository employeeQueryRepository, SessionService sessionService,
             AuditService auditService, TimeTrackingService timeTrackingService, EmployeeLockRepository employeeLockRepository,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate, Clock clock, BusinessRepository businessRepository, ShiftService shiftService,
+            ShiftAssignmentRepository shiftAssignmentRepository, ShiftResolver shiftResolver) {
+        this.clock = clock;
+        this.businessRepository = businessRepository;
+        this.shiftService = shiftService;
+        this.shiftAssignmentRepository = shiftAssignmentRepository;
+        this.shiftResolver = shiftResolver;
         this.userRepository = userRepository;
         this.employeeQueryRepository = employeeQueryRepository;
         this.sessionService = sessionService;
@@ -154,7 +179,7 @@ public class EmployeeService {
         }
         validator.throwIfInvalid();
         EmployeeFilter filter = new EmployeeFilter(isActive, roles, managerId);
-        return new ListPage<>(employeeQueryRepository.findPage(owner.businessId(), filter, listQuery),
+        return new ListPage<>(withShifts(owner.businessId(), employeeQueryRepository.findPage(owner.businessId(), filter, listQuery)),
                 employeeQueryRepository.count(owner.businessId(), filter, listQuery), listQuery.page(), listQuery.pageSize());
     }
 
@@ -167,7 +192,67 @@ public class EmployeeService {
     }
 
     private EmployeeRow findRow(CurrentUser owner, UUID employeeId) {
-        return employeeQueryRepository.findRow(owner.businessId(), employeeId).orElseThrow(() -> new OutOfScopeException(USER_ENTITY, NOT_FOUND));
+        return withShifts(owner.businessId(), List.of(employeeQueryRepository.findRow(owner.businessId(), employeeId)
+                .orElseThrow(() -> new OutOfScopeException(USER_ENTITY, NOT_FOUND)))).get(0);
+    }
+
+    /** The rows with each person's current shift (the assignment that applies today in the business time zone). */
+    private List<EmployeeRow> withShifts(UUID businessId, List<EmployeeRow> rows) {
+        if (rows.isEmpty()) return rows;
+        LocalDate today = todayOf(businessId);
+        Map<UUID, EmployeeSchedule> schedules = shiftResolver.schedulesOf(businessId, rows.stream().map(EmployeeRow::id).toList(), today, today);
+        return rows.stream().map(row -> row.withShift(ShiftSummary.of(schedules.get(row.id()).assignedOn(today)))).toList();
+    }
+
+    private LocalDate todayOf(UUID businessId) {
+        Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Business not found."));
+        return BusinessCalendar.toDateKey(clock.instant(), ZoneId.of(business.getTimeZone()));
+    }
+
+    /**
+     * Gives the employee a shift from {@code effectiveFrom} (default today; a past date is refused: 422
+     * {@code SHIFT_EFFECTIVE_DATE_IN_PAST}). The assignment history is kept and no workday is rewritten. The same shift again changes
+     * nothing and writes no audit entry. Answers the employee with the shift now assigned.
+     */
+    public EmployeeRow assignShift(CurrentUser owner, UUID employeeId, ShiftAssignmentInput input) {
+        return auditRefusals(owner, employeeId, "shift", () -> assignShiftInTransaction(owner, employeeId, input));
+    }
+
+    private EmployeeRow assignShiftInTransaction(CurrentUser owner, UUID employeeId, ShiftAssignmentInput input) {
+        lockEmployeeRow(employeeId);
+        loadEmployee(owner, employeeId);
+        InputValidator validator = new InputValidator();
+        if (input == null || input.shiftId() == null) validator.reject("shiftId", "Choose a shift.");
+        LocalDate today = todayOf(owner.businessId());
+        LocalDate effectiveFrom = today;
+        if (input != null && input.effectiveFrom() != null && !input.effectiveFrom().isBlank()) {
+            effectiveFrom = BusinessCalendar.parseDateKey(input.effectiveFrom().trim()).orElse(null);
+            if (effectiveFrom == null) validator.reject("effectiveFrom", "The date is a date (YYYY-MM-DD).");
+        }
+        validator.throwIfInvalid();
+        if (effectiveFrom.isBefore(today)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.SHIFT_EFFECTIVE_DATE_IN_PAST, "The shift cannot start on a date that has passed.");
+        }
+        Shift shift = shiftService.requireActiveShift(owner.businessId(), input.shiftId());
+        EmployeeSchedule schedule = shiftResolver.schedulesOf(owner.businessId(), List.of(employeeId), effectiveFrom, effectiveFrom).get(employeeId);
+        Optional<ShiftAssignment> sameDate = shiftAssignmentRepository.findByEmployeeIdAndEffectiveFrom(employeeId, effectiveFrom);
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("shiftId", schedule.assignedOn(effectiveFrom).id() == null ? null : schedule.assignedOn(effectiveFrom).id().toString());
+        before.put("shiftName", schedule.assignedOn(effectiveFrom).name());
+        if (shift.getId().equals(schedule.assignedOn(effectiveFrom).id())) return findRow(owner, employeeId);
+        ShiftAssignment assignment = sameDate.orElseGet(ShiftAssignment::new);
+        assignment.setBusinessId(owner.businessId());
+        assignment.setEmployeeId(employeeId);
+        assignment.setShiftId(shift.getId());
+        assignment.setEffectiveFrom(effectiveFrom);
+        shiftAssignmentRepository.saveAndFlush(assignment);
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("shiftId", shift.getId().toString());
+        after.put("shiftName", shift.getName());
+        after.put("effectiveFrom", effectiveFrom.toString());
+        auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId, AuditAction.EMPLOYEE_SHIFT_CHANGED, USER_ENTITY,
+                employeeId.toString(), before, after, null));
+        return findRow(owner, employeeId);
     }
 
     /** Adds an employee (active, signs in with an emailed code); returns the new id. */

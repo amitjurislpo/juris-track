@@ -3,12 +3,13 @@
 | Version | Date | What changed | Requested by |
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
+| 2.0 | 2026-10-24 | Shift-based calculation (new section 14: shift occurrence, attribution, the START decision, roster); sections 3, 4 and 5 rewritten from the calendar day to the shift occurrence | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FRD-JurisTrack.md](FRD-JurisTrack.md) (the requirements, ids `FR-...` are quoted below) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 
 How to read: boxes are steps, diamonds are decisions, the label on an arrow is the answer or the error code. Roles: **Super admin**, **Owner** (role ADMIN), **Manager**, **Employee**. Every diagram has a one-sentence caption.
 
-Contents: 1 System overview, 2 Sign-in and session, 3 Start work, break, resume and end day, 4 Reopening after End Day, 5 Forgotten days: no auto-close and the Not ended flag, 6 Time correction, 7 Team scope, 8 Reports and CSV, 9 Audit write and read, 10 Business creation and owner, 11 Business suspension and reactivation, 12 Employee deactivation, 13 Embedded in JurisOne.
+Contents: 1 System overview, 2 Sign-in and session, 3 Start work, break, resume and end day, 4 Reopening after End Day, 5 Forgotten days: no auto-close and the Not ended flag, 6 Time correction, 7 Team scope, 8 Reports and CSV, 9 Audit write and read, 10 Business creation and owner, 11 Business suspension and reactivation, 12 Employee deactivation, 13 Embedded in JurisOne, 14 Shifts and the roster (occurrence, attribution, the START decision).
 
 ---
 
@@ -138,10 +139,10 @@ stateDiagram-v2
     Working --> OnBreak: BREAK, work session ends and break session starts
     OnBreak --> Working: RESUME, break ends and new work session starts
     Working --> DayEnded: END, work session ends and totals are stored
-    DayEnded --> Working: START same date, workday reopened with a new work session
+    DayEnded --> Working: START in the same shift occurrence, workday reopened with a new work session
     OnBreak --> DayEnded: closed by manager, owner, deactivation or suspension
     Working --> DayEnded: closed by manager, owner, deactivation or suspension
-    DayEnded --> NotStarted: next date begins, or a night shift ended after midnight
+    DayEnded --> NotStarted: the next shift occurrence is nearer than the one that ended (see section 14)
     note right of Working
         Not ended is a flag, not a state.
         The day is open for longer than the stale hours.
@@ -167,9 +168,11 @@ flowchart TD
     D -->|"yes"| F["Lock the employee row, so one request at a time"]
     F --> G{"Account still active?"}
     G -->|"no"| E4["403 This account is deactivated"]
-    G -->|"yes"| H["Read state: open workday of any date, else today's ended day, else not started"]
+    G -->|"yes"| H["Find the shift occurrence of now (section 14), then read the state: open workday of any date, else the ended workday of that occurrence, else not started"]
     H --> I{"Does the event fit the state?"}
     I -->|"already there, for example double click"| R["200 alreadyApplied true<br/>nothing created, nothing audited"]
+    I -->|"START in an occurrence that has no workday yet"| NEWDAY["New workday dated with the shift date, shift snapshot, outside-shift and off-day flags"]
+    NEWDAY --> J
     I -->|"BREAK before start or after end"| E5["409 WORKDAY_NOT_STARTED"]
     I -->|"END before start"| E5
     I -->|"RESUME without a break"| E6["409 NOT_ON_BREAK"]
@@ -189,24 +192,24 @@ Caption: every press is checked against the stored state under a lock, a repeat 
 
 ---
 
-## 4. Reopening after End Day (FR-TIME business rule "Reopening")
+## 4. Reopening after End Day in the same shift occurrence (FR-TIME business rule "Reopening")
 
 ```mermaid
 flowchart TD
-    A["Employee ended the day at 12:00<br/>stored totals: productive and break"] --> B["Later the same date the employee presses Start again"]
+    A["Employee ended the day at 12:00<br/>stored totals: productive and break"] --> B["Later, still inside the same shift occurrence, the employee presses Start again"]
     B --> C{"Is there an open workday?"}
     C -->|"yes"| R["Repeat, 200 alreadyApplied"]
-    C -->|"no"| D{"Was a workday ended on today's date in the business time zone?"}
+    C -->|"no"| D{"Does the shift occurrence of now already have a workday? a US shift ended at 00:10 and started again at 00:25 is still the same occurrence"}
     D -->|"yes"| E["Reopen that same workday: status WORKING, end cleared, new work session starts now"]
-    D -->|"no"| F["Start a new workday for today"]
+    D -->|"no"| F["Start a new workday for that shift occurrence"]
     E --> G["The gap from 12:00 to now is neither productive nor break time, it stays inside the span"]
     G --> H["Stored totals are emptied while the day is open"]
     H --> I["Audit time.workday_reopened"]
     I --> J["Employee ends the day again: totals recomputed from all intervals, audit time.workday_ended"]
-    D -.->|"the day ended on an earlier date"| F
+    D -.->|"the day belongs to an earlier shift occurrence"| F
 ```
 
-Caption: starting again on the same date continues the same workday, and the time between the two stretches counts as neither work nor break.
+Caption: starting again in the same shift occurrence continues the same workday, and the time between the two stretches counts as neither work nor break; the next shift is a new workday.
 
 ---
 
@@ -545,6 +548,105 @@ flowchart LR
 Caption: embedded use changes only how the caller is proven; once the token is accepted every rule in this document applies unchanged.
 
 A standalone business is attached to JurisOne only by the super admin (`PUT /api/businesses/:businessId/jurisone-link`, audit `integration.business_linked`; `DELETE` removes it, audit `integration.business_unlinked`).
+
+---
+
+## 14. Shifts and the roster (FR-SHIFT-1 to FR-SHIFT-14)
+
+Time is calculated per shift, not per calendar day: a US shift 19:30-04:30 is one nine-hour workday whichever calendar dates it touches. Reference: Time Doctor counts "Worked today" per calendar day; JurisTrack deliberately attributes per shift.
+
+### 14.1 Which workday does an instant belong to
+
+```mermaid
+flowchart TD
+    A["An instant t: a START, or now when a screen reads the state"] --> B["For each shift date from D-2 to D+1 find the effective schedule of the employee"]
+    B --> B1{"Roster entry for that date?"}
+    B1 -->|"yes, a shift"| C["Use that shift"]
+    B1 -->|"yes, week off"| C0["No occurrence that date"]
+    B1 -->|"no"| B2{"Shift assigned from a date not after it?"}
+    B2 -->|"yes"| C
+    B2 -->|"no"| C1["Use the business default shift General day = the calendar day"]
+    C1 --> C
+    C --> D["Occurrence = scheduled window start to end in the business zone, DST aware<br/>attribution window = widened by the early and late grace"]
+    D --> E{"Does an attribution window contain t?"}
+    E -->|"one"| F["That occurrence, not outside the shift"]
+    E -->|"several"| G["The one whose scheduled start is nearest to t"]
+    E -->|"none"| H{"Is the calendar date of t a week off?"}
+    H -->|"yes"| I["The occurrence the assigned shift would have had that date<br/>isOffDay true, isOutsideShift true, all work is extra time"]
+    H -->|"no, a gap between shifts"| J["The nearest occurrence by distance to its scheduled window<br/>isOutsideShift true"]
+    C0 --> E
+```
+
+Caption: the shift decides the date of the workday; a start inside the grace belongs to the shift, a start outside any shift is still allowed and counted but flagged.
+
+### 14.2 The START decision and what a screen shows
+
+```mermaid
+flowchart TD
+    A["START at time t"] --> B{"Open workday?"}
+    B -->|"yes, any date"| R["Repeat: 200 alreadyApplied, nothing changes"]
+    B -->|"no"| C["Attribution of t, section 14.1"]
+    C --> D{"A workday already exists for that employee and shift date?"}
+    D -->|"yes, ended"| E["Reopen it with a new work session<br/>the gap counts as neither productive nor break time"]
+    D -->|"no"| F["Create the workday dated with the shift date<br/>snapshot: shift, scheduled start and end, outside shift, off day"]
+    E --> G["Audit time.workday_reopened"]
+    F --> H["Audit time.workday_started"]
+    X["A screen or the board reads the current workday"] --> Y{"Open workday?"}
+    Y -->|"yes"| Z["Show it, whatever its date: WORKING or ON_BREAK"]
+    Y -->|"no"| Y2["Attribution of now"]
+    Y2 --> Y3{"Workday for that shift date?"}
+    Y3 -->|"yes"| Y4["DAY_ENDED with its own date and shift, productive and extra time counted in today's tiles"]
+    Y3 -->|"no"| Y5{"Week off for that date?"}
+    Y5 -->|"yes"| Y6["NOT_STARTED, isOffDay true, counted in the weekOff tile"]
+    Y5 -->|"no"| Y7["NOT_STARTED with the shift of that occurrence"]
+```
+
+Caption: the same occurrence rule decides whether a START reopens the day or begins a new one and which workday a screen shows, so a shift that ended after midnight stays visible as DAY_ENDED until the next occurrence is nearer.
+
+### 14.3 Example: a US shift across midnight
+
+```mermaid
+sequenceDiagram
+    participant E as Employee in India
+    participant S as JurisTrack
+    E->>S: START at 19:25 on 5 Oct, five minutes early
+    S-->>E: workday dated 5 Oct, US shift 19:30-04:30, scheduled 9 h, not outside the shift
+    E->>S: BREAK 00:30 and RESUME 01:00 on 6 Oct
+    S-->>E: still the workday of 5 Oct, break count 1
+    E->>S: END at 04:45 on 6 Oct
+    S-->>E: DAY_ENDED dated 5 Oct, productive 9 h 5 min of which extra 15 min, variance plus 5 min
+    E->>S: END again at 05:00 retry or second device
+    S-->>E: 200 alreadyApplied, no audit entry
+    E->>S: START at 19:25 on 6 Oct
+    S-->>E: a new workday dated 6 Oct, nothing of the 5 Oct shift is added
+```
+
+Caption: the 5 October shift and the 6 October shift are two workdays; work after midnight, a break after midnight and a repeated END never change a figure.
+
+### 14.4 Managing shifts and the roster
+
+```mermaid
+flowchart TD
+    A["Owner opens Shifts"] --> B["POST /api/shifts name, start, end, grace"]
+    B --> C{"Name free, times valid?"}
+    C -->|"no"| C1["409 SHIFT_NAME_IN_USE or 400"]
+    C -->|"yes"| D["201 id, audit shift.created"]
+    D --> E["PUT /api/employees/:id/shift from a date"]
+    E --> F{"Shift active and date not in the past?"}
+    F -->|"no"| F1["422 SHIFT_INACTIVE or SHIFT_EFFECTIVE_DATE_IN_PAST"]
+    F -->|"yes"| G["Assignment history row, audit employee.shift_changed<br/>old workdays keep their snapshot"]
+    G --> H["Owner sets weeks off and exceptions per date: PUT schedule-entries<br/>shift or null = week off, rotational"]
+    H --> I{"Within 365 days and no workday on that date?"}
+    I -->|"no"| I1["422 SCHEDULE_DATE_TOO_FAR or SCHEDULE_DATE_HAS_WORKDAY"]
+    I -->|"yes"| J["Upsert, one audit entry schedule.entry_set per changed date"]
+    J --> K["Manager reads GET /api/schedule-entries, employee reads GET /api/me/schedule"]
+    D --> L["Deactivate a shift"]
+    L --> M{"Default shift or active employees on it?"}
+    M -->|"yes"| M1["422 DEFAULT_SHIFT_REQUIRED or SHIFT_IN_USE"]
+    M -->|"no"| N["shift.status_changed"]
+```
+
+Caption: only the owner writes shifts, assignments and the roster; every change is audited and never rewrites a workday that already exists.
 
 ---
 

@@ -1,5 +1,7 @@
 # JurisTrack API
 
+**Document version 2.0** (2026-10-24, shift-based calculation: shifts, roster, shift fields on every workday, extra time). The version table is in `FRD-JurisTrack.md`.
+
 The contract between this backend and its clients (the `juris-track-frontend` web app and, embedded, the JurisOne gateway). Keep it exactly in
 sync with the code: an endpoint, parameter or field is added, renamed or removed here in the same change as in the controller.
 
@@ -20,7 +22,8 @@ sync with the code: an endpoint, parameter or field is added, renamed or removed
   500 `INTERNAL_ERROR`.
 - **Time codes**: 409 `WORKDAY_NOT_STARTED`, `NOT_ON_BREAK`, `BREAK_IN_PROGRESS` (time events); 403 `CANNOT_CORRECT_OWN_TIME`; 422
   `TIME_INTERVAL_OVERLAP`, `INTERVAL_STILL_RUNNING`, `WORKDAY_MUST_START_WITH_WORK`, `CORRECTION_OUT_OF_RANGE`, `WORKDAY_OVERLAP` (corrections); 422
-  `EXPORT_TOO_LARGE` (exports); 500
+  `EXPORT_TOO_LARGE` (exports); 422 `SHIFT_NOT_FOUND`, `SHIFT_INACTIVE`, `SHIFT_IN_USE`, `DEFAULT_SHIFT_REQUIRED`,
+  `SHIFT_EFFECTIVE_DATE_IN_PAST`, `SCHEDULE_DATE_TOO_FAR`, `SCHEDULE_DATE_HAS_WORKDAY` and 409 `SHIFT_NAME_IN_USE` (shifts and roster); 500
   `TIME_RECORD_INCONSISTENT`.
 - **Types**: ids are UUID strings; timestamps are ISO-8601 UTC strings (`2026-10-22T09:30:00.123456Z`); time zones are IANA ids; roles are `SUPER_ADMIN`,
   `ADMIN` (the business owner), `MANAGER`, `EMPLOYEE`.
@@ -60,6 +63,17 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 | GET | `/api/employees/{employeeId}` | ADMIN | One employee |
 | PATCH | `/api/employees/{employeeId}` | ADMIN | Change an employee |
 | PUT | `/api/employees/{employeeId}/status` | ADMIN | Deactivate / reactivate |
+| GET | `/api/shifts` | ADMIN, MANAGER, EMPLOYEE | The business's shifts (filter `isActive`) |
+| POST | `/api/shifts` | ADMIN | Create a shift |
+| GET | `/api/shifts/{shiftId}` | ADMIN, MANAGER, EMPLOYEE | One shift |
+| PATCH | `/api/shifts/{shiftId}` | ADMIN | Change a shift (future occurrences only) |
+| PUT | `/api/shifts/{shiftId}/status` | ADMIN | Deactivate / reactivate a shift |
+| PUT | `/api/employees/{employeeId}/shift` | ADMIN | Give an employee a shift from a date on |
+| GET | `/api/schedule-entries` | ADMIN, MANAGER | The roster (shift or week off per date) of the people in scope |
+| GET | `/api/me/schedule` | ADMIN, MANAGER, EMPLOYEE | My roster |
+| PUT | `/api/employees/{employeeId}/schedule-entries/{date}` | ADMIN | Set one date of the roster (a shift or a week off) |
+| DELETE | `/api/employees/{employeeId}/schedule-entries/{date}` | ADMIN | Remove that entry (back to the assigned shift) |
+| PUT | `/api/employees/{employeeId}/schedule-entries` | ADMIN | Set up to 62 dates at once |
 | GET | `/api/me/time` | ADMIN, MANAGER, EMPLOYEE | My current time state (timer, today's timeline) |
 | POST | `/api/me/time-events` | ADMIN, MANAGER, EMPLOYEE | Start work, break, resume, end the day |
 | GET | `/api/workdays/mine` | ADMIN, MANAGER, EMPLOYEE | My history: workdays of a date range, totals, daily series |
@@ -181,8 +195,9 @@ ADMIN. Body and rules as `PATCH /api/businesses/{businessId}`. 200 `{ ok, messag
 Every user of the owner's business, the owner included (never the SUPER_ADMIN). A user of another business answers 404 everywhere.
 
 Employee (rows of the list and the single employee):
-`{ id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName, lastLoginAt, createdAt, activeReportCount }`
-(`managerName` = "First Last" of the manager, `lastLoginAt` null before the first sign-in, `activeReportCount` = active users whose manager this is).
+`{ id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName, lastLoginAt, createdAt, activeReportCount, shift: { id, name, startTime, endTime } }`
+(`managerName` = "First Last" of the manager, `lastLoginAt` null before the first sign-in, `activeReportCount` = active users whose manager this is, `shift` = the shift
+assigned today in the business time zone, the default shift "General day" without an assignment; times are `HH:mm`).
 
 ### GET /api/employees
 Query: list parameters, `sort` = `name` (default; first then last name) | `employeeCode` (empty codes last) | `email` | `role` (ADMIN, MANAGER, EMPLOYEE
@@ -222,6 +237,14 @@ keep one active ADMIN). Audit: `employee.deactivated` (after includes `endedSess
 `employee.reactivated`, with the reason; a closed workday also writes `workday.closed` (before `{ status, endedAt: null }`, after
 `{ status: "COMPLETED", endedAt }`, the reason given, else "Employee deactivated."); a 422 writes `employee.change_refused` (DENIED, the code as reason).
 
+### PUT /api/employees/{employeeId}/shift
+Body `{ shiftId: uuid (required), effectiveFrom?: "YYYY-MM-DD" }`; `effectiveFrom` defaults to today in the business time zone, a past date is 422
+`SHIFT_EFFECTIVE_DATE_IN_PAST`. The shift applies to every shift date from `effectiveFrom` on (the latest assignment not after a date applies; the
+history is kept, no workday is rewritten). 200 `{ ok, message: "Shift saved.", data: <employee> }` (with `shift` = the shift assigned today). Giving
+the shift the employee already has on that date changes nothing and writes no audit entry. Errors: 400 (`shiftId`, `effectiveFrom`), 404, 422
+`SHIFT_NOT_FOUND` (unknown or another business's shift), 422 `SHIFT_INACTIVE`. Audit: `employee.shift_changed` (subject = the employee; before
+`{ shiftId, shiftName }` of that date, after `{ shiftId, shiftName, effectiveFrom }`); a 422 writes `employee.change_refused`.
+
 ## Time tracking (own)
 
 Every user of a business (ADMIN, MANAGER, EMPLOYEE) tracks their own time; the SUPER_ADMIN gets 403 `FORBIDDEN` on every endpoint below. The employee is
@@ -229,15 +252,28 @@ always the signed-in user (an id in the body is ignored). A suspended business a
 All times are UTC instants; dates (`YYYY-MM-DD`) are calendar dates in the business time zone; durations are whole seconds computed from the recorded
 intervals (closed: end - start; running: now - start). Labels and formatting are the client's.
 
-**States**: `NOT_STARTED` -> `START` -> `WORKING` <-> (`BREAK` / `RESUME`) `ON_BREAK`; `WORKING` -> `END` -> `DAY_ENDED`. A workday belongs to the date on
-which it started in the business time zone and may run past midnight (a night shift keeps its start date). One workday per person and date. `START` after
-the day ended on the same date **reopens** that workday with a new work session; the gap between the end and the new start counts as neither productive
-nor break time (it stays inside `spanSeconds`). A break must be ended with `RESUME` before `END`.
+**States**: `NOT_STARTED` -> `START` -> `WORKING` <-> (`BREAK` / `RESUME`) `ON_BREAK`; `WORKING` -> `END` -> `DAY_ENDED`. **Time is calculated per shift,
+not per calendar day** (section "Shifts and the roster"): a workday belongs to the *shift occurrence* its `START` fell into and its `date` is that
+occurrence's shift date (for the default shift "General day" that is the calendar date in the business time zone, so a business without shifts behaves
+as before). A US shift 19:30-04:30 is one workday of nine scheduled hours whichever calendar dates it touches and keeps the date it started on; the
+next or previous shift's work is never added to it. One workday per person and shift date. `START` after the day ended **in the same shift
+occurrence** **reopens** that workday with a new work session; the gap between the end and the new start counts as neither productive nor break time
+(it stays inside `spanSeconds`); a `START` in another occurrence creates a new workday. `BREAK`, `RESUME` and `END` act on the open workday whatever its
+date. A break must be ended with `RESUME` before `END`.
 
 **Workday** (snapshot; `GET /api/me/time` as `workday`, `GET /api/workdays/{workdayId}` as `data`):
 `{ id, date, status: "WORKING" | "ON_BREAK" | "DAY_ENDED", startedAt, endedAt | null, isStale, closedProductiveSeconds, closedBreakSeconds,
 activeWorkStartedAt | null, activeBreakStartedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount,
-lastActivity: { type: "STARTED_WORK" | "STARTED_BREAK" | "RESUMED_WORK" | "ENDED_DAY", at }, segments: [{ id, type: "WORK" | "BREAK", startedAt, endedAt | null }] }`.
+lastActivity: { type: "STARTED_WORK" | "STARTED_BREAK" | "RESUMED_WORK" | "ENDED_DAY", at }, segments: [{ id, type: "WORK" | "BREAK", startedAt, endedAt | null }],
+shift: { id | null, name, startTime, endTime, scheduledStartAt, scheduledEndAt, scheduledSeconds } | null, isOutsideShift, isOffDay, varianceSeconds | null,
+extraSeconds }`.
+`date` is the **shift date**. `shift` is the snapshot taken when the day started (renaming or changing the shift later does not change it; `startTime` /
+`endTime` are `HH:mm` on the business zone's wall clock, `scheduledSeconds` the real length of that occurrence: a DST change makes it differ from the
+nominal length; null only for a record written before shifts existed). `isOutsideShift`: the `START` was in no occurrence's attribution window (a gap
+between shifts or a week off): the work is allowed and counted, never refused, and flagged. `isOffDay`: the day was started on a week off of the roster.
+`extraSeconds`: the part of the productive time outside the scheduled window of the occurrence (all of it on a week off; 0 for the 24-hour default
+shift); it is included in `productiveSeconds`, never added to it. `varianceSeconds` = `productiveSeconds` - `scheduledSeconds` once the day has ended
+(`productiveSeconds` on a week off), else null.
 `productiveSeconds` / `breakSeconds` include the running interval up to `serverTime`; a client keeps a timer running with
 `closedProductiveSeconds + (now - activeWorkStartedAt)` and `closedBreakSeconds + (now - activeBreakStartedAt)`. `spanSeconds` = start of the day to its end
 (or now). `breakCount` counts the running break too. `isStale` ("not ended") = the day is still open and its last uninterrupted stretch (from the start, or from
@@ -248,18 +284,22 @@ steps back, or an instance whose clock runs behind, cannot put an interval befor
 
 ### GET /api/me/time
 `data = { employeeId, serverTime, today, businessTimeZone, staleWorkdayHours, displayTimeZones: string[], status: "NOT_STARTED" | "WORKING" | "ON_BREAK" |
-"DAY_ENDED", workday | null }`. `displayTimeZones` is the business's configured list (IANA ids, as stored; see `GET /api/business`) for every signed-in
+"DAY_ENDED", shiftDate, isOffDay, shift, workday | null }`. `shiftDate` is the date of the shift occurrence "now" belongs to for this person (the calendar
+date for the default shift; `today` stays the calendar date), `isOffDay` whether the roster has a week off for it, `shift` that occurrence's shift as in
+the workday snapshot (so the timer can show "Shift 19:30-04:30" before the day starts). `displayTimeZones` is the business's configured list (IANA ids, as stored; see `GET /api/business`) for every signed-in
 user's time-zone switcher; the business time zone is always offered as well (the client adds it). It is returned only here and in the `state` of
 `POST /api/me/time-events`; the history and workday endpoints do not repeat it.
-`workday` is the open workday (whatever its date), else today's ended workday, else null (`status` NOT_STARTED). `serverTime` lets the client measure its
-clock offset. After a night shift ended past midnight, today has no workday yet: the state is NOT_STARTED again.
+`workday` is the **current workday**: the open workday (whatever its date), else the workday of the shift occurrence "now" belongs to (`DAY_ENDED`, with
+its own `date`: a night shift that ended after midnight stays the current workday until a later occurrence is nearer), else null (`status` NOT_STARTED).
+Which occurrence "now" belongs to: see "Shifts and the roster". `serverTime` lets the client measure its clock offset.
 
 ### POST /api/me/time-events
 Body `{ type: "START" | "BREAK" | "RESUME" | "END" }` (any case). Answer `data = { type, alreadyApplied, workdayId, state: <as GET /api/me/time> }`:
 - **201** when the event changed the state, with `message` "Workday started. Have a productive day." / "Break started. Your productive timer is paused." /
   "Welcome back. Your productive timer is running." / "Workday ended. Your summary is ready." (`alreadyApplied` false);
 - **200** without `message` when the person already is where the event leads (a double click, a retry, another device): nothing is created or changed
-  and `alreadyApplied` is true. Repeats: `START` while working or on a break, `BREAK` while on a break, `RESUME` while working, `END` after the day ended.
+  and `alreadyApplied` is true. Repeats: `START` while working or on a break, `BREAK` while on a break, `RESUME` while working, `END` after the day ended
+  (also after midnight: a repeated `END` of a night shift is a repeat, not a 409, and writes no audit entry).
 
 `workdayId` = the workday the event applied to (for a repeat the current one, null when there is none); after a night shift ends past midnight it is the
 ended day while `state.workday` is null. Requests of one person are serialized (row lock on the user), so parallel requests never create a second
@@ -279,11 +319,13 @@ The signed-in person's workdays dated in a range. Query: `range` = `today` | `ye
 `custom` with `from` / `to` (`YYYY-MM-DD`; a missing `from` is this week's Monday, a missing `to` today, reversed ends are swapped, at most 366 days: an
 earlier `from` is moved up); `sort` = `date` (default) | `startedAt` | `endedAt` (open days last when ascending) | `productiveSeconds` | `breakSeconds` |
 `spanSeconds` | `breakCount`; `sortDirection` (**default `desc` here**: newest first), `page`, `pageSize` (list parameters; `search` is ignored).
-"Today" is the date in the business time zone. 400 for an unknown `range`, a malformed `from` / `to` or a bad list parameter.
+"Today" is the person's **current shift date** (the date of the shift occurrence they are in now; the calendar date in the business time zone for the
+default shift), so a night shift that runs past midnight, or just ended, is in "Today"; `week` and `month` end on it. 400 for an unknown `range`, a malformed `from` / `to` or a bad list parameter.
 `data = { rows, total, page, pageSize, range, from, to, totals, dailySeries }`:
-- row `{ id, date, status, isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount }` (an open day's figures run to
+- row `{ id, date, status, isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount, shift, isOutsideShift, isOffDay,
+  varianceSeconds | null, extraSeconds }` (`date` = shift date; `shift` etc. as in the workday snapshot; an open day's figures run to
   `now`; an ended day's come from the totals stored when it ended);
-- `totals = { workdays, productiveSeconds, breakSeconds, spanSeconds, breakCount, averageProductiveSeconds }` over the whole range (every page);
+- `totals = { workdays, productiveSeconds, breakSeconds, spanSeconds, breakCount, averageProductiveSeconds, extraSeconds }` over the whole range (every page);
   `averageProductiveSeconds` = productive seconds per workday of the range, rounded half up, 0 without workdays (see "Averages");
 - `dailySeries = [{ date, productiveSeconds, breakSeconds, workdays }]`, one point for every date from `from` to `to` (zero when nothing was recorded).
 
@@ -326,16 +368,18 @@ Query:
 - `page`, `pageSize` (list parameters).
 
 Who is on the board: the people of the scope who are **active**, plus a deactivated person whose workday is still open (should not happen:
-deactivation closes it). Each person's state is **today's** in the business time zone, exactly as `GET /api/me/time` decides it for oneself: the open
-workday whatever its date (a night shift started yesterday is `WORKING` with yesterday's `date`), else today's ended workday (`DAY_ENDED`), else
-`NOT_STARTED`. A night shift that ended after midnight is not today's: the person is `NOT_STARTED` again.
+deactivation closes it). Each person's state is decided exactly as `GET /api/me/time` decides it for oneself: the open workday whatever its date (a
+night shift that started yesterday is `WORKING` with yesterday's `date`), else the workday of the shift occurrence the person is in now (`DAY_ENDED`
+with its own shift `date`, also after midnight), else `NOT_STARTED`. A person whose roster has a week off for their current shift date and who has no
+workday is `NOT_STARTED` in the row (`isOffDay` true) but is counted in `metrics.weekOff`, not in `metrics.notStarted`.
 
 `data = { rows, total, page, pageSize, scope, serverTime, today, businessTimeZone, staleWorkdayHours, metrics }`:
 - `total` = rows matching `status` and `search` (all pages); `scope` = the scope used (lower case); `today` = `YYYY-MM-DD` in the business time zone;
   `serverTime` lets the client measure its clock offset.
 - row: `{ employee: { id, employeeCode, firstName, lastName, email, role, isActive, managerId, managerName }, status, workdayId | null, date | null,
   startedAt | null, endedAt | null, isStale, closedProductiveSeconds, closedBreakSeconds, activeWorkStartedAt | null, activeBreakStartedAt | null,
-  productiveSeconds, breakSeconds, spanSeconds, breakCount, lastActivity: { type, at } | null }`. The time fields mean exactly what they mean in the
+  productiveSeconds, breakSeconds, spanSeconds, breakCount, lastActivity: { type, at } | null, shift, isOutsideShift, isOffDay, varianceSeconds | null,
+  extraSeconds }` (`shift` = the workday's shift, without a workday the shift occurrence the person is in now). The time fields mean exactly what they mean in the
   workday snapshot (live values up to `serverTime`), so the client runs the same live timer. `NOT_STARTED` rows have every number 0 and every time /
   id null. `managerName` = "First Last" of the person's manager, null without one.
 - `metrics = { total, working, onBreak, notStarted, dayEnded, stale, totalProductiveSeconds, totalBreakSeconds, averageProductiveSeconds }` over
@@ -370,9 +414,11 @@ interval). Rules:
   interval overlaps another work or break interval."); a running interval lasts until now, so only the latest interval may run. Intervals that only
   touch (one ends when the next starts) do not overlap.
 - The first interval of a workday is a work interval (422 `WORKDAY_MUST_START_WITH_WORK`), so every break lies inside the day.
-- **Window**: a corrected time (and the end of a closed workday) must lie from the start of the workday's date to the end of the **next** date, in the zone
-  the workday was started in (a night shift may run into the next morning), and the first interval must start on the date itself; else 422
-  `CORRECTION_OUT_OF_RANGE`. A year typed wrong, or year 1, can no longer add years of work or move hours into another day.
+- **Window**: a corrected time (and the end of a closed workday) must lie from the start of the workday's shift date to the end of the **next** date, in
+  the zone the workday was started in (a night shift may run into the next morning; a shift whose scheduled window plus 12 hours reaches further widens
+  the window to that), and the first interval must start on the shift date itself; else 422 `CORRECTION_OUT_OF_RANGE` ("Choose a time on {date} or
+  {date+1}, in the business time zone. To close a forgotten shift, give the time it really ended."; closing with the default "now" long after the
+  window answers it too, and the screen then offers the last activity as the end). A year typed wrong, or year 1, can no longer add years of work or move hours into another day.
 - **Other workdays**: the corrected workday (its first start to its last end, or to now while it runs) must not overlap another workday of the same person
   (422 `WORKDAY_OVERLAP`: the same hours would count twice in the reports); touching is fine.
 - A running interval keeps running: only its start moves (`endedAt` left out or `null`); a value for `endedAt` is 422 `INTERVAL_STILL_RUNNING`
@@ -412,6 +458,93 @@ their next `START` as usual.
 Audit: `time.workday_closed`, entity `workday`, the reason, before `{ workday: <summary as above> }`, after `{ workday: <summary>, closedIntervals:
 [{ id, type, startedAt, endedAt }] }`. (Closing because of a deactivation keeps its own action `workday.closed`.)
 
+## Shifts and the roster
+
+**Why.** Offshore teams work US or UK shifts from India: a US shift 19:30-04:30 or a UK shift 14:00-23:00 is one workday of nine hours, whichever
+calendar dates it touches, and the next or previous shift's work is never added to it. JurisTrack therefore calculates **per shift**, not per
+calendar day (reference: Time Doctor, which counts "Worked today" per calendar day; this is a deliberate difference). Durations stay computed from the
+recorded intervals only.
+
+**Shift** (a template of the business): `{ id, name, startTime, endTime, crossesMidnight, scheduledMinutes, earlyStartMinutes, lateEndMinutes,
+isDefault, isActive, employeeCount }`. `startTime` / `endTime` are `HH:mm` on the **business time zone's** wall clock; an end at or before the start
+means the shift ends on the next day (start = end is 24 hours); `scheduledMinutes` is the nominal length (a real occurrence differs by a DST change).
+`earlyStartMinutes` / `lateEndMinutes` (0 to 720, default 180) are the grace in which a `START` still belongs to the shift. Every business has exactly
+one default shift, **"General day"** (00:00-00:00, grace 0/0): it is the calendar day, i.e. the behaviour before shifts existed, and applies to everybody
+without an assignment. It cannot be deactivated and keeps its times (only the name can change). `employeeCount` = active employees whose latest
+assignment is this shift (the default shift also counts those without any).
+
+**Occurrence and attribution.** The occurrence of shift S on shift date D has the scheduled window [D + start, D + end (+1 day when it crosses
+midnight)] in the business zone (DST-aware) and the attribution window [scheduled start - early, scheduled end + late). For an instant t (a `START`, or
+"now" when reading) the effective schedule of each date from D-2 to D+1 gives that date's shift (see "Roster" below); then:
+1. the occurrence whose attribution window contains t; if several, the one whose scheduled start is nearest (the earlier date on a tie);
+2. else, if t's calendar date is a **week off**, the occurrence the assigned shift would have had that date: `isOffDay` and `isOutsideShift` are true;
+3. else (a gap between shifts) the occurrence nearest to t (by distance to its scheduled window): `isOutsideShift` is true.
+Work is never refused: outside work is allowed, flagged and counted (as extra time). For the default shift this is simply the calendar date.
+Consecutive occurrences never share a workday (their attribution windows do not overlap unless the grace is very large; then the nearest start wins).
+
+**Workday identity.** One workday per person and **shift date** (`date`); a `START` whose occurrence already has a workday reopens it, otherwise a new
+workday is created with the snapshot (`shift`, `isOutsideShift`, `isOffDay`). `BREAK` / `RESUME` / `END` act on the open workday whatever its date.
+Reads ("current workday") use the same occurrence: the open workday, else the workday of the occurrence "now" belongs to, else none (`NOT_STARTED`).
+
+**Extra time.** `extraSeconds` of a workday = productive seconds outside the scheduled window of its occurrence (all of them on a week off; 0 for the
+default 24-hour shift). Shown separately, included in productive time, added up in the reports' `totals.extraSeconds` and the board's
+`metrics.totalExtraSeconds`. No pay rules.
+
+**Roster (schedule entries).** The effective schedule of an employee for a date is: the **roster entry** for that date if there is one (a shift, or a
+week off when `shiftId` is null), else the shift **assigned** to the employee from the latest assignment effective by that date (`PUT
+/api/employees/{id}/shift`), else the business's default shift. Weeks off are rotational, so they are stored per date. A date can be set up to 365 days
+ahead; a date on which the employee already has a workday cannot change.
+
+### GET /api/shifts
+All signed-in roles of the business. Query: `isActive` = `true` | `false` (else 400). `data = [<shift>]`, the default shift first, then by start time.
+
+### POST /api/shifts
+ADMIN. Body `{ name: 1-60 (unique in the business, any case), startTime: "HH:mm", endTime: "HH:mm", earlyStartMinutes?: 0-720, lateEndMinutes?: 0-720 }`
+(grace default 180). 201 `{ ok, message: "Shift added.", data: { id } }`. Errors: 400 (field per bad input), 409 `SHIFT_NAME_IN_USE`. Audit: `shift.created`.
+
+### GET /api/shifts/{shiftId}
+`data = <shift>`; 404 for an unknown id or another business's shift.
+
+### PATCH /api/shifts/{shiftId}
+ADMIN. Body (each optional): `{ name, startTime, endTime, earlyStartMinutes, lateEndMinutes }`. Changing times or grace affects **future occurrences
+only** (every workday keeps its snapshot). The default shift: only `name` can change (else 400). 200 `{ ok, message: "Shift saved.", data: <shift> }`.
+Audit: `shift.updated` (before / after; nothing changed, nothing audited).
+
+### PUT /api/shifts/{shiftId}/status
+ADMIN. Body `{ isActive: boolean }`. 422 `DEFAULT_SHIFT_REQUIRED` (the default shift), 422 `SHIFT_IN_USE` (active employees still work it: their latest
+assignment is this shift). A deactivated shift cannot be assigned or put on a roster (422 `SHIFT_INACTIVE`); existing workdays are untouched.
+Idempotent. 200 `{ ok, message: "Shift deactivated." | "Shift is active.", data: <shift> }`. Audit: `shift.status_changed`.
+
+### GET /api/schedule-entries
+ADMIN (everybody of the business except themselves) and MANAGER (direct and indirect reports); EMPLOYEE 403. Query:
+`from`, `to` (`YYYY-MM-DD`; default today and the 6 days after; at most 62 days, else 400), `employeeId`, `managerId` (direct reports of that user),
+`search`, `page`, `pageSize` (list parameters; sorted by name). Only active people.
+`data = { rows, total, page, pageSize, from, to }`, row `{ employeeId, name, employeeCode | null, shift: { id, name, startTime, endTime }, days: [{ date,
+shiftId | null, shiftName | null, isOff, source: "ENTRY" | "ASSIGNMENT" | "DEFAULT", reason | null }] }`. `shift` = the shift assigned today; a day with
+`isOff` true has `shiftId` and `shiftName` null; `source` says where the day's schedule comes from.
+
+### GET /api/me/schedule
+The caller's own row (same query `from`, `to`, same row shape without paging): `data = { employeeId, name, employeeCode, shift, days }`.
+
+### PUT /api/employees/{employeeId}/schedule-entries/{date}
+ADMIN. Body `{ shiftId: uuid | null (null = week off), reason?: string (at most 500) }`; idempotent upsert. 200 `{ ok, message: "Schedule saved.", data: <day> }`
+(`<day>` as a `days` element). Errors: 400 (malformed date), 404 (employee), 422 `SHIFT_NOT_FOUND` / `SHIFT_INACTIVE`, 422 `SCHEDULE_DATE_TOO_FAR`
+(more than 365 days ahead), 422 `SCHEDULE_DATE_HAS_WORKDAY` (the employee has a workday on that date; past dates without a workday are allowed).
+Audit: `schedule.entry_set` (subject = the employee, entity id `<employeeId>/<date>`, before / after `{ date, shiftId, isOff, reason }`); setting the
+value the date already has writes nothing.
+
+### DELETE /api/employees/{employeeId}/schedule-entries/{date}
+ADMIN. Removes the entry: the date follows the assignment again. 200 `{ ok, data: <day> }` (the day as now scheduled); removing a missing entry changes
+nothing. 422 `SCHEDULE_DATE_HAS_WORKDAY` as above. Audit: `schedule.entry_removed` (before).
+
+### PUT /api/employees/{employeeId}/schedule-entries
+ADMIN. Body `{ entries: [{ date, shiftId | null, reason? }] }`, 1 to 62 entries, each date once (else 400); all or none. Idempotent; **one audit entry
+per changed date**. 200 `{ ok, message: "Schedule saved.", data: [<day>] }` in the order sent.
+
+### Open points
+Open (owner has not decided): overtime pay rules, work outside the grace being refused instead of flagged, default grace values, how JurisOne's roster
+carries shifts (specified in `INTEGRATION.md`, not built).
+
 ## Reports (managers and the owner)
 
 EMPLOYEE and SUPER_ADMIN get 403 `FORBIDDEN`; signed out 401. Scope as in "Who sees and corrects whom" (board column); `scope=all` for a MANAGER is
@@ -430,14 +563,15 @@ EMPLOYEE and SUPER_ADMIN get 403 `FORBIDDEN`; signed out 401. Scope as in "Who s
 | `search` | text matched against the employee's first name, last name, "first last", email and employee code (`%` `_` literal) | |
 | `sort`, `sortDirection`, `page`, `pageSize` | list parameters; the sort keys are per endpoint (below) | |
 
-A workday belongs to the date it **started** on in the business time zone. 400 `VALIDATION_FAILED` with `errors[].field` for every bad parameter at
+A workday belongs to its **shift date** (the date of the shift occurrence it started in; the calendar date it started on for the default shift): the
+range filters and the daily series use that date. `range=today` is the calendar date. 400 `VALIDATION_FAILED` with `errors[].field` for every bad parameter at
 once (`range`, `from`, `to`, `scope`, `employeeId`, `managerId`, `status`, `groupBy`, `sort`, `sortDirection`, `page`, `pageSize`, and `timeZone` for
 the CSV). Order of checks: 400, then 403 (`scope=all` for a manager), then 404 (`employeeId`, `managerId`); the CSV's `timeZone` (400) and row cap
 (422) after these.
 
 **Figures**: an ended workday shows the totals stored when it ended (`spanSeconds` = end - start); an open one is computed from its intervals up to the
 request time. Every figure covers the whole range (all pages). `totals = { workdays, employees, productiveSeconds, breakSeconds, spanSeconds,
-breakCount, averageProductiveSeconds }` (`employees` = different people). `dailySeries = [{ date, productiveSeconds, breakSeconds, workdays }]`, one
+breakCount, averageProductiveSeconds, extraSeconds }` (`employees` = different people; `extraSeconds` = extra time, included in `productiveSeconds`). `dailySeries = [{ date, productiveSeconds, breakSeconds, workdays }]`, one
 point for every date from `from` to `to`; the series and the totals always add up to the rows. The range is read set-based (one query for the scope,
 one for the workdays with employee and manager joined, one each for the intervals of the open days; index `workdays (business_id, work_date)`, V11).
 
@@ -446,7 +580,7 @@ Sort keys: `date` (default), `employee` (name, case-insensitive), `startedAt`, `
 **Default `sortDirection` is `desc`** (newest first). Ties: date (newest first), employee name, start, id.
 `data = { rows, total, page, pageSize, range, from, to, scope, totals, dailySeries }`, row: `{ id, date, employee: { id, employeeCode | null, name },
 manager: { id, name } | null, status: "WORKING" | "ON_BREAK" | "DAY_ENDED", isStale, startedAt, endedAt | null, productiveSeconds, breakSeconds,
-spanSeconds, breakCount }`. `manager` is the employee's manager **when the workday started** (snapshot), with that person's current name.
+spanSeconds, breakCount, shift, isOutsideShift, isOffDay, varianceSeconds | null, extraSeconds }`. `manager` is the employee's manager **when the workday started** (snapshot), with that person's current name.
 Audit (access): `reports.viewed`, entity `report` / `workdays`, subject = the `employeeId` filter (else null), after `{ report, filters, rowCount }`
 (`filters = { range, from, to, scope, employeeId, managerId, status: [...], search, sort, sortDirection }`, resolved values); one per request, never one
 per row.
@@ -456,9 +590,10 @@ checks; **every row of the range** in the requested order (paging ignored). One 
 its `displayTimeZones` (IANA id, any case; anything else 400 field `timeZone`). Answer 200, `text/csv;charset=UTF-8`,
 `Content-Disposition: attachment; filename="juristrack-<from>-to-<to>.csv"`, `Cache-Control: no-store`; errors stay `application/problem+json`.
 File (as the old app's export): UTF-8 with a byte order mark, CRLF, header `Date,Employee,Employee ID,Manager,Status,Start (<abbr>),End (<abbr>),
-Productive hours,Break hours,Span hours,Breaks` (`<abbr>` = the display zone's abbreviation at the moment of the export, from `engine/ZoneNames`), rows
+Productive hours,Break hours,Span hours,Breaks,Extra hours,Shift,Scheduled start (<abbr>),Scheduled end (<abbr>),Outside shift,Week off` (`<abbr>` = the display zone's abbreviation at the moment of the export, from `engine/ZoneNames`), rows
 with the date, "First Last", employee code, manager of the day, status (`Working`, `On Break`, `Day Ended`, `Not ended` for a stale open day), start and
-end `HH:mm` in the display zone, hours with two decimals (`toFixed(2)`), breaks. A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`;
+end `HH:mm` in the display zone, hours with two decimals (`toFixed(2)`), breaks, extra hours, the shift's name and its scheduled start and end `HH:mm`
+(empty for a workday without a shift snapshot), `Yes` or empty for "outside shift" and "week off" (the new columns are at the end, the existing order is unchanged). A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`;
 a cell with `"`, `,`, LF or CR is quoted. More than `juristrack.reports.maximum-export-rows` rows (default 50000) is 422 `EXPORT_TOO_LARGE` ("This
 export has N rows; at most M fit in one file. Choose a shorter date range or fewer people."), nothing exported or audited.
 Audit (access): `reports.exported`, after `{ report, filters, rowCount, timeZone, fileName }`.
@@ -468,7 +603,7 @@ Audit (access): `reports.exported`, after `{ report, filters, rowCount, timeZone
 `label` (default; case-insensitive; the `none` group last in both directions), `workdays`, `employees`, `productiveSeconds`, `breakSeconds`,
 `spanSeconds`, `breakCount`, `averageProductiveSeconds`. Default `sortDirection`: `asc`, but `desc` for `groupBy=date`. Ties: label, key.
 `data = { rows, total, page, pageSize, groupBy, range, from, to, scope, totals, dailySeries }`, row: `{ key, label | null, employeeCode | null,
-workdays, employees, productiveSeconds, breakSeconds, spanSeconds, breakCount, averageProductiveSeconds, firstStartedAt, lastEndedAt | null }`
+workdays, employees, productiveSeconds, breakSeconds, spanSeconds, breakCount, averageProductiveSeconds, firstStartedAt, lastEndedAt | null, extraSeconds }`
 (`key` = employee id / manager id / `none` / date; `label` = name / date, null for `none`; `employeeCode` only for `groupBy=employee`).
 Audit (access): `reports.viewed`, entity `report` / `summaries`, `filters.groupBy` set, `rowCount` = groups.
 
@@ -521,6 +656,10 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `security.invalid_session_cookie` | security | DENIED | a forged or malformed access cookie (`invalid_token`) or one of an ended session (`unknown_session`, `session_ended`, `session_expired`, `user_inactive`); once per reason, IP, user, window |
 | `security.cross_site_request_blocked` | security | DENIED | a 403 `CROSS_SITE_BLOCKED`; once per IP, path and window |
 | `security.out_of_scope_access` | security | DENIED | a signed-in user asked, with a 404, for a person or workday outside their scope, in another business or unknown (team, workday, correction, report and employee endpoints); entity type `user` / `workday`, `after.recordType`, no subject (the probed id is not trusted), reason `NOT_FOUND`; once per user and window |
+| `employee.shift_changed` | people | SUCCESS | the owner gave an employee a shift from a date (before / after: shift and date) |
+| `schedule.entry_set` | people | SUCCESS | the owner set one date of an employee's roster to a shift or a week off (before / after; one entry per changed date) |
+| `schedule.entry_removed` | people | SUCCESS | the owner removed a roster entry (before) |
+| `shift.created` / `shift.updated` / `shift.status_changed` | business | SUCCESS | a shift was created / changed (before and after) / deactivated or reactivated |
 | `access.employee_list_viewed` | access | SUCCESS | the owner listed the people (`after` = filters, `rowCount`, `total`) |
 | `access.employee_viewed` | access | SUCCESS | the owner opened another person's record |
 | `access.business_list_viewed` | access | SUCCESS | the super admin listed the businesses (platform log) |

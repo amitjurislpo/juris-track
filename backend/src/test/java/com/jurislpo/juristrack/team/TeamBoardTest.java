@@ -203,7 +203,7 @@ class TeamBoardTest extends IntegrationTest {
         assertThat((Integer) JsonPath.read(answer, "$.data.metrics.working")).isEqualTo(1);
         assertThat(memberIds(team.managerBId, "status=working")).containsExactlyElementsOf(idsOf(team.employeeId));
 
-        // a day ended yesterday is not today's state
+        // the business has only the default shift (the calendar day): a day ended yesterday is not today's state
         team.applyEvent(team.employeeId, "END");
         assertThat(row(board(team.managerBId, ""), team.employeeId)).containsEntry("status", "NOT_STARTED");
     }

@@ -25,8 +25,12 @@ public interface WorkdayRepository extends JpaRepository<Workday, UUID> {
     /** The employee's workdays dated {@code from} to {@code to} (both included). */
     List<Workday> findByEmployeeIdAndWorkDateBetween(UUID employeeId, LocalDate from, LocalDate to);
 
-    /** In one query, the workdays of these employees that are dated {@code date} or still open (from any date): the live board. */
+    /**
+     * In one query, the workdays of these employees that can be "current": still open (from any date) or dated (shift date) from
+     * {@code from} to {@code to}, a few days around today: the live board picks each person's shift occurrence among them.
+     */
     @Query("SELECT workday FROM Workday workday WHERE workday.employeeId IN :employeeIds"
-            + " AND (workday.workDate = :date OR workday.activeEmployeeId IS NOT NULL)")
-    List<Workday> findDatedOrOpenByEmployeeIds(@Param("employeeIds") Collection<UUID> employeeIds, @Param("date") LocalDate date);
+            + " AND (workday.activeEmployeeId IS NOT NULL OR workday.workDate BETWEEN :from AND :to)")
+    List<Workday> findOpenOrDatedBetweenByEmployeeIds(@Param("employeeIds") Collection<UUID> employeeIds, @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 }
