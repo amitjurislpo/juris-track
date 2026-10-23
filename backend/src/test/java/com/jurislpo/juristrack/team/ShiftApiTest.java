@@ -363,8 +363,8 @@ class ShiftApiTest extends IntegrationTest {
         String csv = new String(mockMvc.perform(get("/api/reports/workdays?range=custom&from=2026-10-06&to=2026-10-06").cookie(team.cookieOf(team.ownerId))
                 .header("accept", "text/csv")).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
         String[] lines = csv.split("\r\n");
-        assertThat(lines[0]).endsWith("Span hours,Breaks,Extra hours,Shift,Scheduled start (IST),Scheduled end (IST),Outside shift,Week off");
-        assertThat(lines[1]).endsWith(",3.00,0.00,3.00,0,3.00,US shift,19:30,04:30,Yes,Yes");
+        assertThat(lines[0]).endsWith("Span hours,Breaks,Last break (IST),Extra hours,Shift,Scheduled start (IST),Scheduled end (IST),Outside shift,Week off");
+        assertThat(lines[1]).endsWith(",3.00,0.00,3.00,0,,3.00,US shift,19:30,04:30,Yes,Yes");
         String summary = team.read(team.ownerId, "/api/reports/summaries?range=custom&from=2026-10-06&to=2026-10-06&groupBy=employee").andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat((Integer) JsonPath.read(summary, "$.data.rows[0].extraSeconds")).isEqualTo(3 * HOUR);
