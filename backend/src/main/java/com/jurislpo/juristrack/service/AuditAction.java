@@ -89,6 +89,10 @@ public enum AuditAction {
     EMPLOYEE_DEACTIVATED("employee.deactivated", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
     /** A deactivated employee was activated again. */
     EMPLOYEE_REACTIVATED("employee.reactivated", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
+    /** The owner switched an employee's sign-in off (sessions ended, open workday closed); the reason is the owner's. */
+    EMPLOYEE_LOGIN_DISABLED("employee.login_disabled", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
+    /** The owner switched an employee's sign-in on again. */
+    EMPLOYEE_LOGIN_ENABLED("employee.login_enabled", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
     /** A business rule refused a change to an employee (422: manager rules, role, last owner, own account; the code is the reason). */
     EMPLOYEE_CHANGE_REFUSED("employee.change_refused", AuditCategory.PEOPLE, AuditOutcome.DENIED),
 

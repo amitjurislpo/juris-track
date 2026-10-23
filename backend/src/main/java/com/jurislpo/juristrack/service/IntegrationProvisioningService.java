@@ -33,14 +33,14 @@ import org.springframework.transaction.annotation.Transactional;
  *       and the reporting manager from {@code managerId}, resolved through the manager's {@code jurisone_employee_id} inside the
  *       same business (null while that manager has not been seen yet; never the user themselves).</li>
  * </ol>
- * A deactivated user or a suspended business is refused ({@link AccessRefusedException}, 403), and so is a token whose email belongs to a user of
+ * A deactivated user, a user whose login the owner switched off, or a suspended business is refused ({@link AccessRefusedException}, 403), and so is a token whose email belongs to a user of
  * another business or to the platform super admin. Changes are written to the audit log; an unchanged user writes nothing.
  */
 @Service
 public class IntegrationProvisioningService {
 
     /**
-     * The token is valid but this person may not use JurisTrack (deactivated, the email belongs to someone else, or the business is
+     * The token is valid but this person may not use JurisTrack (deactivated, login switched off, the email belongs to someone else, or the business is
      * suspended: {@link #isBusinessSuspended()}, answered as 403 {@code BUSINESS_SUSPENDED}). The message is the reason code of the
      * audit entry; {@code businessId} and {@code userId} name the existing records it is about (either may be null).
      */
@@ -65,6 +65,7 @@ public class IntegrationProvisioningService {
 
     public static final String REFUSED_BUSINESS_SUSPENDED = "business_suspended";
     public static final String REFUSED_USER_DEACTIVATED = "user_deactivated";
+    public static final String REFUSED_LOGIN_DISABLED = "login_disabled";
     public static final String REFUSED_EMAIL_OF_ANOTHER_BUSINESS = "email_of_another_business";
 
     private static final String BUSINESS_ENTITY = "business";
@@ -100,6 +101,7 @@ public class IntegrationProvisioningService {
             throw new AccessRefusedException(REFUSED_BUSINESS_SUSPENDED, true, business.getId(), isUserOfBusiness ? user.getId() : null);
         }
         if (user != null && !user.isActive()) throw new AccessRefusedException(REFUSED_USER_DEACTIVATED, false, user.getBusinessId(), user.getId());
+        if (user != null && !user.isLoginEnabled()) throw new AccessRefusedException(REFUSED_LOGIN_DISABLED, false, user.getBusinessId(), user.getId());
         if (user != null && !business.getId().equals(user.getBusinessId())) {
             throw new AccessRefusedException(REFUSED_EMAIL_OF_ANOTHER_BUSINESS, false, user.getBusinessId(), user.getId());
         }

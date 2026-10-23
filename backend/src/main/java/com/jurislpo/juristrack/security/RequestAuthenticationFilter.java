@@ -205,7 +205,7 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
             return null;
         }
         String endedReason = sessionUser.revokedAt() != null ? "session_ended" : !sessionUser.expiresAt().isAfter(now) ? "session_expired"
-                : !sessionUser.isActive() ? "user_inactive" : null;
+                : !sessionUser.isActive() ? "user_inactive" : !sessionUser.isLoginEnabled() ? "login_disabled" : null;
         if (endedReason != null) {
             recordInvalidSessionCookie(endedReason, sessionUser);
             return null;

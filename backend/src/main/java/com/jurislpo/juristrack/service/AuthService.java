@@ -221,10 +221,14 @@ public class AuthService {
                 null, details, limit));
     }
 
-    /** Why this account may not sign in, or null: {@code unknown_email}, {@code inactive}, {@code business_suspended}. */
+    /**
+     * Why this account may not sign in, or null: {@code unknown_email}, {@code inactive}, {@code login_disabled} (the owner switched
+     * sign-in off), {@code business_suspended}. Only the audit entry tells them apart; the caller always gets the same answer.
+     */
     private String refusalReason(User user) {
         if (user == null) return "unknown_email";
         if (!user.isActive()) return "inactive";
+        if (!user.isLoginEnabled()) return "login_disabled";
         return maySignIn(user) ? null : "business_suspended";
     }
 
@@ -238,9 +242,9 @@ public class AuthService {
         };
     }
 
-    /** Active, and their business (if any: the super admin has none) is not suspended. */
+    /** Active, login not switched off, and their business (if any: the super admin has none) is not suspended. */
     private boolean maySignIn(User user) {
-        if (!user.isActive()) return false;
+        if (!user.isActive() || !user.isLoginEnabled()) return false;
         return user.getBusinessId() == null || businessRepository.findById(user.getBusinessId()).map(business -> !business.isSuspended()).orElse(false);
     }
 

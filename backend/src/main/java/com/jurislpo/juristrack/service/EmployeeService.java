@@ -46,6 +46,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>A MANAGER or ADMIN with active reports cannot become an EMPLOYEE (422 {@code MANAGER_HAS_REPORTS}): move the reports first.</li>
  *   <li>Deactivating ends every session of the person at once (they also get no new sign-in codes) and closes their open workday
  *       at the current time; the owner cannot deactivate themself, and the last active owner of the business cannot be deactivated.</li>
+ *   <li>Login access is separate from deactivation: switching it off keeps the person in the business, the list, the board and the
+ *       reports, but ends every session at once, closes their open workday (reason {@code login_disabled}) and refuses every sign-in
+ *       (a code request and a code check answer as for an unknown account; a JurisOne token is refused with 403) until the owner
+ *       switches it on again, which restores sign-in only. The owner cannot switch off their own login (422).</li>
  *   <li>A change a business rule refuses (422) is audited as {@code employee.change_refused} (outcome DENIED, the code as reason) in a
  *       transaction of its own, so the entry stays although the change is rolled back.</li>
  *   <li>Reading the list or another person's record is audited ({@code access.employee_list_viewed} with the filters,
@@ -78,11 +82,16 @@ public class EmployeeService {
     /** {@code PUT /api/employees/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
     public record EmployeeStatusChange(@JsonProperty("isActive") Boolean isActive, String reason) {}
 
+    /** {@code PUT /api/employees/{id}/login-access} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
+    public record LoginAccessChange(@JsonProperty("isEnabled") Boolean isEnabled, String reason) {}
+
     /** The sort keys of {@code GET /api/employees}, in the order the API documents them. */
     public static final List<String> SORT_KEYS = List.of("name", "employeeCode", "email", "role", "status", "lastLoginAt");
     private static final List<Role> LISTED_ROLES = List.of(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE);
     private static final String USER_ENTITY = "user";
     private static final String NOT_FOUND = "Employee not found.";
+    /** The reason of the {@code workday.closed} entry written when an employee's login is switched off. */
+    private static final String LOGIN_DISABLED_REASON = "login_disabled";
     /** The query parameters of {@code GET /api/employees} that the access entry keeps. */
     private static final List<String> LIST_PARAMETERS = List.of("search", "status", "role", "managerId", "sort", "sortDirection", "page", "pageSize");
 
@@ -298,6 +307,45 @@ public class EmployeeService {
         auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId,
                 isActive ? AuditAction.EMPLOYEE_REACTIVATED : AuditAction.EMPLOYEE_DEACTIVATED, USER_ENTITY, employeeId.toString(),
                 Map.of("isActive", !isActive), after, reason));
+        return findRow(owner, employeeId);
+    }
+
+    /**
+     * Switches an employee's sign-in off or on (the person stays active and visible). Setting the state the employee already has
+     * changes nothing and writes no audit entry. Switching off ends every session, closes the open workday and is refused (422
+     * {@code CANNOT_DISABLE_OWN_LOGIN}) for the owner's own account; switching on restores sign-in only.
+     */
+    public EmployeeRow setLoginAccess(CurrentUser owner, UUID employeeId, LoginAccessChange loginAccessChange) {
+        return auditRefusals(owner, employeeId, "loginAccess", () -> changeLoginAccess(owner, employeeId, loginAccessChange));
+    }
+
+    private EmployeeRow changeLoginAccess(CurrentUser owner, UUID employeeId, LoginAccessChange loginAccessChange) {
+        lockEmployeeRow(employeeId);
+        User employee = loadEmployee(owner, employeeId);
+        InputValidator validator = new InputValidator();
+        if (loginAccessChange == null || loginAccessChange.isEnabled() == null) validator.reject("isEnabled", "Say whether sign-in is enabled (isEnabled).");
+        String reason = validator.optionalText("reason", "Reason", loginAccessChange == null ? null : loginAccessChange.reason(),
+                InputValidator.MAXIMUM_REASON_LENGTH);
+        validator.throwIfInvalid();
+        boolean isEnabled = loginAccessChange.isEnabled();
+        if (isEnabled == employee.isLoginEnabled()) return findRow(owner, employeeId);
+
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("isLoginEnabled", isEnabled);
+        if (!isEnabled) {
+            if (employeeId.equals(owner.userId())) {
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.CANNOT_DISABLE_OWN_LOGIN, "You cannot switch off your own sign-in.");
+            }
+            // no record is left running for a person who can no longer sign in: the open workday ends now (audited as workday.closed)
+            timeTrackingService.closeOpenWorkday(owner.businessId(), owner.userId(), employeeId, LOGIN_DISABLED_REASON)
+                    .ifPresent(workdayId -> after.put("closedWorkdayId", workdayId.toString()));
+        }
+        employee.setLoginEnabled(isEnabled);
+        userRepository.saveAndFlush(employee);
+        if (!isEnabled) after.put("endedSessions", sessionService.revokeAllOfUserForDisabledLogin(employeeId));
+        auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId,
+                isEnabled ? AuditAction.EMPLOYEE_LOGIN_ENABLED : AuditAction.EMPLOYEE_LOGIN_DISABLED, USER_ENTITY, employeeId.toString(),
+                Map.of("isLoginEnabled", !isEnabled), after, reason));
         return findRow(owner, employeeId);
     }
 
