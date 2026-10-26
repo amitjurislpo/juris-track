@@ -244,6 +244,36 @@ public class ScheduleService {
                 employeeId + "/" + date, before, after, reason));
     }
 
+    /** What JurisOne's roster sync got for one date of one employee's roster. */
+    public enum RosterEntryOutcome { SET, UNCHANGED, DATE_HAS_WORKDAY, DATE_TOO_FAR }
+
+    /**
+     * Sets one date of the roster for JurisOne's roster sync ({@code shift} null = a week off; the caller has checked that the shift is an
+     * active one of the business). Like {@link #setEntry} but it never throws a business-rule refusal (it answers
+     * {@link RosterEntryOutcome#DATE_HAS_WORKDAY} or {@link RosterEntryOutcome#DATE_TOO_FAR}, so one date cannot fail the batch), has no
+     * signed-in user (the audit entry {@code schedule.entry_set} has no actor) and keeps the reason an owner wrote on the entry.
+     * The same shift on a date again changes nothing and writes nothing.
+     */
+    RosterEntryOutcome applyRosterEntry(UUID businessId, UUID employeeId, LocalDate date, Shift shift, LocalDate today) {
+        if (date.isAfter(today.plusDays(MAXIMUM_DAYS_AHEAD))) return RosterEntryOutcome.DATE_TOO_FAR;
+        UUID shiftId = shift == null ? null : shift.getId();
+        Optional<ScheduleEntry> existing = scheduleEntryRepository.findByEmployeeIdAndEntryDate(employeeId, date);
+        if (existing.isPresent() && java.util.Objects.equals(existing.get().getShiftId(), shiftId)) return RosterEntryOutcome.UNCHANGED;
+        if (workdayRepository.findByEmployeeIdAndWorkDate(employeeId, date).isPresent()) return RosterEntryOutcome.DATE_HAS_WORKDAY;
+        Map<String, Object> before = existing.map(ScheduleService::entryDetails).orElse(null);
+        ScheduleEntry entry = existing.orElseGet(ScheduleEntry::new);
+        entry.setBusinessId(businessId);
+        entry.setEmployeeId(employeeId);
+        entry.setEntryDate(date);
+        entry.setShiftId(shiftId);
+        scheduleEntryRepository.saveAndFlush(entry);
+        Map<String, Object> after = entryDetails(entry);
+        after.put("shiftName", shift == null ? null : shift.getName());
+        auditService.record(new AuditEntry(businessId, null, employeeId, AuditAction.SCHEDULE_ENTRY_SET, ENTRY_ENTITY, employeeId + "/" + date, before,
+                after, entry.getReason()));
+        return RosterEntryOutcome.SET;
+    }
+
     private void requireNoWorkday(UUID employeeId, LocalDate date) {
         if (workdayRepository.findByEmployeeIdAndWorkDate(employeeId, date).isPresent()) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.SCHEDULE_DATE_HAS_WORKDAY,

@@ -45,7 +45,7 @@ class EnvironmentGuardTest {
         configuration.put("juristrack.env", "dev");
         configuration.put("juristrack.otp.fixed-code", "000000");
         configuration.put("juristrack.seed.demo", "true");
-        configuration.put("juristrack.app-url", "http://localhost:3007");
+        configuration.put("juristrack.app-url", "http://localhost:3006");
         configuration.put("juristrack.integration.enabled", "true");
         assertThat(problemsOf(configuration)).isEmpty();
     }
@@ -144,7 +144,7 @@ class EnvironmentGuardTest {
         Map<String, String> configuration = new HashMap<>();
         configuration.put("juristrack.env", "dev");
         configuration.put("juristrack.otp.fixed-code", "000000");
-        configuration.put("juristrack.app-url", "http://localhost:3007");
+        configuration.put("juristrack.app-url", "http://localhost:3006");
         configuration.put("spring.datasource.url", "jdbc:postgresql://localhost:5437/juristrack?currentSchema=public");
         assertThat(problemsOf(configuration)).isEmpty();
         configuration.put("spring.datasource.url", "jdbc:postgresql://db:5432/juristrack"); // a docker-compose service

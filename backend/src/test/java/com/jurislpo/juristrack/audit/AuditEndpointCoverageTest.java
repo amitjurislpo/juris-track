@@ -78,7 +78,11 @@ class AuditEndpointCoverageTest extends IntegrationTest {
                     "time.workday_reopened")),
             Map.entry("PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
             Map.entry("PATCH /api/workdays/{workdayId}/break-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
-            Map.entry("PUT /api/workdays/{workdayId}/status", List.of("time.workday_closed")));
+            Map.entry("PUT /api/workdays/{workdayId}/status", List.of("time.workday_closed")),
+            // JurisOne's roster sync (service token): one roster_synced entry per call and the usual entry of every change; proved in RosterSyncTest and RosterSyncShiftTest
+            Map.entry("PUT /api/integration/employees", List.of("integration.roster_synced", "integration.business_provisioned", "integration.business_updated",
+                    "integration.user_provisioned", "integration.user_linked", "integration.user_updated", "shift.created", "shift.updated", "employee.shift_changed",
+                    "employee.deactivated", "employee.reactivated", "workday.closed", "schedule.entry_set")));
 
     private static final Set<RequestMethod> WRITE_METHODS = Set.of(RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE);
 

@@ -81,5 +81,15 @@ Add new lines at the bottom of the right section. Hindi, Hinglish or English are
 - English and Hindi (English text is the translation key in the frontend).
 - The UI uses the JurisOne design CSS (verbatim prototype CSS plus app additions), not Tailwind.
 - The identity provider (IAM JCG / Sita) is not to be worked on until the owner says so.
-- Ports (dev): web 3007, API 8082, DB 5437; e2e web 3008, API 8083.
+- Ports (dev): web 3006, API 8081, DB 5437; e2e web 3008, API 8083.
 - The FRD and flow diagrams are written right after the current pull requests are raised (this round of testing, commit and push comes first). When IAM JCG / Sita is connected later, update the FRDs and all three flow diagrams and release a new document version then.
+
+## Local URLs (fixed: always start the apps on exactly these)
+
+| App | Web | API |
+|---|---|---|
+| JurisOne | http://localhost:3005 | http://localhost:8080 |
+| JurisTrack | http://localhost:3006 | http://localhost:8081 |
+
+- Every time an application is run locally it must come up on these ports, never on any other (JurisTrack is **not** 3007/8082 any more). Postgres stays: JurisOne 5436, JurisTrack 5437. E2E ports are separate and unchanged.
+- Hardcoded URLs are allowed in the local (`dev`) environment only. In every upper environment (sqe, uat, prd) URLs and ports come from the property file / server environment variables, never from code.

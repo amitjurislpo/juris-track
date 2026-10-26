@@ -47,7 +47,7 @@ leaves the JurisOne backend, JurisOne keeps control of who may use the module (p
 | `email`, `name` | for provisioning and display |
 | `businessId`, `businessName` | JurisOne business id and name |
 | `managerId` (optional) | JurisOne employee id of this employee's assigned manager (null if none): JurisTrack keeps it as `manager_id` and refreshes it on every token |
-| `shiftCode` (optional, **specified, not built**) | The code of the shift JurisOne has assigned to this employee (a `code` from the roster's `shifts` list). A first-time user who signs in before any roster push gets this shift assigned from today, so their first workday is attributed to the right shift. Later changes come with the roster; a claim never changes an assignment that already exists |
+| `shiftCode` (optional, **built**) | The code of the shift JurisOne has assigned to this employee (a `code` from the roster's `shifts` list). A first-time user who signs in before any roster push gets this shift assigned from today, so their first workday is attributed to the right shift. Later changes come with the roster; a claim never changes an assignment that already exists (only a user this very token creates gets it; an unknown, blank or non-text code is ignored) |
 | `trackRole` (optional) | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` (optional `ADMIN` only if JurisOne wants an owner-type user). Sent on **every** token; JurisTrack follows it, so granting or removing the role in JurisOne takes effect on the next call |
 | `exp`, `iat`, `jti` | all three required: expiry (short, `exp - iat` at most 10 minutes), issue time, unique id. A `jti` is accepted **once**: a replayed token answers 401 and is audited (`replayed_token`), so the gateway issues a fresh token for every request |
 
@@ -65,12 +65,31 @@ anywhere, the token is refused with 403 (`integration.user_refused`, reason `ema
 to the `SUPER_ADMIN` is refused with 403; a deactivated user, or one whose login the owner switched off, is refused with 403; a user of a **suspended business** is refused with 403 `BUSINESS_SUSPENDED`
 (the super admin suspends businesses, which also closes their open workdays); any invalid token answers 401 without details and is never logged.
 
-**Roster sync (part of the first version):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the
+**Roster sync (BUILT, version 2.1 of the documents):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the
 roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees
 { id, code, name, email, managerId, isActive } and creates/updates/deactivates users accordingly (idempotent, whole roster or a batch of changes). JurisOne calls
 it when employees or manager assignments change and on a schedule. Just-in-time provisioning from the user token still works as a fallback.
 
-**Roster contract including shifts (specified, not built; version 2.0 of the documents).** JurisTrack calculates time per shift (`API.md`, "Shifts and the
+**Service token of the roster sync (built).** JurisOne itself is the caller, not a user, so the token has no person in it: signed with the same private key
+and checked like a user token (signature, algorithm, `iss`, `aud`, `exp - iat` at most 10 minutes, clock skew, single-use `jti`), plus:
+
+| Claim | Meaning |
+|---|---|
+| `iss`, `aud`, `iat`, `exp`, `jti` | as for a user token (`aud` = `juristrack`) |
+| `scope` | **required, exactly `employees:sync`** |
+| `businessId`, `businessName` | the one JurisOne business this call is about (the body is about that business only) |
+| `sub`, `email` | **must be absent**: a token with either is refused (`not_a_service_token`) |
+
+The service token opens **only** `PUT /api/integration/employees` (matched exactly); a user token (no scope), a cookie session or a token with another scope
+cannot call that endpoint, and a user token that carries a `scope` is refused everywhere else, so a service token never works on any other endpoint. A
+refused token answers 401 without details and is audited as `integration.token_rejected` (`missing_scope`, `wrong_scope`, `not_a_service_token`,
+`service_token_not_accepted`, ...). The business is found by `jurisone_business_id` or created (never an existing standalone business); a suspended
+business answers 403 `BUSINESS_SUSPENDED`. The answer lists skipped people with reason codes instead of failing the batch (`API.md`, "Roster sync":
+body, reason codes, response, limits of 5000 employees and 62 schedule entries per person, audit). A person deactivated by the sync is reactivated by it
+only; the owner's decisions (a deactivation, a switched-off login) are kept. JurisOne keeps its own role authority through the user token on every later
+call; the sync never makes anybody `ADMIN` and an existing owner keeps the role.
+
+**Roster contract including shifts (BUILT; specified in version 2.0, built in version 2.1 of the documents).** JurisTrack calculates time per shift (`API.md`, "Shifts and the
 roster"). JurisOne onboards employees too, so it sends their shift in the same request. Body (JSON, one business per call, the business is the one the
 service token names):
 
@@ -95,9 +114,9 @@ service token names):
 - JurisOne is the master of the roster when the business is linked (open point: who is master while both sides can edit; until then the owner's
   screens in JurisTrack stay editable and the next push wins for the dates it lists).
 
-**Audit of the integration:** Bearer requests are audited with source `INTEGRATION`; the gateway may pass an `X-Request-Id` that is stored with the entries; refused tokens (`integration.token_rejected`, reason code only, never the token) and refused users (`integration.user_refused`) are audited, and a renamed linked business is audited as `integration.business_updated`.
+**Audit of the integration:** Bearer requests are audited with source `INTEGRATION`; every roster sync call writes one `integration.roster_synced` entry (counts only) besides the usual entry of each change it makes; the gateway may pass an `X-Request-Id` that is stored with the entries; refused tokens (`integration.token_rejected`, reason code only, never the token) and refused users (`integration.user_refused`) are audited, and a renamed linked business is audited as `integration.business_updated`.
 
-**Security rules:** accept the Bearer token only when `juristrack.integration.enabled=true`; reject unsigned, expired or wrong `iss`/`aud` tokens; allow a small
+**Security rules:** accept the Bearer token only when `juristrack.integration.enabled=true` (a service token only on the roster sync, a user token on every other endpoint); reject unsigned, expired or wrong `iss`/`aud` tokens; allow a small
 clock skew (`juristrack.integration.clock-skew-seconds`); in embedded deployments the JurisTrack API port is reachable only from the JurisOne backend (network
 rule or mTLS); never log tokens; a `jti` is accepted once (replay guard, in memory per instance); put the gateway's address in `juristrack.security.trusted-proxies` so the
 client address it forwards in `X-Forwarded-For` is believed (rate limits and the audit IP follow it). Bearer requests skip the Origin check: in embedded mode the

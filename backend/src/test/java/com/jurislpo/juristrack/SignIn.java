@@ -17,7 +17,7 @@ public final class SignIn {
 
     public static final String CODE = "000000";
     /** The web app's origin in the tests (juristrack.app-url of IntegrationTest). */
-    public static final String ORIGIN = "http://localhost:3007";
+    public static final String ORIGIN = "http://localhost:3006";
 
     private SignIn() {}
 

@@ -88,6 +88,31 @@ public final class IntegrationTokens {
                 .expirationTime(Date.from(now.plusSeconds(300)));
     }
 
+    /** The claims of JurisOne's service token for the roster sync of one business (scope {@code employees:sync}, no {@code sub}, no {@code email}). */
+    public static JWTClaimsSet.Builder serviceClaimsOf(UUID businessId, String businessName) {
+        Instant now = Instant.now();
+        return new JWTClaimsSet.Builder()
+                .issuer(ISSUER)
+                .audience(AUDIENCE)
+                .claim("scope", IntegrationTokenVerifier.ROSTER_SYNC_SCOPE)
+                .claim("businessId", businessId.toString())
+                .claim("businessName", businessName)
+                .jwtID(UUID.randomUUID().toString())
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(now.plusSeconds(300)));
+    }
+
+    /** A service token for the roster sync of {@code businessId}, after {@code adjustClaims} (e.g. another scope). */
+    public static String serviceTokenFor(UUID businessId, String businessName, Consumer<JWTClaimsSet.Builder> adjustClaims) {
+        JWTClaimsSet.Builder claims = serviceClaimsOf(businessId, businessName);
+        adjustClaims.accept(claims);
+        return sign(claims.build(), JURISONE_KEY_PAIR);
+    }
+
+    public static String serviceTokenFor(UUID businessId, String businessName) {
+        return serviceTokenFor(businessId, businessName, claims -> {});
+    }
+
     /** A token JurisOne would send for {@code employee}, after {@code adjustClaims} (e.g. a wrong audience). */
     public static String tokenFor(Employee employee, Consumer<JWTClaimsSet.Builder> adjustClaims) {
         JWTClaimsSet.Builder claims = claimsOf(employee);

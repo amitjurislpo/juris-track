@@ -44,8 +44,10 @@ import org.springframework.stereotype.Component;
  *   <li>{@code jti} present and not seen before: a token is single-use, so JurisOne issues one per request (replay guard);</li>
  *   <li>the claims {@code sub} (JurisOne employee id), {@code email}, {@code name}, {@code businessId} and {@code businessName};
  *       {@code managerId} (null when absent) and {@code trackRole} (MANAGER or EMPLOYEE; ADMIN only when sent; anything else
- *       or nothing is EMPLOYEE).</li>
+ *       or nothing is EMPLOYEE) and the optional {@code shiftCode}.</li>
  * </ul>
+ * A <b>service token</b> ({@link #verifyServiceToken}, {@code scope=employees:sync}, no {@code sub} / {@code email}) is how JurisOne calls the roster
+ * sync; it is refused by {@link #verify}, and a user token is refused by {@link #verifyServiceToken}.
  * Any failure is an {@link InvalidIntegrationTokenException}; the request filter answers 401 without the reason and never logs
  * the token. Only used while {@code juristrack.integration.enabled=true}.
  */
@@ -64,6 +66,10 @@ public class IntegrationTokenVerifier {
 
     /** A token lives about 5 minutes; JurisOne may not issue one that lives longer than this (a leaked token stays usable only that long). */
     static final Duration MAXIMUM_LIFETIME = Duration.ofMinutes(10);
+    /** The claim that makes a token a service token, and the one value the roster sync accepts. */
+    static final String SCOPE_CLAIM = "scope";
+    public static final String ROSTER_SYNC_SCOPE = "employees:sync";
+    private static final int MAXIMUM_SHIFT_CODE_LENGTH = 40;
     private static final int MAXIMUM_REMEMBERED_TOKEN_IDS = 100_000;
 
     /** The {@code jti} of every token accepted and until when it is remembered (single use), oldest first. */
@@ -107,8 +113,43 @@ public class IntegrationTokenVerifier {
         return isEnabled;
     }
 
-    /** The verified claims, or {@link InvalidIntegrationTokenException}. */
+    /**
+     * The verified claims of a <b>user</b> token, or {@link InvalidIntegrationTokenException}. A service token (one with a
+     * {@code scope}) is refused here, so it works on no endpoint but the roster sync.
+     */
     public IntegrationClaims verify(String token) {
+        JWTClaimsSet claims = verifiedClaims(token);
+        if (claims.getClaim(SCOPE_CLAIM) != null) throw new InvalidIntegrationTokenException("service_token_not_accepted");
+        IntegrationClaims integrationClaims = readClaims(claims);
+        rejectReplay(claims);
+        return integrationClaims;
+    }
+
+    /**
+     * The verified claims of a <b>service</b> token (JurisOne calls on its own behalf: the roster sync), or
+     * {@link InvalidIntegrationTokenException}: the same signature, issuer, audience, lifetime and single-use checks as a user token,
+     * and {@code scope} must be exactly {@value #ROSTER_SYNC_SCOPE}. A user token (no scope) is refused, and so is a token with a
+     * {@code sub} or an {@code email}: a service token is not about a person.
+     */
+    public IntegrationServiceClaims verifyServiceToken(String token) {
+        JWTClaimsSet claims = verifiedClaims(token);
+        Object scope = claims.getClaim(SCOPE_CLAIM);
+        if (scope == null) throw new InvalidIntegrationTokenException("missing_scope");
+        if (!ROSTER_SYNC_SCOPE.equals(scope)) throw new InvalidIntegrationTokenException("wrong_scope");
+        if (claims.getSubject() != null || claims.getClaim("email") != null) throw new InvalidIntegrationTokenException("not_a_service_token");
+        IntegrationServiceClaims serviceClaims;
+        try {
+            serviceClaims = new IntegrationServiceClaims(requiredUuid(claims.getStringClaim("businessId"), "businessId"),
+                    requiredText(claims.getStringClaim("businessName"), "businessName"));
+        } catch (ParseException e) {
+            throw new InvalidIntegrationTokenException("invalid_claim_type");
+        }
+        rejectReplay(claims);
+        return serviceClaims;
+    }
+
+    /** Signature, algorithm, issuer, audience and lifetime (not yet the claims nor the replay guard). */
+    private JWTClaimsSet verifiedClaims(String token) {
         if (!isEnabled) throw new InvalidIntegrationTokenException("integration_disabled");
         JWTClaimsSet claims;
         try {
@@ -121,9 +162,7 @@ public class IntegrationTokenVerifier {
         }
         checkIssuerAndAudience(claims);
         checkTimes(claims, Instant.now());
-        IntegrationClaims integrationClaims = readClaims(claims);
-        rejectReplay(claims);
-        return integrationClaims;
+        return claims;
     }
 
     /** A token is single-use: its {@code jti} is remembered until the token would have expired anyway. */
@@ -176,10 +215,17 @@ public class IntegrationTokenVerifier {
             String managerId = claims.getStringClaim("managerId");
             UUID jurisoneManagerId = managerId == null || managerId.isBlank() ? null : requiredUuid(managerId, "managerId");
             return new IntegrationClaims(jurisoneEmployeeId, email, name, jurisoneBusinessId, businessName, jurisoneManagerId,
-                    roleOf(claims.getStringClaim("trackRole")));
+                    roleOf(claims.getStringClaim("trackRole")), shiftCodeOf(claims));
         } catch (ParseException e) {
             throw new InvalidIntegrationTokenException("invalid_claim_type");
         }
+    }
+
+    /** {@code shiftCode} is optional: absent, blank, too long or not text is ignored (null). */
+    private static String shiftCodeOf(JWTClaimsSet claims) {
+        Object shiftCode = claims.getClaim("shiftCode");
+        if (!(shiftCode instanceof String text) || text.isBlank() || text.trim().length() > MAXIMUM_SHIFT_CODE_LENGTH) return null;
+        return text.trim();
     }
 
     /** {@code trackRole}: MANAGER and EMPLOYEE as sent, ADMIN only when JurisOne sends it; anything else (or nothing) is EMPLOYEE. */

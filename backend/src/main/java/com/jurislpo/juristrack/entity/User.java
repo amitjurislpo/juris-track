@@ -55,6 +55,10 @@ public class User {
     @Column(name = "is_login_enabled", nullable = false)
     private boolean isLoginEnabled = true;
 
+    /** True = the roster sync from JurisOne deactivated this person, so a later sync may reactivate them (a manual change clears it). */
+    @Column(name = "is_deactivated_by_roster_sync", nullable = false)
+    private boolean isDeactivatedByRosterSync;
+
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
@@ -103,6 +107,8 @@ public class User {
     public void setActive(boolean isActive) { this.isActive = isActive; }
     public boolean isLoginEnabled() { return isLoginEnabled; }
     public void setLoginEnabled(boolean isLoginEnabled) { this.isLoginEnabled = isLoginEnabled; }
+    public boolean isDeactivatedByRosterSync() { return isDeactivatedByRosterSync; }
+    public void setDeactivatedByRosterSync(boolean isDeactivatedByRosterSync) { this.isDeactivatedByRosterSync = isDeactivatedByRosterSync; }
     public Instant getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; }
     public UUID getManagerId() { return managerId; }

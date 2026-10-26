@@ -11,6 +11,7 @@ import com.jurislpo.juristrack.repository.AuditLogRepository;
 import com.jurislpo.juristrack.security.AuditRequestContext;
 import com.jurislpo.juristrack.security.AuthenticationSource;
 import com.jurislpo.juristrack.security.CurrentUser;
+import com.jurislpo.juristrack.security.IntegrationServiceClaims;
 import com.jurislpo.juristrack.tenancy.TenantContext;
 import java.util.Iterator;
 import java.util.List;
@@ -126,7 +127,7 @@ public class AuditService {
      */
     private boolean isOverUnauthenticatedCap(AuditEntry entry) {
         AuditRequestContext requestContext = AuditRequestContext.current();
-        if (requestContext == null || entry.actorId() != null || signedInUser() != null) return false;
+        if (requestContext == null || entry.actorId() != null || signedInUser() != null || isIntegrationServiceSignedIn()) return false;
         String ipAddress = requestContext.ipAddress() == null ? "unknown" : requestContext.ipAddress();
         boolean isOverCap = rateLimiter.checkAndHit("audit-unauthenticated:" + ipAddress, unauthenticatedEntriesPerIp, AuditAggregation.WINDOW.toMillis())
                 .isLimited();
@@ -176,6 +177,12 @@ public class AuditService {
             auditLog.setRequestPath(requestContext.requestPath());
         }
         return auditLog;
+    }
+
+    /** JurisOne's service token authenticated this request (the roster sync): an authenticated caller without a user, never capped. */
+    private static boolean isIntegrationServiceSignedIn() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getPrincipal() instanceof IntegrationServiceClaims;
     }
 
     private static CurrentUser signedInUser() {

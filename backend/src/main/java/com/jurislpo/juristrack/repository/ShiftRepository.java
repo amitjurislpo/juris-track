@@ -13,6 +13,8 @@ public interface ShiftRepository extends JpaRepository<Shift, UUID> {
 
     List<Shift> findByBusinessId(UUID businessId);
 
+    Optional<Shift> findByBusinessIdAndCode(UUID businessId, String code);
+
     @Query("SELECT shift FROM Shift shift WHERE shift.businessId = :businessId AND shift.isDefault = TRUE")
     Optional<Shift> findDefault(@Param("businessId") UUID businessId);
 

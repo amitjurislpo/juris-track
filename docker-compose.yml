@@ -1,6 +1,6 @@
 # Postgres (and, optionally, the API) in Docker. The defaults below are for development:
 #   docker compose up -d db                 # Postgres 16 on 127.0.0.1:5437, then run the API with Maven (see README)
-#   docker compose up -d --build backend    # the API in Docker too (APP_ENV=dev), on port 8082
+#   docker compose up -d --build backend    # the API in Docker too (APP_ENV=dev), on port 8081
 # Other environments run side by side by setting these variables (shell, systemd or a CI job), e.g. for sqe:
 #   COMPOSE_PROJECT_NAME=juristrack-sqe APP_ENV=sqe DB_PORT=5447 BACKEND_PORT=8092 POSTGRES_DB=juristrack_sqe \
 #   POSTGRES_PASSWORD=... JWT_SECRET=... SMTP_USER=... SMTP_PASS=... docker compose up -d
@@ -30,7 +30,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Spring Boot API (BACKEND_PORT on the host, 8082 inside). The web app (juris-track-frontend) proxies /api/* to it.
+  # Spring Boot API (BACKEND_PORT on the host, 8081 inside). The web app (juris-track-frontend) proxies /api/* to it.
   backend:
     build: ./backend
     container_name: ${COMPOSE_PROJECT_NAME:-juristrack-backend}-backend
@@ -40,7 +40,7 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${APP_ENV:-dev}
-      SERVER_PORT: 8082
+      SERVER_PORT: 8081
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-juristrack}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-juristrack}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-juristrack_dev_pw}
@@ -51,7 +51,7 @@ services:
       # embedded in JurisOne (juristrack.integration.enabled=true): JurisOne's public key
       JURISONE_PUBLIC_KEY: ${JURISONE_PUBLIC_KEY:-}
     ports:
-      - "${BACKEND_PORT:-8082}:8082"
+      - "${BACKEND_PORT:-8081}:8081"
 
 volumes:
   juristrack_pg:

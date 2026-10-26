@@ -11,8 +11,8 @@ break time are calculated from the recorded intervals. A manager sees the live b
 
 | Part | Technology | Port (dev) |
 |---|---|---|
-| Frontend | React single-page app (Vite, TypeScript) in `juris-track-frontend`; proxies `/api/*` to the API | 3007 |
-| Backend | Java 17, Spring Boot 3, Flyway, Maven Wrapper — in `backend/` | 8082 |
+| Frontend | React single-page app (Vite, TypeScript) in `juris-track-frontend`; proxies `/api/*` to the API | 3006 |
+| Backend | Java 17, Spring Boot 3, Flyway, Maven Wrapper — in `backend/` | 8081 |
 | Database | PostgreSQL 16 in docker-compose | 5437 on the host |
 | Tests | JUnit 5 + Testcontainers (backend); Vitest and Playwright in the frontend repo | |
 
@@ -22,7 +22,7 @@ One file per environment, `backend/src/main/resources/application-<env>.properti
 
 | Env | Web / API / DB ports | Database | Sign-in code |
 |---|---|---|---|
-| `dev` | 3007 / 8082 / 5437 | `juristrack` | fixed `000000` |
+| `dev` | 3006 / 8081 / 5437 | `juristrack` | fixed `000000` |
 | `sqe` | 3017 / 8092 / 5447 | `juristrack_sqe` | random, emailed |
 | `uat` | 3027 / 8102 / 5457 | `juristrack_uat` | random, emailed |
 | `prd` | 3010 / 8210 / 5467 | `juristrack_prd` | random, emailed |
@@ -34,8 +34,8 @@ Secrets of sqe/uat/prd are `${ENV_VARS}` set on the server (never committed). E2
 ```sh
 docker compose up -d db                       # Postgres 16 on 127.0.0.1:5437 (container juristrack-backend-db)
 cd backend
-./mvnw spring-boot:run                        # API on http://localhost:8082 (profile dev), Flyway migrates on start
-curl http://localhost:8082/actuator/health    # {"status":"UP",...}
+./mvnw spring-boot:run                        # API on http://localhost:8081 (profile dev), Flyway migrates on start
+curl http://localhost:8081/actuator/health    # {"status":"UP",...}
 ./mvnw test                                   # JUnit 5 + Testcontainers (Docker must be running)
 ```
 
