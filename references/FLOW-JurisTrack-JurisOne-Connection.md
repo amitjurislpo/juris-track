@@ -5,6 +5,7 @@
 | 1.0 | 2026-10-23 | Initial version | Owner |
 | 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; a JurisOne token of a login-disabled user is refused with 403 | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation: the roster request carries shifts, each employee's shift and per-date schedule (week offs); optional token claim `shiftCode` (all `[S]`, nothing built on the JurisOne side); open points for shift codes and the roster master | Owner |
+| 2.1 | 2026-10-27 | JurisTrack side of the roster sync built `[B]`: `PUT /api/integration/employees` with JurisOne's service token (scope `employees:sync`), shifts by code, shift assignment, roster dates, deactivation/reactivation rules, skipped reasons, `integration.roster_synced`; token claim `shiftCode` built; same version in the `Juris-one` copy | Owner |
 
 Master copy: `juris-track-backend/references/`. The `Juris-one` backend keeps an identical copy with the same version (see "Documents" in both `INSTRUCTIONS.md`).
 Related documents: [FRD-JurisOne.md](FRD-JurisOne.md), [FLOW-JurisOne.md](FLOW-JurisOne.md), [FRD-JurisTrack.md](FRD-JurisTrack.md), [FLOW-JurisTrack.md](FLOW-JurisTrack.md). Design source: `INTEGRATION.md`, `MIGRATION_PLAN.md`, `API.md` (this folder).
@@ -56,7 +57,7 @@ flowchart TB
         JODB[("JurisOne database  employees, roles, reporting manager")]:::built
     end
 
-    subgraph JT["JurisTrack  Spring Boot  API port 8082, internal network only when embedded"]
+    subgraph JT["JurisTrack  Spring Boot  API port 8081, internal network only when embedded"]
         direction TB
         VERIFY["IntegrationTokenVerifier  public key, iss, aud, exp, iat, jti"]:::built
         PROV["IntegrationProvisioningService  business and user just in time"]:::built
@@ -268,7 +269,7 @@ sequenceDiagram
 
 ## 5. Roster sync: employees from JurisOne to JurisTrack
 
-**State: SPECIFIED on the JurisTrack side (endpoint not built, see `MIGRATION_PLAN.md` step 5b), PLANNED on the JurisOne side (no job, no event hook).** The token path in section 3 provisions only people who actually open JurisTrack. A manager must also see reports who never opened it, so JurisOne pushes the roster.
+**State: BUILT on the JurisTrack side (version 2.1, `API.md` "Roster sync"; the diagram below still shows the steps as drawn in 2.0), PLANNED on the JurisOne side until its job is merged (no job, no event hook).** The token path in section 3 provisions only people who actually open JurisTrack. A manager must also see reports who never opened it, so JurisOne pushes the roster.
 
 ```mermaid
 flowchart TD
@@ -329,7 +330,7 @@ What happens on each event (all `[S]` for JurisTrack, `[P]` for the JurisOne tri
 | First sign-in before any push | Optional token claim `shiftCode` assigns the shift once, if the person has none `[S]` |
 | Push never arrives | The token path (section 3) still provisions and refreshes whoever signs in `[B]` |
 
-Details of the roster response and the audit names `integration.roster_synced` and `integration.roster_rejected` are proposals of this document; `INTEGRATION.md` only fixes the request, the scope and the idempotence. Idempotent: the same list twice changes nothing and writes no further audit entry. The roster endpoint is the only endpoint a service token may call; the user token cannot call it.
+Built (2.1): the response, the reason codes and the audit entry `integration.roster_synced` are in `API.md` ("Roster sync"); `integration.roster_rejected` was not built (refused service tokens are `integration.token_rejected`). Earlier text: `INTEGRATION.md` only fixes the request, the scope and the idempotence. Idempotent: the same list twice changes nothing and writes no further audit entry. The roster endpoint is the only endpoint a service token may call; the user token cannot call it.
 
 ## 6. Role and permission mapping
 

@@ -6,6 +6,7 @@
 | 1.1 | 2026-10-24 | (a) The workday snapshot, the Team board row, the history rows and the report rows carry `lastBreak` (start and end of the break that started last); every table and card shows the time of the last break (FR-TIME-11, FR-TEAM-12, FR-HIST-6, FR-REP-14). (b) The day's start is labelled "Work started" everywhere (the CSV header "Start" became "Work started"), the CSV gets a "Last break" column. (c) Night shifts: an end (or interval end) on another calendar date than its start is shown with its date, in the tables and the CSV (FR-HIST-7) | Owner |
 | 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; FR-AUTH-15, FR-EMP-10 to FR-EMP-14, FR-INT-8 | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation: time is attributed per shift, not per calendar day (new module SHIFT with shifts, assignments and the rotational roster; workday date = shift date; "Not started after midnight" rule replaced; extra time; week-off figure on the board; shift fields on every workday, report and CSV; JurisOne roster contract with shifts specified) | Owner |
+| 2.1 | 2026-10-27 | Roster sync built: `PUT /api/integration/employees` with JurisOne's service token (FR-INT-ROSTER below, FR-SHIFT-13 now built); migration V21 (`shifts.code`, `users.is_deactivated_by_roster_sync`); optional token claim `shiftCode` built; `integration.roster_synced` audit | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FLOW-JurisTrack.md](FLOW-JurisTrack.md) (the flow diagrams of every flow named here) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 Sources: `API.md` (the endpoint contract), `INTEGRATION.md`, `MIGRATION_PLAN.md`, `timetrack.txt` (the original brief), the backend code and the `juris-track-frontend` screens. Where the sources disagree this document says so in section 17 "Open points".
@@ -28,7 +29,7 @@ Requirement ids are `FR-<module>-<n>`. Every requirement is written so that a te
 - Display time zone, English and Hindi.
 - Two ways of use with the same rules: **standalone** (own sign-in by emailed code) and **embedded in JurisOne** (JurisOne signs the user in and calls the API through its gateway).
 
-**Out of scope** (section 16): passwords, teams as objects, payroll, leave, shifts, attendance policy, notifications, mobile apps, roster sync (not built yet), self-service sign-up of companies.
+**Out of scope** (section 16): passwords, teams as objects, payroll, leave, shifts, attendance policy, notifications, mobile apps, self-service sign-up of companies.
 
 **Who reads this.** The owner (what the product must do), a new developer (rules and edge cases), a tester (numbered, checkable requirements).
 
@@ -321,7 +322,7 @@ There are **no team objects**. The unit is the reporting line: every user has at
 - FR-SHIFT-10 **Snapshot.** Every workday stores the shift (id and name), the shift date, the scheduled start and end as instants, and the two flags when it starts. Every workday, row and report line carries `shift` (name, `startTime`, `endTime`, scheduled start and end, `scheduledSeconds`), `isOutsideShift`, `isOffDay`, `varianceSeconds` (productive minus scheduled once ended; the whole productive time on a week off) and `extraSeconds`.
 - FR-SHIFT-11 **Extra time.** `extraSeconds` = the productive seconds outside the scheduled window of the occurrence (all of them on a week off; 0 for the default 24-hour shift). It is part of the productive time, shown separately, and added up in the board (`totalExtraSeconds`), history and report totals (`extraSeconds`) and the CSV ("Extra hours"). No pay rules: the time simply counts and shows as extra.
 - FR-SHIFT-12 **Reads and "today".** The current workday is the open one, else the one of the shift occurrence now (Day ended with its own date), else none. The board's "today" metrics are those workdays; History's "Today" uses the person's current shift date; reports and CSV group and filter by shift date (`range=today` in reports is the calendar date).
-- FR-SHIFT-13 **JurisOne.** When embedded, JurisOne will send the shifts and each employee's shift and per-date schedule in the roster request (`PUT /api/integration/employees`) and an optional token claim `shiftCode`; specified, not built (`INTEGRATION.md`, connection document).
+- FR-SHIFT-13 **JurisOne (built, version 2.1).** When embedded, JurisOne sends the shifts (by `code`) and each employee's shift and per-date schedule in the roster request (`PUT /api/integration/employees`, service token) and an optional token claim `shiftCode` (assigned only to a user that token creates). A person who cannot be applied is skipped with a reason code and the rest is applied; one `integration.roster_synced` audit entry per call (`API.md` "Roster sync", `INTEGRATION.md`, connection document).
 - FR-SHIFT-14 Totals, stale logic, overlap checks, suspension and deactivation closing are unchanged and interval-based: a shift across midnight changes no total.
 
 **Data kept.** `shifts` (name, start and end as minutes after midnight, grace, default and active flags), `employee_shift_assignments` (employee, shift, effective from; unique per employee and date), `employee_schedule_entries` (employee, date, shift or null for a week off, reason, who; unique per employee and date), and the shift columns of `workdays`. All business-owned with row-level security.
@@ -445,7 +446,7 @@ The full picture, diagrams and the token step by step are in [FLOW-JurisTrack-Ju
 - FR-INT-8 A user whose login the owner switched off (FR-EMP-10) is refused with 403 in the same way (`integration.user_refused`, reason `login_disabled`); the check comes before any change from the token is applied.
 - FR-INT-6 The Bearer token is accepted only when `juristrack.integration.enabled=true` and a public key is configured; requests are audited with source `INTEGRATION`.
 - FR-INT-7 Embedded, JurisTrack's pages (`src/track`) run inside JurisOne's shell through an injected `TrackContext` (API base path `/api/juris-track`, user, translate function, navigate, toast, `onUnauthorized`, `onBusinessSuspended`). The embedding itself is not built yet.
-- The roster push `PUT /api/integration/employees` is **not built** (open point 17.1). Version 2.0 specifies that it also carries the shifts, each employee's shift code and per-date schedule, and an optional token claim `shiftCode` (open point 17.13).
+- The roster push `PUT /api/integration/employees` is **built** (version 2.1; open point 17.1 is closed). It also carries the shifts, each employee's shift code and per-date schedule, and an optional token claim `shiftCode` (open point 17.13).
 
 ---
 
@@ -456,7 +457,7 @@ The full picture, diagrams and the token step by step are in [FLOW-JurisTrack-Ju
 - Payroll, leave, shifts, holidays, attendance policy, overtime rules, notifications, email reminders for forgotten days.
 - Automatic ending of a forgotten workday (it is flagged "Not ended" and ended by a manager or the owner).
 - Self-service sign-up of a company (the super admin creates businesses).
-- Roster sync from JurisOne (`PUT /api/integration/employees`), a JWKS key URL, billing and subscriptions of standalone companies.
+- A JWKS key URL, billing and subscriptions of standalone companies.
 - Changing or deleting audit entries; deleting users or businesses.
 - Importing data from the old Next.js app (fresh start).
 - The JurisOne side of the integration (gateway, plan check, menu); the identity provider work.

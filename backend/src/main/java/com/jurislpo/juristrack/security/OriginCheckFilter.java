@@ -25,7 +25,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * The CSRF defence (with the {@code SameSite=Lax} cookies): every state-changing {@code /api} request must carry an
  * {@code Origin} header equal to {@code juristrack.frontend-origin}, the web app's public URL; otherwise 403
  * {@code CROSS_SITE_BLOCKED}. Requests authenticated by JurisOne's Bearer token are exempt: a browser never sends that header by
- * itself, so there is nothing to forge. Runs after {@link RequestAuthenticationFilter}. A blocked request is audited
+ * itself, so there is nothing to forge (JurisOne's service token of the roster sync is exempt for the same reason). Runs after {@link RequestAuthenticationFilter}. A blocked request is audited
  * ({@code security.cross_site_request_blocked}, once per IP address and path in each aggregation window). Not a Spring bean: SecurityConfig
  * adds it to the security filter chain only.
  */
@@ -72,8 +72,9 @@ public class OriginCheckFilter extends OncePerRequestFilter {
 
     private static boolean isAuthenticatedByIntegrationToken() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return authentication != null && authentication.getPrincipal() instanceof CurrentUser currentUser
-                && currentUser.source() == AuthenticationSource.INTEGRATION;
+        if (authentication == null) return false;
+        Object principal = authentication.getPrincipal();
+        return principal instanceof IntegrationServiceClaims || (principal instanceof CurrentUser currentUser && currentUser.source() == AuthenticationSource.INTEGRATION);
     }
 
     /** Lower-cased, without a trailing slash; empty for none. */

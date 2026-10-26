@@ -17,7 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * connection fails fast instead of stalling the suite), and the cap on audit entries without a signed-in user is out of the way
  * (every test signs in from 127.0.0.1).
  */
-@SpringBootTest(properties = {"juristrack.mail.host=", "juristrack.app-url=http://localhost:3007",
+@SpringBootTest(properties = {"juristrack.mail.host=", "juristrack.app-url=http://localhost:3006",
         "juristrack.security.jwt-secret=test-only-jwt-secret-0123456789abcdef0123456789", "juristrack.otp.fixed-code=" + SignIn.CODE,
         "juristrack.security.refresh-reuse-grace-seconds=0", "spring.datasource.hikari.connection-timeout=5000",
         "juristrack.audit.unauthenticated-entries-per-ip=1000000"})

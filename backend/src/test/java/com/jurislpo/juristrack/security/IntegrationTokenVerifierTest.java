@@ -41,7 +41,7 @@ class IntegrationTokenVerifierTest {
         Employee employee = employee();
         IntegrationClaims claims = verifierFor(ecKeyPair).verify(IntegrationTokens.sign(IntegrationTokens.claimsOf(employee).build(), ecKeyPair));
         assertThat(claims).isEqualTo(new IntegrationClaims(employee.employeeId(), employee.email(), "Asha Rao", employee.businessId(), "Acme",
-                employee.managerId(), Role.MANAGER));
+                employee.managerId(), Role.MANAGER, null));
     }
 
     @Test

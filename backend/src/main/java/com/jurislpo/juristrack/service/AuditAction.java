@@ -59,16 +59,18 @@ public enum AuditAction {
     BUSINESS_UNLINKED("integration.business_unlinked", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
     /** A linked business was renamed because the token carried JurisOne's new name. */
     BUSINESS_UPDATED_FROM_TOKEN("integration.business_updated", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
-    /** A user was created from a JurisOne token. */
+    /** A user was created from a JurisOne token or by the roster sync. */
     USER_PROVISIONED("integration.user_provisioned", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
-    /** An existing user (same email) was linked to its JurisOne employee. */
+    /** An existing user (same email) was linked to its JurisOne employee (by its token, or by the roster sync). */
     USER_LINKED("integration.user_linked", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
-    /** Name, email, role or manager changed because the token said so. */
+    /** Name, email, role, employee code or manager changed because JurisOne said so (its token, or its roster sync). */
     USER_UPDATED_FROM_TOKEN("integration.user_updated", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
     /** A JurisOne token was refused (reason code only, never the token; at most one entry per reason, IP and window). */
     INTEGRATION_TOKEN_REJECTED("integration.token_rejected", AuditCategory.INTEGRATION, AuditOutcome.DENIED),
     /** A valid JurisOne token whose person may not use JurisTrack: deactivated, or the email belongs to another business or the super admin. */
     INTEGRATION_USER_REFUSED("integration.user_refused", AuditCategory.INTEGRATION, AuditOutcome.DENIED),
+    /** JurisOne pushed its roster ({@code PUT /api/integration/employees}): one entry per call, counts only (also when nothing changed); the changes themselves have their own entries. */
+    ROSTER_SYNCED("integration.roster_synced", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
 
     // ── businesses ──
     /** The super admin created a business (together with its owner, see {@link #EMPLOYEE_CREATED}). */

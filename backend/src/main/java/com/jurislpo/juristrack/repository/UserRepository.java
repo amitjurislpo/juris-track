@@ -1,6 +1,8 @@
 package com.jurislpo.juristrack.repository;
 
 import com.jurislpo.juristrack.entity.User;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,4 +16,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByJurisoneEmployeeId(UUID jurisoneEmployeeId);
 
     Optional<User> findByBusinessIdAndJurisoneEmployeeId(UUID businessId, UUID jurisoneEmployeeId);
+
+    /** Every user of the business. */
+    List<User> findByBusinessId(UUID businessId);
+
+    /** The users with these (lower-cased) emails, whichever business they belong to (system mode). */
+    List<User> findByEmailIn(Collection<String> emails);
+
+    /** The users linked to these JurisOne employees, whichever business they belong to (system mode). */
+    List<User> findByJurisoneEmployeeIdIn(Collection<UUID> jurisoneEmployeeIds);
 }

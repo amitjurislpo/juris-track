@@ -2,14 +2,17 @@ package com.jurislpo.juristrack.service;
 
 import com.jurislpo.juristrack.entity.Business;
 import com.jurislpo.juristrack.entity.Role;
+import com.jurislpo.juristrack.entity.Shift;
 import com.jurislpo.juristrack.entity.User;
 import com.jurislpo.juristrack.repository.BusinessRepository;
+import com.jurislpo.juristrack.repository.ShiftRepository;
 import com.jurislpo.juristrack.repository.UserRepository;
 import com.jurislpo.juristrack.security.AuthenticationSource;
 import com.jurislpo.juristrack.security.CurrentUser;
 import com.jurislpo.juristrack.security.IntegrationClaims;
 import com.jurislpo.juristrack.service.AuditService.AuditEntry;
 import com.jurislpo.juristrack.tenancy.TenantContext;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -74,8 +77,13 @@ public class IntegrationProvisioningService {
     private final BusinessRepository businessRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final ShiftRepository shiftRepository;
+    private final EmployeeService employeeService;
 
-    public IntegrationProvisioningService(BusinessRepository businessRepository, UserRepository userRepository, AuditService auditService) {
+    public IntegrationProvisioningService(BusinessRepository businessRepository, UserRepository userRepository, AuditService auditService,
+            ShiftRepository shiftRepository, EmployeeService employeeService) {
+        this.shiftRepository = shiftRepository;
+        this.employeeService = employeeService;
         this.businessRepository = businessRepository;
         this.userRepository = userRepository;
         this.auditService = auditService;
@@ -94,8 +102,8 @@ public class IntegrationProvisioningService {
             // only through the super admin's explicit link (PUT /api/businesses/{businessId}/jurisone-link).
             throw new AccessRefusedException(REFUSED_EMAIL_OF_ANOTHER_BUSINESS, false, user.getBusinessId(), user.getId());
         }
-        Business business = linkedBusiness.map(existingBusiness -> renameFromToken(existingBusiness, claims))
-                .orElseGet(() -> createBusiness(claims));
+        Business business = linkedBusiness.map(existingBusiness -> renameFromToken(existingBusiness, claims.businessName()))
+                .orElseGet(() -> createBusiness(claims.jurisoneBusinessId(), claims.businessName()));
         if (business.isSuspended()) {
             boolean isUserOfBusiness = user != null && business.getId().equals(user.getBusinessId());
             throw new AccessRefusedException(REFUSED_BUSINESS_SUSPENDED, true, business.getId(), isUserOfBusiness ? user.getId() : null);
@@ -105,28 +113,43 @@ public class IntegrationProvisioningService {
         if (user != null && !business.getId().equals(user.getBusinessId())) {
             throw new AccessRefusedException(REFUSED_EMAIL_OF_ANOTHER_BUSINESS, false, user.getBusinessId(), user.getId());
         }
-        if (user == null) user = createUser(claims, business);
+        boolean isNewUser = user == null;
+        if (isNewUser) user = createUser(claims, business);
         else if (user.getJurisoneEmployeeId() == null) linkUser(user, claims);
         updateFromToken(user, claims, business);
+        if (isNewUser) assignShiftOfFirstToken(user, claims.shiftCode());
         return new CurrentUser(user.getId(), business.getId(), business.getName(), user.getRole(), user.getFirstName(), user.getLastName(),
                 user.getEmail(), AuthenticationSource.INTEGRATION, null);
     }
 
+    /**
+     * The token's {@code shiftCode} for a user this very token created (never for an existing user, whose assignment is the roster's or the
+     * owner's): the shift with that code is assigned from today (two days back for a first assignment, see EmployeeService), so the first workday is attributed to the right shift even before any
+     * roster push. An unknown, blank or deactivated shift code is ignored.
+     */
+    private void assignShiftOfFirstToken(User user, String shiftCode) {
+        if (shiftCode == null) return;
+        Optional<Shift> shift = shiftRepository.findByBusinessIdAndCode(user.getBusinessId(), shiftCode).filter(Shift::isActive);
+        if (shift.isEmpty()) return;
+        LocalDate today = employeeService.todayOf(user.getBusinessId());
+        employeeService.applyShiftAssignment(user.getBusinessId(), user.getId(), user.getId(), shift.get(), employeeService.shiftEffectiveDateFromJurisOne(user.getId(), today));
+    }
+
     /** A linked business follows JurisOne's name. */
-    private Business renameFromToken(Business business, IntegrationClaims claims) {
-        if (!business.getName().equals(claims.businessName())) {
+    Business renameFromToken(Business business, String businessName) {
+        if (!business.getName().equals(businessName)) {
             Map<String, Object> before = businessDetails(business);
-            business.setName(claims.businessName());
+            business.setName(businessName);
             auditService.record(new AuditEntry(business.getId(), null, null, AuditAction.BUSINESS_UPDATED_FROM_TOKEN, BUSINESS_ENTITY,
                     business.getId().toString(), before, businessDetails(business), null));
         }
         return business;
     }
 
-    private Business createBusiness(IntegrationClaims claims) {
+    Business createBusiness(UUID jurisoneBusinessId, String businessName) {
         Business business = new Business();
-        business.setName(claims.businessName());
-        business.setJurisoneBusinessId(claims.jurisoneBusinessId());
+        business.setName(businessName);
+        business.setJurisoneBusinessId(jurisoneBusinessId);
         businessRepository.saveAndFlush(business);
         auditService.record(new AuditEntry(business.getId(), null, null, AuditAction.BUSINESS_PROVISIONED, BUSINESS_ENTITY, business.getId().toString(),
                 null, businessDetails(business), null));

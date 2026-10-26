@@ -50,7 +50,7 @@ class FreshDatabaseSchemaTest {
 
     @Test
     void flywayAppliedTheBaselineWithRowLevelSecurity() {
-        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3", "11", "12", "20");
+        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class)).containsExactly("1", "2", "3", "11", "12", "20", "21");
         assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'is_suspended'",
                 String.class)).isEqualTo("false");
         assertThat(jdbcTemplate.queryForObject("SELECT column_default FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'is_login_enabled'",

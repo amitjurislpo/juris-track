@@ -13,6 +13,8 @@ import java.util.UUID;
  * @param businessName        {@code businessName}
  * @param jurisoneManagerId   {@code managerId}: the JurisOne employee this one reports to, or null
  * @param role                from {@code trackRole}: MANAGER, EMPLOYEE, or ADMIN when JurisOne sends it; anything else is EMPLOYEE
+ * @param shiftCode           {@code shiftCode}: the code of the shift JurisOne assigned (given to a user this token creates); null when
+ *                            absent or blank
  */
 public record IntegrationClaims(UUID jurisoneEmployeeId, String email, String name, UUID jurisoneBusinessId, String businessName,
-        UUID jurisoneManagerId, Role role) {}
+        UUID jurisoneManagerId, Role role, String shiftCode) {}

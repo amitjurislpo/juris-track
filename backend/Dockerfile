@@ -12,6 +12,6 @@ RUN useradd --system --uid 10001 juristrack
 WORKDIR /app
 COPY --from=build /app.jar /app/app.jar
 USER juristrack
-EXPOSE 8082
-HEALTHCHECK --interval=10s --timeout=5s --retries=12 CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8082 && printf 'GET /actuator/health HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
+EXPOSE 8081
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
