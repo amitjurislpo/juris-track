@@ -212,7 +212,17 @@ public class EmployeeService {
         return rows.stream().map(row -> row.withShift(ShiftSummary.of(schedules.get(row.id()).assignedOn(today)))).toList();
     }
 
-    private LocalDate todayOf(UUID businessId) {
+    /**
+     * The date a shift given by JurisOne (roster sync, or the first token) takes effect: today, except for a person who has no shift
+     * assignment yet, whose first one reaches two days back. Without that, a person added late in the evening would still be on the
+     * default shift for the occurrence that is running right now (the one that started yesterday), and work done before the new
+     * shift's own window would be attributed to the default shift. Nothing is rewritten: existing workdays keep their snapshot.
+     */
+    LocalDate shiftEffectiveDateFromJurisOne(UUID employeeId, LocalDate today) {
+        return shiftAssignmentRepository.findByEmployeeIdIn(List.of(employeeId)).isEmpty() ? today.minusDays(2) : today;
+    }
+
+    LocalDate todayOf(UUID businessId) {
         Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Business not found."));
         return BusinessCalendar.toDateKey(clock.instant(), ZoneId.of(business.getTimeZone()));
     }
@@ -242,14 +252,25 @@ public class EmployeeService {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.SHIFT_EFFECTIVE_DATE_IN_PAST, "The shift cannot start on a date that has passed.");
         }
         Shift shift = shiftService.requireActiveShift(owner.businessId(), input.shiftId());
-        EmployeeSchedule schedule = shiftResolver.schedulesOf(owner.businessId(), List.of(employeeId), effectiveFrom, effectiveFrom).get(employeeId);
+        applyShiftAssignment(owner.businessId(), owner.userId(), employeeId, shift, effectiveFrom);
+        return findRow(owner, employeeId);
+    }
+
+    /**
+     * Gives the employee {@code shift} from {@code effectiveFrom} on (the caller has checked that the shift is active and the date is not
+     * in the past) and audits it as {@code employee.shift_changed} with {@code actorId} (null when JurisOne's roster sync does it). The
+     * same shift again changes nothing and writes nothing. Returns whether the assignment changed. Never throws a business-rule
+     * refusal, so it may run inside a larger transaction.
+     */
+    boolean applyShiftAssignment(UUID businessId, UUID actorId, UUID employeeId, Shift shift, LocalDate effectiveFrom) {
+        EmployeeSchedule schedule = shiftResolver.schedulesOf(businessId, List.of(employeeId), effectiveFrom, effectiveFrom).get(employeeId);
         Optional<ShiftAssignment> sameDate = shiftAssignmentRepository.findByEmployeeIdAndEffectiveFrom(employeeId, effectiveFrom);
         Map<String, Object> before = new LinkedHashMap<>();
         before.put("shiftId", schedule.assignedOn(effectiveFrom).id() == null ? null : schedule.assignedOn(effectiveFrom).id().toString());
         before.put("shiftName", schedule.assignedOn(effectiveFrom).name());
-        if (shift.getId().equals(schedule.assignedOn(effectiveFrom).id())) return findRow(owner, employeeId);
+        if (shift.getId().equals(schedule.assignedOn(effectiveFrom).id())) return false;
         ShiftAssignment assignment = sameDate.orElseGet(ShiftAssignment::new);
-        assignment.setBusinessId(owner.businessId());
+        assignment.setBusinessId(businessId);
         assignment.setEmployeeId(employeeId);
         assignment.setShiftId(shift.getId());
         assignment.setEffectiveFrom(effectiveFrom);
@@ -258,9 +279,9 @@ public class EmployeeService {
         after.put("shiftId", shift.getId().toString());
         after.put("shiftName", shift.getName());
         after.put("effectiveFrom", effectiveFrom.toString());
-        auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId, AuditAction.EMPLOYEE_SHIFT_CHANGED, USER_ENTITY,
+        auditService.record(new AuditEntry(businessId, actorId, employeeId, AuditAction.EMPLOYEE_SHIFT_CHANGED, USER_ENTITY,
                 employeeId.toString(), before, after, null));
-        return findRow(owner, employeeId);
+        return true;
     }
 
     /** Adds an employee (active, signs in with an emailed code); returns the new id. */
@@ -386,6 +407,7 @@ public class EmployeeService {
                     .ifPresent(workdayId -> after.put("closedWorkdayId", workdayId.toString()));
         }
         employee.setActive(isActive);
+        employee.setDeactivatedByRosterSync(false); // the owner decided: JurisOne's roster sync no longer reactivates this person
         userRepository.saveAndFlush(employee);
         if (!isActive) after.put("endedSessions", sessionService.revokeAllOfUser(employeeId));
         auditService.record(new AuditEntry(owner.businessId(), owner.userId(), employeeId,

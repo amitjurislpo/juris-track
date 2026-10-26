@@ -1,6 +1,6 @@
 # JurisTrack API
 
-**Document version 2.0** (2026-10-24; 1.1 last break and "Work started", 1.2 login access, 2.0 shift-based calculation: shifts, roster, shift fields on every workday, extra time). The version table is in `FRD-JurisTrack.md`.
+**Document version 2.1** (2026-10-27; 1.1 last break and "Work started", 1.2 login access, 2.0 shift-based calculation: shifts, roster, shift fields on every workday, extra time, 2.1 JurisOne roster sync). The version table is in `FRD-JurisTrack.md`.
 
 The contract between this backend and its clients (the `juris-track-frontend` web app and, embedded, the JurisOne gateway). Keep it exactly in
 sync with the code: an endpoint, parameter or field is added, renamed or removed here in the same change as in the controller.
@@ -9,7 +9,8 @@ sync with the code: an endpoint, parameter or field is added, renamed or removed
 
 - **Base path** `/api`. JSON in and out (`Content-Type: application/json`).
 - **Authentication**: standalone, the `jt_at` / `jt_rt` cookies set by `POST /api/auth/sessions`; embedded in JurisOne, `Authorization: Bearer <JurisOne token>`
-  (see `INTEGRATION.md`). Both produce the same signed-in user and the same rules.
+  (see `INTEGRATION.md`). Both produce the same signed-in user and the same rules. The one exception is `PUT /api/integration/employees`, which takes
+  JurisOne's service token (no user) and nothing else.
 - **Origin check**: a cookie-authenticated `POST`, `PUT`, `PATCH` or `DELETE` must carry `Origin` equal to the web app's URL, else 403 `CROSS_SITE_BLOCKED`.
   Bearer requests are exempt.
 - **Success body**: `{ "ok": true, "message"?: string, "data"?: ... }`. Empty `message` / `data` are left out; `null` inside `data` is kept.
@@ -18,7 +19,7 @@ sync with the code: an endpoint, parameter or field is added, renamed or removed
 - **Common codes**: 400 `VALIDATION_FAILED` (also malformed JSON, a malformed id in the path or a wrong type), 401 `UNAUTHENTICATED` / `TOKEN_EXPIRED`
   (refresh the session and retry), 403 `FORBIDDEN` (signed in, wrong role), 403 `BUSINESS_SUSPENDED` (the user's business is suspended; signing out still
   works), 403 `CROSS_SITE_BLOCKED`, 404 `NOT_FOUND` (also a record of another business), 409 `CONFLICT` (a duplicate the specific codes below do not
-  cover), 413 `PAYLOAD_TOO_LARGE` (a request body above 64 KB, refused before it is read), 422 business rule (specific codes below), 429 `RATE_LIMITED`,
+  cover), 413 `PAYLOAD_TOO_LARGE` (a request body above 64 KB, refused before it is read; the roster sync takes up to 16 MB), 422 business rule (specific codes below), 429 `RATE_LIMITED`,
   500 `INTERNAL_ERROR`.
 - **Time codes**: 409 `WORKDAY_NOT_STARTED`, `NOT_ON_BREAK`, `BREAK_IN_PROGRESS` (time events); 403 `CANNOT_CORRECT_OWN_TIME`; 422
   `TIME_INTERVAL_OVERLAP`, `INTERVAL_STILL_RUNNING`, `WORKDAY_MUST_START_WITH_WORK`, `CORRECTION_OUT_OF_RANGE`, `WORKDAY_OVERLAP` (corrections); 422
@@ -89,6 +90,7 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 | GET | `/api/reports/summaries` | ADMIN, MANAGER | The same workdays added up per employee, per manager of the day, or per date |
 | GET | `/api/audit-logs` | ADMIN, SUPER_ADMIN | The audit log (filters, paging); `format=csv` exports it |
 | GET | `/api/audit-logs/{auditLogId}` | ADMIN, SUPER_ADMIN | One audit entry in full |
+| PUT | `/api/integration/employees` | JurisOne service token only | JurisOne pushes its shifts and employees (roster sync, idempotent) |
 
 ## Sign-in (standalone)
 
@@ -560,8 +562,7 @@ ADMIN. Body `{ entries: [{ date, shiftId | null, reason? }] }`, 1 to 62 entries,
 per changed date**. 200 `{ ok, message: "Schedule saved.", data: [<day>] }` in the order sent.
 
 ### Open points
-Open (owner has not decided): overtime pay rules, work outside the grace being refused instead of flagged, default grace values, how JurisOne's roster
-carries shifts (specified in `INTEGRATION.md`, not built).
+Open (owner has not decided): overtime pay rules, work outside the grace being refused instead of flagged, default grace values, and who is master of the roster while both JurisOne and the owner's screens can edit it (until decided, the next push wins for the shifts and dates it lists).
 
 ## Reports (managers and the owner)
 
@@ -634,6 +635,89 @@ A report filtered on the caller themselves (`employeeId` = own id, owner only) i
   `GET /api/team/members/{employeeId}/workdays`) = productive seconds per workday of the range, rounded half up; 0 without
   workdays.
 
+## Roster sync (JurisOne service token)
+
+### PUT /api/integration/employees
+JurisOne pushes its employees and shifts so that a manager sees every report before those people ever opened JurisTrack, each person is on the right
+shift, and people deactivated in JurisOne are deactivated here. Idempotent; one business per call; any subset of the business's employees is fine (the
+ones not sent are left untouched). Only while `juristrack.integration.enabled=true`.
+
+**Caller: JurisOne's service token only.** `Authorization: Bearer <service JWT>`, signed with JurisOne's private key (the same RS256 / ES256 key, issuer
+and audience checks, 10-minute maximum lifetime, clock skew and single-use `jti` replay guard as a user token). Claims: `iss` (the configured issuer),
+`aud` = `juristrack`, `scope` = `employees:sync` (required, exactly this value), `businessId` (the JurisOne business UUID), `businessName`, `iat`, `exp`
+(`exp - iat` at most 10 minutes), `jti`. It has **no** `sub` and no `email` (a token with either is refused: it is not a service token). A user token, a
+cookie session (403 `FORBIDDEN`) or a token with another scope cannot call it, and a service token opens **no other endpoint** (a user token carrying a
+`scope` is refused everywhere). An invalid token answers 401 `UNAUTHENTICATED` without details and is audited as `integration.token_rejected` (reason
+code only: `missing_scope`, `wrong_scope`, `not_a_service_token`, `service_token_not_accepted`, `replayed_token`, `expired`, ...). No `Origin` header is
+needed. The request body may be up to 16 MB (5000 employees with their schedules); every other endpoint refuses more than 64 KB.
+
+Body (`shifts` and `employees` may each be absent or empty):
+```json
+{
+  "shifts": [ { "code": "US", "name": "US shift", "startTime": "19:30", "endTime": "04:30", "earlyStartMinutes": 180, "lateEndMinutes": 180 } ],
+  "employees": [ { "employeeId": "<JurisOne employee id>", "email": "a@b.c", "firstName": "A", "lastName": "B", "employeeCode": "E1", "role": "EMPLOYEE",
+                   "managerEmployeeId": "<JurisOne employee id>", "isActive": true, "shiftCode": "US",
+                   "schedule": [ { "date": "2026-11-02", "shiftCode": null }, { "date": "2026-11-03", "shiftCode": "UK" } ] } ]
+}
+```
+- **Business**: found by `businesses.jurisone_business_id`, else created (name from `businessName`, the usual defaults and default shift), its name refreshed
+  (`integration.business_updated`). **An existing standalone business is never adopted** (it moves to JurisOne only through the super admin's link): a new
+  business is created and a person whose email already belongs to another business is skipped. A suspended business: 403 `BUSINESS_SUSPENDED`, nothing changes.
+- **Shifts** are upserted by `code` (1 to 40 characters, unique per business: `shifts.code`): created, or changed (name, times, grace: future occurrences
+  only, as everywhere); a shift missing from a later call is left as it is. `startTime` / `endTime` are `HH:mm` on the business time zone's wall clock; the
+  grace defaults to 180 (0 to 720). A shift the owner made by hand with the same name (any case) and no code is **adopted** (the code is put on it and
+  JurisOne's times win). A shift that cannot be applied is listed in `skippedShifts` with `shift_name_in_use` (the name belongs to the default shift or to
+  a shift with another code); the employees that name it are then skipped with `unknown_shift_code`. A deactivated shift stays deactivated.
+- **Employees** are matched by `users.jurisone_employee_id`, else by email inside the business (an unlinked person added earlier is linked), else
+  created. `email` (lower-cased), `firstName` (required), `lastName` (optional), `employeeCode` (letters, digits, `-`, `_`; unique in the business; absent
+  leaves the stored one), `role` (`MANAGER` or `EMPLOYEE`; absent = `EMPLOYEE` for a new person and unchanged for an existing one; **never `ADMIN`**, and
+  an existing `ADMIN` stays the owner; user tokens remain authoritative for the role on every later call), `isActive` (absent = true). Name, code, email,
+  role and manager are kept in line with the call; a person created here can later sign in through the gateway token and is the same person.
+- **Manager**: `managerEmployeeId` is resolved by `jurisone_employee_id` among the people of the same call or already stored in the business, so **the order
+  of the list does not matter**; absent or null = no manager; a person is never their own manager (that means none). A manager who is unknown, or a
+  reporting line that would go round in a circle, skips the person who has the problem (`unknown_manager`, `manager_cycle`); a new person whose manager is
+  skipped is skipped too.
+- **Active**: `isActive: false` deactivates exactly like `PUT /api/employees/{employeeId}/status` (the open workday is closed, `workday.closed`; every
+  session ends) and marks the person as deactivated by the sync (`users.is_deactivated_by_roster_sync`). `isActive: true` reactivates **only a person the
+  sync deactivated**: somebody the owner deactivated (any manual status change clears the mark), or whose login access the owner switched off, stays as
+  they are. A new person sent with `isActive: false` is **not created** (counted in `employees.unchanged`, not in `skipped`). The owner (`ADMIN`) is never deactivated by the sync (`owner_cannot_be_deactivated`).
+- **`shiftCode`**: assigns that shift from today (business zone) exactly like `PUT /api/employees/{employeeId}/shift`: history is kept, the same shift
+  again changes nothing; absent or null leaves the assignment. Unknown code `unknown_shift_code`, deactivated shift `shift_inactive`.
+- **`schedule`**: up to 62 entries per employee (`schedule_too_long` skips the person), one per date (`duplicate_schedule_date`, `invalid_schedule_date`),
+  `shiftCode` null = a week off; idempotent upsert per date (the same records as `PUT /api/employees/{employeeId}/schedule-entries`; a reason the owner
+  wrote on an entry is kept). A date that already has a workday is not changed and a date more than 365 days ahead is refused: both are listed in
+  `skippedScheduleEntries` (the person is still applied). Dates not listed are left as they are.
+- **Per-person problems never fail the batch**: the person is skipped, listed in `skipped` with a reason code, and everything else is applied. Reason
+  codes: `invalid_email`, `invalid_name`, `invalid_employee_code`, `invalid_role`, `invalid_manager_id`, `invalid_schedule_date`, `duplicate_schedule_date`,
+  `schedule_too_long`, `duplicate_employee_in_request`, `duplicate_email_in_request`, `duplicate_employee_code_in_request`, `email_of_another_business`,
+  `email_of_super_admin`, `email_linked_to_another_employee`, `email_in_use`, `employee_of_another_business`, `employee_code_in_use`,
+  `unknown_shift_code`, `shift_inactive`, `unknown_manager`, `manager_cycle`, `owner_cannot_be_deactivated`.
+
+200 `{ ok: true, data }` with
+```json
+{ "shifts": { "created": 0, "updated": 0, "unchanged": 0 },
+  "employees": { "created": 0, "updated": 0, "deactivated": 0, "reactivated": 0, "unchanged": 0 },
+  "scheduleEntries": { "set": 0, "unchanged": 0, "skipped": 0 },
+  "skipped": [ { "employeeId": "<JurisOne id>", "reason": "unknown_manager" } ],
+  "skippedShifts": [ { "code": "US", "reason": "shift_name_in_use" } ],
+  "skippedScheduleEntries": [ { "employeeId": "<JurisOne id>", "date": "2026-11-03", "reason": "schedule_date_has_workday" } ] }
+```
+A person is counted once: `created`, else `deactivated`, else `reactivated`, else `updated` (their details, manager or shift assignment changed), else
+`unchanged`; skipped people are in no count. Errors: 400 `VALIDATION_FAILED` with `errors` (`employees[i].employeeId` missing or not a UUID, a bad shift
+`shifts[i].code` / `name` / `startTime` / `endTime` / grace, a code listed twice, more than 200 shifts, a malformed body; nothing is applied), 401, 403
+`BUSINESS_SUSPENDED` (audited as `integration.user_refused`, reason `business_suspended`), 413 `PAYLOAD_TOO_LARGE` (more than 5000 employees, or a
+body above 16 MB).
+
+**Audit** (source `INTEGRATION`, no actor, the `X-Request-Id` of the call stored with every entry): one `integration.roster_synced` per call (entity
+`business`; `after` = counts received / created / changed / skipped, skipped people counted per reason; no names or emails), plus the usual entry of each
+change: `integration.business_provisioned` / `integration.business_updated`, `integration.user_provisioned` / `integration.user_linked` /
+`integration.user_updated`, `shift.created` / `shift.updated`, `employee.deactivated` / `employee.reactivated` (reason `jurisone_roster_sync`) with
+`workday.closed`, `employee.shift_changed`, `schedule.entry_set`. A repeat that changes nothing writes only `integration.roster_synced`.
+
+**First user token and `shiftCode`**: a user token may carry an optional `shiftCode` (a `code` from the roster's shifts). For a user **just created by
+that token** (never an existing one) the shift is assigned from today (`employee.shift_changed`, source `INTEGRATION`); an unknown, blank, deactivated or
+non-text code is ignored.
+
 ## Audit log
 
 A complete, append-only record of every movement (owner decision, `MIGRATION_PLAN.md` "Audit policy"). Table `audit_logs` (V1, extended by V3).
@@ -703,9 +787,10 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `integration.business_provisioned` | integration | SUCCESS | a JurisOne token created a business (a token never links an existing one) |
 | `integration.business_linked` / `integration.business_unlinked` | integration | SUCCESS | the super admin linked / unlinked a business to JurisOne (`PUT` / `DELETE /api/businesses/{businessId}/jurisone-link`; `after` / `before.jurisoneBusinessId`) |
 | `integration.business_updated` | integration | SUCCESS | the token renamed a linked business |
-| `integration.user_provisioned` / `integration.user_linked` / `integration.user_updated` | integration | SUCCESS | a token created / linked / changed a user |
-| `integration.token_rejected` | integration | DENIED | a refused JurisOne token: reason code only (`bad_signature`, `expired`, `wrong_issuer`, `wrong_audience`, `malformed_token`, `missing_issue_time`, `lifetime_too_long`, `replayed_token`, `missing_claim: <name>`, ...), never the token; once per reason, IP, window |
-| `integration.user_refused` | integration | DENIED | a valid token whose person may not use JurisTrack (`user_deactivated`, `login_disabled`, `email_of_another_business`, `conflict`); once per reason, user, window |
+| `integration.user_provisioned` / `integration.user_linked` / `integration.user_updated` | integration | SUCCESS | a token or the roster sync created / linked / changed a user |
+| `integration.roster_synced` | integration | SUCCESS | one per roster sync call (`PUT /api/integration/employees`), also when nothing changed: counts only (`receivedEmployees`, `shifts`, `employees`, `scheduleEntries`, `skippedEmployeesByReason`); source INTEGRATION, no actor |
+| `integration.token_rejected` | integration | DENIED | a refused JurisOne token: reason code only (`bad_signature`, `expired`, `wrong_issuer`, `wrong_audience`, `malformed_token`, `missing_issue_time`, `lifetime_too_long`, `replayed_token`, `missing_scope`, `wrong_scope`, `not_a_service_token`, `service_token_not_accepted`, `missing_claim: <name>`, ...), never the token; once per reason, IP, window |
+| `integration.user_refused` | integration | DENIED | a valid token whose person may not use JurisTrack (`user_deactivated`, `login_disabled`, `email_of_another_business`, `conflict`), or a roster sync of a suspended business (`business_suspended`); once per reason, user, window |
 
 **Volume decisions**: one entry per write; reads of somebody else's data one entry per request (the Team tab's live board, which refreshes every few
 seconds, is not recorded; opening one person, their history or workday, and every report and export is); never audited: reading one's own data
@@ -743,5 +828,5 @@ ADMIN, SUPER_ADMIN. `data` = the row plus `before`, `after` (JSON or null), `use
 ## Database migrations
 
 Flyway, `backend/src/main/resources/db/migration`, each with its rollback in `db/rollback`: `V1__baseline` (schema, row-level security),
-`V2__business_suspension_and_email_check`, `V3__complete_append_only_audit`, `V11__workdays_business_date_index` (reports), `V12__login_access`, `V20__shifts`. Applied migrations are never
-edited; the next one is V21 (Flyway refuses a new version lower than the highest applied one).
+`V2__business_suspension_and_email_check`, `V3__complete_append_only_audit`, `V11__workdays_business_date_index` (reports), `V12__login_access`, `V20__shifts`, `V21__roster_sync` (`shifts.code`, `users.is_deactivated_by_roster_sync`). Applied migrations are never
+edited; the next one is V22 (Flyway refuses a new version lower than the highest applied one).

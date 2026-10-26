@@ -1,6 +1,8 @@
 package com.jurislpo.juristrack.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jurislpo.juristrack.exception.ForbiddenException;
+import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.repository.SessionRepository;
 import com.jurislpo.juristrack.security.AccessTokenService;
 import com.jurislpo.juristrack.security.IntegrationTokenVerifier;
@@ -15,6 +17,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -53,12 +57,19 @@ public class SecurityConfig {
             .requestCache(cache -> cache.disable())
             .addFilterBefore(authenticationFilter, AnonymousAuthenticationFilter.class)
             .addFilterAfter(originCheckFilter, RequestAuthenticationFilter.class)
-            .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint))
+            .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(entryPoint).accessDeniedHandler((request, response, accessDenied) -> {
+                response.setStatus(HttpStatus.FORBIDDEN.value());
+                response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+                objectMapper.writeValue(response.getOutputStream(), Problems.of(HttpStatus.FORBIDDEN, Problems.FORBIDDEN, ForbiddenException.MESSAGE,
+                        request.getRequestURI()));
+            }))
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                 // signing in, renewing and ending a session work without a valid access token
                 .requestMatchers(HttpMethod.POST, "/api/auth/otp-requests", "/api/auth/sessions", "/api/auth/session-refreshes").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/api/auth/sessions/current").permitAll()
+                // the roster sync takes JurisOne's service token and nothing else (RequestAuthenticationFilter); a user or a cookie session is refused
+                .requestMatchers("/api/integration/**").hasRole("INTEGRATION_SERVICE")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll());
         return http.build();

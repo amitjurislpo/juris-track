@@ -218,7 +218,7 @@ public class ShiftService {
                 shift.isActive(), employeeCount);
     }
 
-    private static Map<String, Object> details(Shift shift) {
+    static Map<String, Object> details(Shift shift) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("name", shift.getName());
         details.put("startTime", CLOCK.format(shift.getStartTime()));
@@ -230,7 +230,7 @@ public class ShiftService {
         return details;
     }
 
-    private static LocalTime readTime(InputValidator validator, String field, String value) {
+    static LocalTime readTime(InputValidator validator, String field, String value) {
         try {
             if (value != null && value.trim().length() == 5) return LocalTime.parse(value.trim(), CLOCK);
         } catch (DateTimeParseException e) {
@@ -240,7 +240,7 @@ public class ShiftService {
         return LocalTime.MIDNIGHT;
     }
 
-    private static int readGrace(InputValidator validator, String field, Integer value) {
+    static int readGrace(InputValidator validator, String field, Integer value) {
         if (value == null) return Shift.DEFAULT_GRACE_MINUTES;
         Integer minutes = validator.wholeNumber(field, "The grace", value, 0, Shift.MAXIMUM_GRACE_MINUTES);
         return minutes == null ? Shift.DEFAULT_GRACE_MINUTES : minutes;

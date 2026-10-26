@@ -9,7 +9,7 @@ class FlywayConfigTest {
 
     @Test
     void aLocalAppUrlMayBeReset() {
-        assertThat(FlywayConfig.isResetAllowed("http://localhost:3007", false)).isTrue();
+        assertThat(FlywayConfig.isResetAllowed("http://localhost:3006", false)).isTrue();
         assertThat(FlywayConfig.isResetAllowed("http://127.0.0.1:3008/", false)).isTrue();
     }
 

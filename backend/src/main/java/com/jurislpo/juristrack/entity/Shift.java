@@ -32,6 +32,10 @@ public class Shift {
     @Column(name = "name", nullable = false)
     private String name;
 
+    /** The code JurisOne gave the shift (unique inside the business); null for a shift made in JurisTrack. */
+    @Column(name = "code")
+    private String code;
+
     /** Minutes after midnight on the business time zone's wall clock (stored as a number so no time zone setting can shift it). */
     @Column(name = "start_minute", nullable = false)
     private int startMinute;
@@ -85,6 +89,8 @@ public class Shift {
     public void setBusinessId(UUID businessId) { this.businessId = businessId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+    public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
     public LocalTime getStartTime() { return LocalTime.of(startMinute / 60, startMinute % 60); }
     public void setStartTime(LocalTime startTime) { this.startMinute = startTime.getHour() * 60 + startTime.getMinute(); }
     public LocalTime getEndTime() { return LocalTime.of(endMinute / 60, endMinute % 60); }
