@@ -149,7 +149,7 @@ Errors: 400 (fields `name`, `timeZone`, `owner.firstName`, `owner.lastName`, `ow
 any user of any business or to the super admin; compared lower-cased). Audit: `business.created` and `employee.created` (the owner).
 
 ### GET /api/v1/businesses/{businessId}
-`data = { id, name, timeZone, staleWorkdayHours, displayTimeZones: string[], isSuspended, isLinkedToJurisone, createdAt, updatedAt,
+`data = { id, name, timeZone, staleWorkdayHours, minimumStaleWorkdayHours, displayTimeZones: string[], isSuspended, isLinkedToJurisone, createdAt, updatedAt,
 owner: { id, employeeCode, firstName, lastName, email, isActive, lastLoginAt } | null, employeeCount, activeEmployeeCount }`. 404 unknown.
 Audit: `access.business_viewed` in that business's log (subject = its owner), so the owner sees that the platform looked.
 
@@ -157,7 +157,7 @@ Audit: `access.business_viewed` in that business's log (subject = its owner), so
 Body (each optional): `{ name: string 1-80, timeZone: string, staleWorkdayHours: integer 1-48, displayTimeZones: string[] (at most 8) }`. None may be
 `null` (send `[]` for no display zones). Time zones are checked against the IANA database (any case, links such as `Asia/Calcutta`, three-letter ids such
 as `IST`, offsets such as `+05:30`) and stored in canonical form; duplicate display zones are dropped. A new time zone applies to workdays started from
-then on. 200 `{ ok, message: "Business saved.", data: <as GET /api/v1/businesses/{businessId}> }`. 400 (field names as above, `displayTimeZones[i]` for one
+then on. `staleWorkdayHours` must also be at least `minimumStaleWorkdayHours` (the longest active shift in whole hours plus 3; the default shift and a shift with start = end do not count), else 422 `STALE_WORKDAY_HOURS_TOO_LOW` "Stale workday hours must be at least 12: your longest shift is 9 h plus 3 h.". 200 `{ ok, message: "Business saved.", data: <as GET /api/v1/businesses/{businessId}> }`. 400 (field names as above, `displayTimeZones[i]` for one
 zone), 404. Audit: `business.updated` (only when something changed).
 
 ### PUT /api/v1/businesses/{businessId}/status
@@ -186,7 +186,7 @@ No body. Removes the link; the business stays a standalone one and its people ke
 ## Business settings (owner)
 
 ### GET /api/v1/business
-ADMIN. The owner's own business: `data = { id, name, timeZone, staleWorkdayHours, displayTimeZones, createdAt, updatedAt }`. `displayTimeZones` is stored as
+ADMIN. The owner's own business: `data = { id, name, timeZone, staleWorkdayHours, minimumStaleWorkdayHours, displayTimeZones, createdAt, updatedAt }`. `minimumStaleWorkdayHours` = the longest active shift in whole hours (rounded up) plus 3, 1 when there is no shift with a fixed window; a stored `staleWorkdayHours` below it is still read as is. `displayTimeZones` is stored as
 is; the business time zone is always offered for display as well (the client adds it).
 
 ### PATCH /api/v1/business
@@ -520,7 +520,7 @@ All signed-in roles of the business. Query: `isActive` = `true` | `false` (else 
 
 ### POST /api/v1/shifts
 ADMIN. Body `{ name: 1-60 (unique in the business, any case), startTime: "HH:mm", endTime: "HH:mm", earlyStartMinutes?: 0-720, lateEndMinutes?: 0-720 }`
-(grace default 180). 201 `{ ok, message: "Shift added.", data: { id } }`. Errors: 400 (field per bad input), 409 `SHIFT_NAME_IN_USE`. Audit: `shift.created`.
+(grace default 180). 201 `{ ok, message: "Shift added.", data: { id } }`. Errors: 400 (field per bad input), 409 `SHIFT_NAME_IN_USE`, 422 `SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS` (the shift plus 3 h is more than the business's stale workday hours: raise them first). Audit: `shift.created`.
 
 ### GET /api/v1/shifts/{shiftId}
 `data = <shift>`; 404 for an unknown id or another business's shift.
@@ -528,12 +528,12 @@ ADMIN. Body `{ name: 1-60 (unique in the business, any case), startTime: "HH:mm"
 ### PATCH /api/v1/shifts/{shiftId}
 ADMIN. Body (each optional): `{ name, startTime, endTime, earlyStartMinutes, lateEndMinutes }`. Changing times or grace affects **future occurrences
 only** (every workday keeps its snapshot). The default shift: only `name` can change (else 400). 200 `{ ok, message: "Shift saved.", data: <shift> }`.
-Audit: `shift.updated` (before / after; nothing changed, nothing audited).
+422 `SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS` as on create. Audit: `shift.updated` (before / after; nothing changed, nothing audited).
 
 ### PUT /api/v1/shifts/{shiftId}/status
 ADMIN. Body `{ isActive: boolean }`. 422 `DEFAULT_SHIFT_REQUIRED` (the default shift), 422 `SHIFT_IN_USE` (active employees still work it: their latest
 assignment is this shift). A deactivated shift cannot be assigned or put on a roster (422 `SHIFT_INACTIVE`); existing workdays are untouched.
-Idempotent. 200 `{ ok, message: "Shift deactivated." | "Shift is active.", data: <shift> }`. Audit: `shift.status_changed`.
+Reactivating a shift is held to the same 422 `SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS` check. Idempotent. 200 `{ ok, message: "Shift deactivated." | "Shift is active.", data: <shift> }`. Audit: `shift.status_changed`.
 
 ### GET /api/v1/schedule-entries
 ADMIN (everybody of the business except themselves) and MANAGER (direct and indirect reports); EMPLOYEE 403. Query:

@@ -7,6 +7,7 @@
 | 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/v1/employees/{employeeId}/login-access`), separate from Deactivate; sign-in flow and a new employee login access flow (section 15) | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation (new section 14: shift occurrence, attribution, the START decision, roster); sections 3, 4 and 5 rewritten from the calendar day to the shift occurrence | Owner |
 | 2.1 | 2026-10-30 | API versioned: all paths now below `/api/v1`; `/actuator/health` unversioned. No change of any rule or flow | Owner |
+| 2.2 | 2026-10-31 | Section 14.4 and 5: the stale hours must be at least the longest shift plus 3 hours; a shift that would break this is refused until the stale hours are raised (FRD 2.3: FR-SET-4, FR-SHIFT-15) | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FRD-JurisTrack.md](FRD-JurisTrack.md) (the requirements, ids `FR-...` are quoted below) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 
@@ -635,7 +636,9 @@ flowchart TD
     A["Owner opens Shifts"] --> B["POST /api/v1/shifts name, start, end, grace"]
     B --> C{"Name free, times valid?"}
     C -->|"no"| C1["409 SHIFT_NAME_IN_USE or 400"]
-    C -->|"yes"| D["201 id, audit shift.created"]
+    C -->|"yes"| C2{"Shift length + 3 h within the stale hours?"}
+    C2 -->|"no"| C3["422 SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS<br/>owner raises the stale hours in Settings first"]
+    C2 -->|"yes"| D["201 id, audit shift.created"]
     D --> E["PUT /api/v1/employees/:id/shift from a date"]
     E --> F{"Shift active and date not in the past?"}
     F -->|"no"| F1["422 SHIFT_INACTIVE or SHIFT_EFFECTIVE_DATE_IN_PAST"]
@@ -651,7 +654,7 @@ flowchart TD
     M -->|"no"| N["shift.status_changed"]
 ```
 
-Caption: only the owner writes shifts, assignments and the roster; every change is audited and never rewrites a workday that already exists.
+Caption: the stale hours (Settings) must always be at least the longest active shift plus 3 hours (a 9 h shift: 12); the same check applies when a shift is edited or reactivated, and `PATCH /api/v1/business` answers 422 `STALE_WORKDAY_HOURS_TOO_LOW` for a smaller value. Only the owner writes shifts, assignments and the roster; every change is audited and never rewrites a workday that already exists.
 ## 15. Employee login access (FR-EMP-10 to FR-EMP-14, FR-AUTH-15, FR-INT-8)
 
 ```mermaid
