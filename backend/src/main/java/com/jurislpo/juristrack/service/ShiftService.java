@@ -4,10 +4,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.jurislpo.juristrack.common.InputValidator;
 import com.jurislpo.juristrack.common.PatchBody;
 import com.jurislpo.juristrack.engine.ShiftSchedule;
+import com.jurislpo.juristrack.entity.Business;
 import com.jurislpo.juristrack.entity.Shift;
 import com.jurislpo.juristrack.exception.ApiException;
 import com.jurislpo.juristrack.exception.OutOfScopeException;
 import com.jurislpo.juristrack.exception.Problems;
+import com.jurislpo.juristrack.repository.BusinessRepository;
 import com.jurislpo.juristrack.repository.ShiftAssignmentRepository;
 import com.jurislpo.juristrack.repository.ShiftRepository;
 import com.jurislpo.juristrack.security.CurrentUser;
@@ -52,6 +54,8 @@ public class ShiftService {
             int earlyStartMinutes, int lateEndMinutes, @JsonProperty("isDefault") boolean isDefault, @JsonProperty("isActive") boolean isActive,
             long employeeCount) {}
 
+    /** The hours added to the longest shift: a workday still open this long after a full shift is flagged "Not ended". */
+    public static final int STALE_WORKDAY_MARGIN_HOURS = 3;
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
     private static final String SHIFT_ENTITY = "shift";
     private static final String NOT_FOUND = "Shift not found.";
@@ -59,8 +63,11 @@ public class ShiftService {
     private final ShiftRepository shiftRepository;
     private final ShiftAssignmentRepository shiftAssignmentRepository;
     private final AuditService auditService;
+    private final BusinessRepository businessRepository;
 
-    public ShiftService(ShiftRepository shiftRepository, ShiftAssignmentRepository shiftAssignmentRepository, AuditService auditService) {
+    public ShiftService(ShiftRepository shiftRepository, ShiftAssignmentRepository shiftAssignmentRepository, AuditService auditService,
+            BusinessRepository businessRepository) {
+        this.businessRepository = businessRepository;
         this.shiftRepository = shiftRepository;
         this.shiftAssignmentRepository = shiftAssignmentRepository;
         this.auditService = auditService;
@@ -110,6 +117,7 @@ public class ShiftService {
         shift.setEndTime(endTime);
         shift.setEarlyStartMinutes(earlyStartMinutes);
         shift.setLateEndMinutes(lateEndMinutes);
+        requireStaleWorkdayHoursCover(owner.businessId(), shift);
         shiftRepository.saveAndFlush(shift);
         auditService.record(new AuditEntry(owner.businessId(), owner.userId(), null, AuditAction.SHIFT_CREATED, SHIFT_ENTITY,
                 shift.getId().toString(), null, details(shift), null));
@@ -150,6 +158,7 @@ public class ShiftService {
         shift.setLateEndMinutes(newLate);
         Map<String, Object> after = details(shift);
         if (!after.equals(before)) {
+            requireStaleWorkdayHoursCover(owner.businessId(), shift);
             shiftRepository.saveAndFlush(shift);
             auditService.record(new AuditEntry(owner.businessId(), owner.userId(), null, AuditAction.SHIFT_UPDATED, SHIFT_ENTITY, shiftId.toString(),
                     before, after, null));
@@ -181,6 +190,7 @@ public class ShiftService {
             }
         }
         shift.setActive(isActive);
+        if (isActive) requireStaleWorkdayHoursCover(owner.businessId(), shift);
         shiftRepository.saveAndFlush(shift);
         auditService.record(new AuditEntry(owner.businessId(), owner.userId(), null, AuditAction.SHIFT_STATUS_CHANGED, SHIFT_ENTITY, shiftId.toString(),
                 Map.of("isActive", !isActive), Map.of("isActive", isActive), null));
@@ -201,6 +211,45 @@ public class ShiftService {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.SHIFT_INACTIVE, "The chosen shift is deactivated. Choose an active shift.");
         }
         return shift;
+    }
+
+    /**
+     * The length in whole hours (rounded up) of the business's longest active shift; 0 when it has none with a fixed time window. The
+     * default "General day" shift and any shift whose start equals its end (24 hours, no fixed window) are not counted, so the calendar
+     * day never forces the stale workday hours up to 24 + 3. A shift crossing midnight counts its real length (19:30-04:30 is 9 h). The
+     * attribution grace is not part of the length.
+     */
+    @Transactional(readOnly = true)
+    public int longestShiftHours(UUID businessId) {
+        return shiftRepository.findByBusinessId(businessId).stream().filter(Shift::isActive).mapToInt(ShiftService::fixedWindowHours).max().orElse(0);
+    }
+
+    /** The stale workday hours a business must have at least: its longest active shift plus {@value #STALE_WORKDAY_MARGIN_HOURS} hours; 1 without such a shift. */
+    @Transactional(readOnly = true)
+    public int minimumStaleWorkdayHours(UUID businessId) {
+        int longest = longestShiftHours(businessId);
+        return longest == 0 ? BusinessService.MINIMUM_STALE_WORKDAY_HOURS : longest + STALE_WORKDAY_MARGIN_HOURS;
+    }
+
+    /** The shift's length in whole hours (rounded up), 0 for the default shift and for a shift without a fixed window (start = end). */
+    static int fixedWindowHours(Shift shift) {
+        if (shift.isDefault() || shift.getStartTime().equals(shift.getEndTime())) return 0;
+        int minutes = shift.toSchedule().scheduledMinutes();
+        return (minutes + 59) / 60;
+    }
+
+    /** 422 {@code SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS} when this active shift plus 3 hours is more than the business's stale workday hours. */
+    private void requireStaleWorkdayHoursCover(UUID businessId, Shift shift) {
+        if (!shift.isActive()) return;
+        int hours = fixedWindowHours(shift);
+        if (hours == 0) return;
+        Business business = businessRepository.findById(businessId).orElseThrow(() -> new OutOfScopeException("business", "Business not found."));
+        int needed = hours + STALE_WORKDAY_MARGIN_HOURS;
+        if (needed > business.getStaleWorkdayHours()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS,
+                    "This shift is " + hours + " h long, so the stale workday hours must be at least " + needed + " (the longest shift plus " + STALE_WORKDAY_MARGIN_HOURS
+                            + " h), but they are " + business.getStaleWorkdayHours() + ". Raise the stale workday hours in Settings first.");
+        }
     }
 
     private void requireFreeName(UUID businessId, String name, UUID excludedShiftId) {

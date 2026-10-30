@@ -80,11 +80,11 @@ public class BusinessService {
     public record JurisoneLinkInput(String jurisoneBusinessId) {}
 
     /** A business's settings as its owner sees them ({@code GET /api/v1/business}). */
-    public record BusinessSettings(UUID id, String name, String timeZone, int staleWorkdayHours, List<String> displayTimeZones, Instant createdAt,
-            Instant updatedAt) {}
+    public record BusinessSettings(UUID id, String name, String timeZone, int staleWorkdayHours, int minimumStaleWorkdayHours,
+            List<String> displayTimeZones, Instant createdAt, Instant updatedAt) {}
 
     /** A business as the super admin sees it ({@code GET /api/v1/businesses/{id}}); {@code owner} is null when it has no ADMIN. */
-    public record BusinessDetail(UUID id, String name, String timeZone, int staleWorkdayHours, List<String> displayTimeZones,
+    public record BusinessDetail(UUID id, String name, String timeZone, int staleWorkdayHours, int minimumStaleWorkdayHours, List<String> displayTimeZones,
             @JsonProperty("isSuspended") boolean isSuspended, @JsonProperty("isLinkedToJurisone") boolean isLinkedToJurisone, Instant createdAt,
             Instant updatedAt, BusinessOwner owner, long employeeCount, long activeEmployeeCount) {}
 
@@ -111,9 +111,12 @@ public class BusinessService {
     private final TimeTrackingService timeTrackingService;
     private final WorkdayRepository workdayRepository;
     private final AuditService auditService;
+    private final ShiftService shiftService;
 
     public BusinessService(BusinessRepository businessRepository, BusinessQueryRepository businessQueryRepository, UserRepository userRepository,
-            EmployeeService employeeService, TimeTrackingService timeTrackingService, WorkdayRepository workdayRepository, AuditService auditService) {
+            EmployeeService employeeService, TimeTrackingService timeTrackingService, WorkdayRepository workdayRepository, AuditService auditService,
+            ShiftService shiftService) {
+        this.shiftService = shiftService;
         this.businessRepository = businessRepository;
         this.businessQueryRepository = businessQueryRepository;
         this.userRepository = userRepository;
@@ -172,7 +175,7 @@ public class BusinessService {
         Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
         BusinessRow row = businessQueryRepository.findRow(businessId).orElseThrow();
         return new BusinessDetail(business.getId(), business.getName(), business.getTimeZone(), business.getStaleWorkdayHours(),
-                List.copyOf(business.getDisplayTimeZones()), business.isSuspended(), business.getJurisoneBusinessId() != null, business.getCreatedAt(),
+                shiftService.minimumStaleWorkdayHours(businessId), List.copyOf(business.getDisplayTimeZones()), business.isSuspended(), business.getJurisoneBusinessId() != null, business.getCreatedAt(),
                 business.getUpdatedAt(), businessQueryRepository.findOwner(businessId).orElse(null), row.employeeCount(), row.activeEmployeeCount());
     }
 
@@ -336,6 +339,7 @@ public class BusinessService {
         List<String> displayTimeZones = changes.displayTimeZones() == null ? business.getDisplayTimeZones()
                 : displayTimeZones(changes.displayTimeZones().orElse(null), validator);
         validator.throwIfInvalid();
+        if (changes.staleWorkdayHours() != null) requireStaleWorkdayHoursCoverShifts(business.getId(), staleWorkdayHours);
 
         business.setName(name);
         business.setTimeZone(timeZone);
@@ -346,6 +350,20 @@ public class BusinessService {
             businessRepository.saveAndFlush(business);
             auditService.record(new AuditEntry(business.getId(), actor.userId(), null, AuditAction.BUSINESS_UPDATED, BUSINESS_ENTITY,
                     business.getId().toString(), before, after, null));
+        }
+    }
+
+    /**
+     * 422 {@code STALE_WORKDAY_HOURS_TOO_LOW} when the hours (already within 1 to 48) are below the business's longest active shift plus
+     * {@value ShiftService#STALE_WORKDAY_MARGIN_HOURS} hours (at most 24 + 3, so always within the maximum). Only a value that is being written is checked.
+     */
+    private void requireStaleWorkdayHoursCoverShifts(UUID businessId, int staleWorkdayHours) {
+        int longest = shiftService.longestShiftHours(businessId);
+        int minimum = shiftService.minimumStaleWorkdayHours(businessId);
+        int margin = ShiftService.STALE_WORKDAY_MARGIN_HOURS;
+        if (staleWorkdayHours < minimum) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, Problems.STALE_WORKDAY_HOURS_TOO_LOW, "Stale workday hours must be at least " + minimum
+                    + ": your longest shift is " + longest + " h plus " + margin + " h.");
         }
     }
 
@@ -371,8 +389,9 @@ public class BusinessService {
         return List.copyOf(timeZones);
     }
 
-    private static BusinessSettings settingsOf(Business business) {
+    private BusinessSettings settingsOf(Business business) {
         return new BusinessSettings(business.getId(), business.getName(), business.getTimeZone(), business.getStaleWorkdayHours(),
+                shiftService.minimumStaleWorkdayHours(business.getId()),
                 List.copyOf(business.getDisplayTimeZones()), business.getCreatedAt(), business.getUpdatedAt());
     }
 
