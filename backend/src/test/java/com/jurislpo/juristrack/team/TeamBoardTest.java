@@ -27,7 +27,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /api/team/members}: the live board ("Authorization scope" of the old verify-flows checks: manager A sees only their own
+ * {@code GET /api/v1/team/members}: the live board ("Authorization scope" of the old verify-flows checks: manager A sees only their own
  * people). Scope direct / indirect / all over a three-level reporting line, roles, today's live status (a night shift from yesterday
  * is WORKING), metrics, status filter, search, sorting and paging, deactivated people and tenant isolation.
  */
@@ -53,7 +53,7 @@ class TeamBoardTest extends IntegrationTest {
     }
 
     private String board(UUID viewerId, String query) throws Exception {
-        return team.read(viewerId, "/api/team/members" + (query.isEmpty() ? "" : "?" + query)).andExpect(status().isOk()).andReturn()
+        return team.read(viewerId, "/api/v1/team/members" + (query.isEmpty() ? "" : "?" + query)).andExpect(status().isOk()).andReturn()
                 .getResponse().getContentAsString();
     }
 
@@ -95,7 +95,7 @@ class TeamBoardTest extends IntegrationTest {
         UUID lonelyManagerId = new TestData(jdbcTemplate).createUser(team.businessId, "MANAGER", TestData.uniqueEmail("lonely"), team.ownerId);
         rateLimiter.clear();
         Cookie cookie = SignIn.session(mockMvc, emailOfNewUser(lonelyManagerId)).accessCookie();
-        mockMvc.perform(get("/api/team/members?scope=indirect").cookie(cookie)).andExpect(status().isOk())
+        mockMvc.perform(get("/api/v1/team/members?scope=indirect").cookie(cookie)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(0)).andExpect(jsonPath("$.data.rows").isEmpty())
                 .andExpect(jsonPath("$.data.metrics.total").value(0)).andExpect(jsonPath("$.data.metrics.averageProductiveSeconds").value(0));
     }
@@ -106,29 +106,29 @@ class TeamBoardTest extends IntegrationTest {
 
     @Test
     void employeesAndTheSuperAdminAreRefusedAndSignedOutIs401() throws Exception {
-        team.read(team.employeeId, "/api/team/members").andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        team.read(team.employeeId, "/api/team/members/" + team.employeeOfAId).andExpect(status().isForbidden());
-        team.read(team.employeeId, "/api/team/members/" + team.employeeOfAId + "/workdays").andExpect(status().isForbidden());
+        team.read(team.employeeId, "/api/v1/team/members").andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        team.read(team.employeeId, "/api/v1/team/members/" + team.employeeOfAId).andExpect(status().isForbidden());
+        team.read(team.employeeId, "/api/v1/team/members/" + team.employeeOfAId + "/workdays").andExpect(status().isForbidden());
         String email = TestData.uniqueEmail("team.platform");
         new TestData(jdbcTemplate).createUser(null, "SUPER_ADMIN", email, null);
         rateLimiter.clear();
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(get("/api/team/members").cookie(cookie)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/team/members/" + team.employeeId).cookie(cookie)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/team/members")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/team/members").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/team/members/" + team.employeeId).cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/team/members")).andExpect(status().isUnauthorized());
     }
 
     @Test
     void unknownParameterValuesAre400() throws Exception {
-        team.read(team.managerAId, "/api/team/members?scope=all").andExpect(status().isBadRequest())
+        team.read(team.managerAId, "/api/v1/team/members?scope=all").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("scope")).andExpect(jsonPath("$.detail").value("The scope is direct or indirect."));
-        team.read(team.ownerId, "/api/team/members?scope=everyone").andExpect(status().isBadRequest())
+        team.read(team.ownerId, "/api/v1/team/members?scope=everyone").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("scope"));
-        team.read(team.managerAId, "/api/team/members?status=LUNCH").andExpect(status().isBadRequest())
+        team.read(team.managerAId, "/api/v1/team/members?status=LUNCH").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("status"));
-        team.read(team.managerAId, "/api/team/members?sort=salary").andExpect(status().isBadRequest())
+        team.read(team.managerAId, "/api/v1/team/members?sort=salary").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("sort"));
-        team.read(team.managerAId, "/api/team/members?pageSize=0").andExpect(status().isBadRequest());
+        team.read(team.managerAId, "/api/v1/team/members?pageSize=0").andExpect(status().isBadRequest());
     }
 
     @Test
@@ -310,7 +310,7 @@ class TeamBoardTest extends IntegrationTest {
         assertThat(memberIds(team.managerBId, "scope=indirect")).containsExactlyElementsOf(idsOf(team.employeeId));
         List<String> everybody = memberIds(team.ownerId, "");
         assertThat(everybody).hasSize(6).doesNotContain(otherTeam.employeeId.toString(), otherTeam.employeeOfCId.toString());
-        team.read(team.ownerId, "/api/team/members/" + otherTeam.employeeId).andExpect(status().isNotFound());
-        team.read(team.ownerId, "/api/team/members/" + otherTeam.employeeId + "/workdays").andExpect(status().isNotFound());
+        team.read(team.ownerId, "/api/v1/team/members/" + otherTeam.employeeId).andExpect(status().isNotFound());
+        team.read(team.ownerId, "/api/v1/team/members/" + otherTeam.employeeId + "/workdays").andExpect(status().isNotFound());
     }
 }

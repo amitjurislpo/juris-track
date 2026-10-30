@@ -50,37 +50,37 @@ class AuditEndpointCoverageTest extends IntegrationTest {
 
     /** {@code "METHOD /path"} of every write endpoint -> the audit actions the tests below prove it writes. */
     static final Map<String, List<String>> EXPECTED_AUDIT_ACTIONS = Map.ofEntries(
-            Map.entry("POST /api/auth/otp-requests", List.of("auth.sign_in_code_requested")),
-            Map.entry("POST /api/auth/sessions", List.of("auth.signed_in", "auth.sign_in_failed")),
+            Map.entry("POST /api/v1/auth/otp-requests", List.of("auth.sign_in_code_requested")),
+            Map.entry("POST /api/v1/auth/sessions", List.of("auth.signed_in", "auth.sign_in_failed")),
             // a successful refresh is not audited (every few minutes); refusals and a reused token are
-            Map.entry("POST /api/auth/session-refreshes", List.of("auth.session_refresh_failed", "auth.session_revoked_refresh_reuse")),
-            Map.entry("DELETE /api/auth/sessions/current", List.of("auth.signed_out")),
-            Map.entry("POST /api/businesses", List.of("business.created", "employee.created")),
-            Map.entry("PATCH /api/businesses/{businessId}", List.of("business.updated")),
-            Map.entry("PUT /api/businesses/{businessId}/status", List.of("business.suspended", "business.reactivated")),
-            Map.entry("PUT /api/businesses/{businessId}/jurisone-link", List.of("integration.business_linked")),
-            Map.entry("DELETE /api/businesses/{businessId}/jurisone-link", List.of("integration.business_unlinked")),
-            Map.entry("PATCH /api/business", List.of("business.updated")),
-            Map.entry("POST /api/employees", List.of("employee.created", "employee.change_refused")),
-            Map.entry("PATCH /api/employees/{employeeId}", List.of("employee.updated", "employee.change_refused")),
-            Map.entry("PUT /api/employees/{employeeId}/status", List.of("employee.deactivated", "workday.closed", "employee.reactivated",
+            Map.entry("POST /api/v1/auth/session-refreshes", List.of("auth.session_refresh_failed", "auth.session_revoked_refresh_reuse")),
+            Map.entry("DELETE /api/v1/auth/sessions/current", List.of("auth.signed_out")),
+            Map.entry("POST /api/v1/businesses", List.of("business.created", "employee.created")),
+            Map.entry("PATCH /api/v1/businesses/{businessId}", List.of("business.updated")),
+            Map.entry("PUT /api/v1/businesses/{businessId}/status", List.of("business.suspended", "business.reactivated")),
+            Map.entry("PUT /api/v1/businesses/{businessId}/jurisone-link", List.of("integration.business_linked")),
+            Map.entry("DELETE /api/v1/businesses/{businessId}/jurisone-link", List.of("integration.business_unlinked")),
+            Map.entry("PATCH /api/v1/business", List.of("business.updated")),
+            Map.entry("POST /api/v1/employees", List.of("employee.created", "employee.change_refused")),
+            Map.entry("PATCH /api/v1/employees/{employeeId}", List.of("employee.updated", "employee.change_refused")),
+            Map.entry("PUT /api/v1/employees/{employeeId}/status", List.of("employee.deactivated", "workday.closed", "employee.reactivated",
                     "employee.change_refused")),
-            Map.entry("PUT /api/employees/{employeeId}/login-access", List.of("employee.login_disabled", "workday.closed", "employee.login_enabled",
+            Map.entry("PUT /api/v1/employees/{employeeId}/login-access", List.of("employee.login_disabled", "workday.closed", "employee.login_enabled",
                     "employee.change_refused")),
-            Map.entry("PUT /api/employees/{employeeId}/shift", List.of("employee.shift_changed", "employee.change_refused")),
-            Map.entry("PUT /api/employees/{employeeId}/schedule-entries/{date}", List.of("schedule.entry_set")),
-            Map.entry("DELETE /api/employees/{employeeId}/schedule-entries/{date}", List.of("schedule.entry_removed")),
-            Map.entry("PUT /api/employees/{employeeId}/schedule-entries", List.of("schedule.entry_set")),
-            Map.entry("POST /api/shifts", List.of("shift.created")),
-            Map.entry("PATCH /api/shifts/{shiftId}", List.of("shift.updated")),
-            Map.entry("PUT /api/shifts/{shiftId}/status", List.of("shift.status_changed")),
-            Map.entry("POST /api/me/time-events", List.of("time.workday_started", "time.break_started", "time.work_resumed", "time.workday_ended",
+            Map.entry("PUT /api/v1/employees/{employeeId}/shift", List.of("employee.shift_changed", "employee.change_refused")),
+            Map.entry("PUT /api/v1/employees/{employeeId}/schedule-entries/{date}", List.of("schedule.entry_set")),
+            Map.entry("DELETE /api/v1/employees/{employeeId}/schedule-entries/{date}", List.of("schedule.entry_removed")),
+            Map.entry("PUT /api/v1/employees/{employeeId}/schedule-entries", List.of("schedule.entry_set")),
+            Map.entry("POST /api/v1/shifts", List.of("shift.created")),
+            Map.entry("PATCH /api/v1/shifts/{shiftId}", List.of("shift.updated")),
+            Map.entry("PUT /api/v1/shifts/{shiftId}/status", List.of("shift.status_changed")),
+            Map.entry("POST /api/v1/me/time-events", List.of("time.workday_started", "time.break_started", "time.work_resumed", "time.workday_ended",
                     "time.workday_reopened")),
-            Map.entry("PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
-            Map.entry("PATCH /api/workdays/{workdayId}/break-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
-            Map.entry("PUT /api/workdays/{workdayId}/status", List.of("time.workday_closed")),
+            Map.entry("PATCH /api/v1/workdays/{workdayId}/work-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
+            Map.entry("PATCH /api/v1/workdays/{workdayId}/break-sessions/{sessionId}", List.of("time.session_adjusted", "time.correction_refused")),
+            Map.entry("PUT /api/v1/workdays/{workdayId}/status", List.of("time.workday_closed")),
             // JurisOne's roster sync (service token): one roster_synced entry per call and the usual entry of every change; proved in RosterSyncTest and RosterSyncShiftTest
-            Map.entry("PUT /api/integration/employees", List.of("integration.roster_synced", "integration.business_provisioned", "integration.business_updated",
+            Map.entry("PUT /api/v1/integration/employees", List.of("integration.roster_synced", "integration.business_provisioned", "integration.business_updated",
                     "integration.user_provisioned", "integration.user_linked", "integration.user_updated", "shift.created", "shift.updated", "employee.shift_changed",
                     "employee.deactivated", "employee.reactivated", "workday.closed", "schedule.entry_set")));
 
@@ -139,18 +139,18 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         String email = TestData.uniqueEmail("coverage.requestid");
         testData.createUser(businessId, "EMPLOYEE", email, null);
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/auth/otp-requests"))).content("{\"email\":\"" + email + "\"}"))
+        mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/auth/otp-requests"))).content("{\"email\":\"" + email + "\"}"))
                 .andExpect(status().isOk()).andExpect(header().string("X-Request-Id", trace.requestId));
-        assertThat(trace.entry("auth.sign_in_code_requested")).containsEntry("http_method", "POST").containsEntry("request_path", "/api/auth/otp-requests");
+        assertThat(trace.entry("auth.sign_in_code_requested")).containsEntry("http_method", "POST").containsEntry("request_path", "/api/v1/auth/otp-requests");
 
         // an id that is too long or has other characters is replaced by a new UUID
-        String replacedId = mockMvc.perform(SignIn.fromWebApp(post("/api/auth/otp-requests")).header("X-Request-Id", "bad id; DROP TABLE")
+        String replacedId = mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/otp-requests")).header("X-Request-Id", "bad id; DROP TABLE")
                         .content("{\"email\":\"" + email + "\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getHeader("X-Request-Id");
         assertThat(replacedId).matches("[0-9a-f-]{36}");
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE request_id = ?", Integer.class, replacedId)).isEqualTo(1);
         String longId = "x".repeat(65);
-        assertThat(mockMvc.perform(SignIn.fromWebApp(post("/api/auth/otp-requests")).header("X-Request-Id", longId)
+        assertThat(mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/otp-requests")).header("X-Request-Id", longId)
                 .content("{\"email\":\"" + email + "\"}")).andReturn().getResponse().getHeader("X-Request-Id")).isNotEqualTo(longId);
     }
 
@@ -159,7 +159,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         String email = TestData.uniqueEmail("coverage.code");
         UUID userId = testData.createUser(businessId, "EMPLOYEE", email, null);
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/auth/otp-requests"))).content("{\"email\":\"" + email + "\"}")).andExpect(status().isOk());
+        mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/auth/otp-requests"))).content("{\"email\":\"" + email + "\"}")).andExpect(status().isOk());
         assertThat(trace.entry("auth.sign_in_code_requested")).containsEntry("outcome", "SUCCESS").containsEntry("subject_id", userId)
                 .containsEntry("business_id", businessId).containsEntry("category", "auth").containsEntry("source", "STANDALONE");
     }
@@ -170,13 +170,13 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         UUID userId = testData.createUser(businessId, "MANAGER", email, null);
         SignIn.requestCode(mockMvc, email);
         AuditTrace wrongTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(wrongTrace.on(SignIn.fromWebApp(post("/api/auth/sessions"))).content("{\"email\":\"" + email + "\",\"otp\":\"999999\"}"))
+        mockMvc.perform(wrongTrace.on(SignIn.fromWebApp(post("/api/v1/auth/sessions"))).content("{\"email\":\"" + email + "\",\"otp\":\"999999\"}"))
                 .andExpect(status().isUnauthorized());
         assertThat(wrongTrace.entry("auth.sign_in_failed")).containsEntry("outcome", "DENIED").containsEntry("reason", "wrong_code")
                 .containsEntry("subject_id", userId);
 
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/auth/sessions"))).header("User-Agent", "Coverage Browser/1.0")
+        mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/auth/sessions"))).header("User-Agent", "Coverage Browser/1.0")
                 .content("{\"email\":\"" + email + "\",\"otp\":\"" + SignIn.CODE + "\"}")).andExpect(status().isCreated());
         Map<String, Object> entry = trace.entry("auth.signed_in");
         assertThat(entry).containsEntry("outcome", "SUCCESS").containsEntry("actor_id", userId).containsEntry("actor_role", "MANAGER")
@@ -189,16 +189,16 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         String email = TestData.uniqueEmail("coverage.refresh");
         UUID userId = testData.createUser(businessId, "EMPLOYEE", email, null);
         SessionCookies cookies = SignIn.session(mockMvc, email);
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/session-refreshes")).cookie(cookies.refreshCookie())).andExpect(status().isCreated());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes")).cookie(cookies.refreshCookie())).andExpect(status().isCreated());
 
         AuditTrace reuseTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(reuseTrace.on(SignIn.fromWebApp(post("/api/auth/session-refreshes"))).cookie(cookies.refreshCookie()))
+        mockMvc.perform(reuseTrace.on(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes"))).cookie(cookies.refreshCookie()))
                 .andExpect(status().isUnauthorized());
         assertThat(reuseTrace.entry("auth.session_revoked_refresh_reuse")).containsEntry("outcome", "DENIED").containsEntry("subject_id", userId)
                 .containsEntry("business_id", businessId);
 
         AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(post("/api/auth/session-refreshes"))).cookie(cookies.refreshCookie()))
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes"))).cookie(cookies.refreshCookie()))
                 .andExpect(status().isUnauthorized());
         assertThat(refusedTrace.entry("auth.session_refresh_failed")).containsEntry("outcome", "DENIED").containsEntry("reason", "revoked")
                 .containsEntry("subject_id", userId);
@@ -210,7 +210,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         UUID userId = testData.createUser(businessId, "EMPLOYEE", email, null);
         SessionCookies cookies = SignIn.session(mockMvc, email);
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(delete("/api/auth/sessions/current"))).cookie(cookies.accessCookie(), cookies.refreshCookie()))
+        mockMvc.perform(trace.on(SignIn.fromWebApp(delete("/api/v1/auth/sessions/current"))).cookie(cookies.accessCookie(), cookies.refreshCookie()))
                 .andExpect(status().isOk());
         assertThat(trace.entry("auth.signed_out")).containsEntry("outcome", "SUCCESS").containsEntry("actor_id", userId).containsEntry("subject_id", userId)
                 .containsEntry("actor_role", "EMPLOYEE");
@@ -219,7 +219,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     @Test
     void creatingABusinessIsAudited() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        String response = mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/businesses"))).cookie(superAdminCookie)
+        String response = mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/businesses"))).cookie(superAdminCookie)
                         .content("{\"name\":\"Covered Co\",\"owner\":{\"firstName\":\"Nia\",\"lastName\":\"New\",\"email\":\"" + TestData.uniqueEmail("covered") + "\"}}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         UUID newBusinessId = UUID.fromString(JsonPath.read(response, "$.data.id"));
@@ -232,7 +232,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     @Test
     void updatingABusinessIsAudited() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(patch("/api/businesses/" + businessId))).cookie(superAdminCookie).content("{\"staleWorkdayHours\":9}"))
+        mockMvc.perform(trace.on(SignIn.fromWebApp(patch("/api/v1/businesses/" + businessId))).cookie(superAdminCookie).content("{\"staleWorkdayHours\":9}"))
                 .andExpect(status().isOk());
         Map<String, Object> entry = trace.entry("business.updated");
         assertThat(entry).containsEntry("actor_id", superAdminId).containsEntry("business_id", businessId).containsEntry("entity_id", businessId.toString());
@@ -243,11 +243,11 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     @Test
     void suspendingAndReactivatingABusinessIsAudited() throws Exception {
         AuditTrace suspendTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(suspendTrace.on(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status"))).cookie(superAdminCookie)
+        mockMvc.perform(suspendTrace.on(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status"))).cookie(superAdminCookie)
                 .content("{\"isSuspended\":true,\"reason\":\"Unpaid\"}")).andExpect(status().isOk());
         assertThat(suspendTrace.entry("business.suspended")).containsEntry("reason", "Unpaid").containsEntry("business_id", businessId);
         AuditTrace reactivateTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(reactivateTrace.on(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status"))).cookie(superAdminCookie)
+        mockMvc.perform(reactivateTrace.on(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status"))).cookie(superAdminCookie)
                 .content("{\"isSuspended\":false}")).andExpect(status().isOk());
         assertThat(reactivateTrace.entry("business.reactivated")).containsEntry("actor_id", superAdminId);
     }
@@ -256,13 +256,13 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     void linkingAndUnlinkingABusinessToJurisoneIsAudited() throws Exception {
         UUID jurisoneBusinessId = UUID.randomUUID();
         AuditTrace linkTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(linkTrace.on(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/jurisone-link"))).cookie(superAdminCookie)
+        mockMvc.perform(linkTrace.on(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/jurisone-link"))).cookie(superAdminCookie)
                 .content("{\"jurisoneBusinessId\":\"" + jurisoneBusinessId + "\"}")).andExpect(status().isOk());
         assertThat(linkTrace.entry("integration.business_linked")).containsEntry("actor_id", superAdminId).containsEntry("actor_role", "SUPER_ADMIN")
                 .containsEntry("business_id", businessId).containsEntry("category", "integration").containsEntry("outcome", "SUCCESS")
                 .containsEntry("entity_type", "business").containsEntry("entity_id", businessId.toString());
         AuditTrace unlinkTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(unlinkTrace.on(SignIn.fromWebApp(delete("/api/businesses/" + businessId + "/jurisone-link"))).cookie(superAdminCookie))
+        mockMvc.perform(unlinkTrace.on(SignIn.fromWebApp(delete("/api/v1/businesses/" + businessId + "/jurisone-link"))).cookie(superAdminCookie))
                 .andExpect(status().isOk());
         assertThat(unlinkTrace.entry("integration.business_unlinked")).containsEntry("actor_id", superAdminId).containsEntry("business_id", businessId);
     }
@@ -270,7 +270,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     @Test
     void changingTheOwnBusinessSettingsIsAudited() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(patch("/api/business"))).cookie(ownerCookie).content("{\"displayTimeZones\":[\"UTC\"]}"))
+        mockMvc.perform(trace.on(SignIn.fromWebApp(patch("/api/v1/business"))).cookie(ownerCookie).content("{\"displayTimeZones\":[\"UTC\"]}"))
                 .andExpect(status().isOk());
         Map<String, Object> entry = trace.entry("business.updated");
         assertThat(entry).containsEntry("actor_id", ownerId).containsEntry("actor_role", "ADMIN").containsEntry("business_id", businessId);
@@ -280,7 +280,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     @Test
     void addingAnEmployeeIsAuditedAndARefusedOneToo() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        String response = mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/employees"))).cookie(ownerCookie)
+        String response = mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/employees"))).cookie(ownerCookie)
                         .content("{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"email\":\"" + TestData.uniqueEmail("covered.employee") + "\",\"managerId\":\""
                                 + managerId + "\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
@@ -289,7 +289,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
                 .containsEntry("entity_type", "user").containsEntry("entity_id", employeeId.toString());
 
         AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(post("/api/employees"))).cookie(ownerCookie)
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(post("/api/v1/employees"))).cookie(ownerCookie)
                         .content("{\"firstName\":\"Al\",\"lastName\":\"Admin\",\"email\":\"" + TestData.uniqueEmail("refused") + "\",\"role\":\"ADMIN\"}"))
                 .andExpect(status().isUnprocessableEntity());
         assertThat(refusedTrace.entry("employee.change_refused")).containsEntry("outcome", "DENIED").containsEntry("reason", "ROLE_NOT_ASSIGNABLE")
@@ -300,7 +300,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
     void changingAnEmployeeIsAuditedWithEveryChangedFieldAndARefusalToo() throws Exception {
         UUID employeeId = testData.createUser(businessId, "EMPLOYEE", TestData.uniqueEmail("covered.change"), null, "Ben", "Carter", "C-1");
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(patch("/api/employees/" + employeeId))).cookie(ownerCookie)
+        mockMvc.perform(trace.on(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId))).cookie(ownerCookie)
                 .content("{\"role\":\"MANAGER\",\"managerId\":\"" + managerId + "\",\"employeeCode\":null}")).andExpect(status().isOk());
         Map<String, Object> entry = trace.entry("employee.updated");
         assertThat(entry).containsEntry("subject_id", employeeId).containsEntry("actor_id", ownerId);
@@ -310,7 +310,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
 
         // the manager reports to the new manager: a loop is refused, the change rolled back, the refusal recorded
         AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(patch("/api/employees/" + managerId))).cookie(ownerCookie)
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(patch("/api/v1/employees/" + managerId))).cookie(ownerCookie)
                 .content("{\"managerId\":\"" + employeeId + "\",\"firstName\":\"Changed\"}")).andExpect(status().isUnprocessableEntity());
         assertThat(refusedTrace.entry("employee.change_refused")).containsEntry("reason", "MANAGER_CYCLE").containsEntry("subject_id", managerId)
                 .containsEntry("outcome", "DENIED");
@@ -323,22 +323,22 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         String email = TestData.uniqueEmail("covered.leaver");
         UUID employeeId = testData.createUser(businessId, "EMPLOYEE", email, managerId);
         Cookie employeeCookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
 
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status"))).cookie(ownerCookie)
+        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status"))).cookie(ownerCookie)
                 .content("{\"isActive\":false,\"reason\":\"Left\"}")).andExpect(status().isOk());
         assertThat(trace.entry("employee.deactivated")).containsEntry("subject_id", employeeId).containsEntry("reason", "Left");
         assertThat(trace.entry("workday.closed")).containsEntry("subject_id", employeeId).containsEntry("actor_id", ownerId)
                 .containsEntry("category", "time").containsEntry("entity_type", "workday");
 
         AuditTrace reactivateTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(reactivateTrace.on(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status"))).cookie(ownerCookie)
+        mockMvc.perform(reactivateTrace.on(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status"))).cookie(ownerCookie)
                 .content("{\"isActive\":true}")).andExpect(status().isOk());
         assertThat(reactivateTrace.entry("employee.reactivated")).containsEntry("subject_id", employeeId);
 
         AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(put("/api/employees/" + ownerId + "/status"))).cookie(ownerCookie)
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(put("/api/v1/employees/" + ownerId + "/status"))).cookie(ownerCookie)
                 .content("{\"isActive\":false}")).andExpect(status().isUnprocessableEntity());
         assertThat(refusedTrace.entry("employee.change_refused")).containsEntry("reason", "CANNOT_DEACTIVATE_SELF").containsEntry("subject_id", ownerId);
     }
@@ -348,22 +348,22 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         String email = TestData.uniqueEmail("covered.login");
         UUID employeeId = testData.createUser(businessId, "EMPLOYEE", email, managerId);
         Cookie employeeCookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
 
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/login-access"))).cookie(ownerCookie)
+        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/login-access"))).cookie(ownerCookie)
                 .content("{\"isEnabled\":false,\"reason\":\"Audit\"}")).andExpect(status().isOk());
         assertThat(trace.entry("employee.login_disabled")).containsEntry("subject_id", employeeId).containsEntry("actor_id", ownerId)
                 .containsEntry("category", "people").containsEntry("entity_type", "user").containsEntry("reason", "Audit");
         assertThat(trace.entry("workday.closed")).containsEntry("subject_id", employeeId).containsEntry("reason", "login_disabled");
 
         AuditTrace enableTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(enableTrace.on(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/login-access"))).cookie(ownerCookie)
+        mockMvc.perform(enableTrace.on(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/login-access"))).cookie(ownerCookie)
                 .content("{\"isEnabled\":true}")).andExpect(status().isOk());
         assertThat(enableTrace.entry("employee.login_enabled")).containsEntry("subject_id", employeeId).containsEntry("actor_id", ownerId);
 
         AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(put("/api/employees/" + ownerId + "/login-access"))).cookie(ownerCookie)
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(put("/api/v1/employees/" + ownerId + "/login-access"))).cookie(ownerCookie)
                 .content("{\"isEnabled\":false}")).andExpect(status().isUnprocessableEntity());
         assertThat(refusedTrace.entry("employee.change_refused")).containsEntry("reason", "CANNOT_DISABLE_OWN_LOGIN").containsEntry("subject_id", ownerId);
         assertThat(refusedTrace.count("employee.login_disabled")).isZero();
@@ -382,15 +382,15 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         actionByEvent.put("5 START", "time.workday_reopened");
         for (Map.Entry<String, String> event : actionByEvent.entrySet()) {
             AuditTrace trace = new AuditTrace(jdbcTemplate);
-            mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/me/time-events"))).cookie(employeeCookie)
+            mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/me/time-events"))).cookie(employeeCookie)
                     .content("{\"type\":\"" + event.getKey().substring(2) + "\"}")).andExpect(status().isCreated());
             assertThat(trace.entry(event.getValue())).as(event.getKey()).containsEntry("actor_id", employeeId).containsEntry("subject_id", employeeId)
                     .containsEntry("business_id", businessId).containsEntry("outcome", "SUCCESS").containsEntry("category", "time")
-                    .containsEntry("source", "STANDALONE").containsEntry("request_path", "/api/me/time-events");
+                    .containsEntry("source", "STANDALONE").containsEntry("request_path", "/api/v1/me/time-events");
         }
         // a repeat changes nothing and writes nothing
         AuditTrace repeatTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(repeatTrace.on(SignIn.fromWebApp(post("/api/me/time-events"))).cookie(employeeCookie).content("{\"type\":\"START\"}"))
+        mockMvc.perform(repeatTrace.on(SignIn.fromWebApp(post("/api/v1/me/time-events"))).cookie(employeeCookie).content("{\"type\":\"START\"}"))
                 .andExpect(status().isOk());
         assertThat(repeatTrace.entries()).isEmpty();
     }
@@ -420,7 +420,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         UUID breakSessionId = jdbcTemplate.queryForObject("SELECT id FROM break_sessions WHERE workday_id = ?::uuid", UUID.class, workdayId);
 
         AuditTrace workTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(workTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/work-sessions/" + firstWorkSessionId))).cookie(managerCookie)
+        mockMvc.perform(workTrace.on(SignIn.fromWebApp(patch("/api/v1/workdays/" + workdayId + "/work-sessions/" + firstWorkSessionId))).cookie(managerCookie)
                 .content("{\"startedAt\":\"" + dayStart.plus(Duration.ofMinutes(5)) + "\",\"reason\":\"Started later\"}")).andExpect(status().isOk());
         assertThat(workTrace.entry("time.session_adjusted")).containsEntry("actor_id", managerId).containsEntry("actor_role", "MANAGER")
                 .containsEntry("subject_id", employeeId).containsEntry("business_id", businessId).containsEntry("category", "time")
@@ -428,13 +428,13 @@ class AuditEndpointCoverageTest extends IntegrationTest {
                 .containsEntry("reason", "Started later").containsEntry("http_method", "PATCH");
 
         AuditTrace breakTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(breakTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/break-sessions/" + breakSessionId))).cookie(managerCookie)
+        mockMvc.perform(breakTrace.on(SignIn.fromWebApp(patch("/api/v1/workdays/" + workdayId + "/break-sessions/" + breakSessionId))).cookie(managerCookie)
                 .content("{\"endedAt\":\"" + dayStart.plus(Duration.ofMinutes(80)) + "\",\"reason\":\"Short break\"}")).andExpect(status().isOk());
         assertThat(breakTrace.entry("time.session_adjusted")).containsEntry("entity_type", "break_session").containsEntry("subject_id", employeeId);
 
         // the break would come before any work: refused (422), nothing changed, the refusal recorded
         AuditTrace refusedTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/break-sessions/" + breakSessionId))).cookie(managerCookie)
+        mockMvc.perform(refusedTrace.on(SignIn.fromWebApp(patch("/api/v1/workdays/" + workdayId + "/break-sessions/" + breakSessionId))).cookie(managerCookie)
                 .content("{\"startedAt\":\"" + dayStart.minus(Duration.ofMinutes(10)) + "\",\"endedAt\":\"" + dayStart.minus(Duration.ofMinutes(5))
                         + "\",\"reason\":\"Wrong break\"}"))
                 .andExpect(status().isUnprocessableEntity());
@@ -446,7 +446,7 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         AuditTrace refusedWorkTrace = new AuditTrace(jdbcTemplate);
         UUID secondWorkSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid ORDER BY started_at DESC LIMIT 1",
                 UUID.class, workdayId);
-        mockMvc.perform(refusedWorkTrace.on(SignIn.fromWebApp(patch("/api/workdays/" + workdayId + "/work-sessions/" + secondWorkSessionId)))
+        mockMvc.perform(refusedWorkTrace.on(SignIn.fromWebApp(patch("/api/v1/workdays/" + workdayId + "/work-sessions/" + secondWorkSessionId)))
                 .cookie(managerCookie).content("{\"startedAt\":\"" + dayStart.plus(Duration.ofMinutes(30)) + "\",\"reason\":\"Overlapping\"}"))
                 .andExpect(status().isUnprocessableEntity());
         assertThat(refusedWorkTrace.entry("time.correction_refused")).containsEntry("reason", "TIME_INTERVAL_OVERLAP");
@@ -459,20 +459,20 @@ class AuditEndpointCoverageTest extends IntegrationTest {
         Cookie employeeCookie = SignIn.session(mockMvc, email).accessCookie();
         String workdayId = JsonPath.read(timeEvent(employeeCookie, "START"), "$.data.workdayId");
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/workdays/" + workdayId + "/status"))).cookie(ownerCookie)
+        mockMvc.perform(trace.on(SignIn.fromWebApp(put("/api/v1/workdays/" + workdayId + "/status"))).cookie(ownerCookie)
                 .content("{\"status\":\"DAY_ENDED\",\"reason\":\"Forgot to end\"}")).andExpect(status().isOk());
         assertThat(trace.entry("time.workday_closed")).containsEntry("actor_id", ownerId).containsEntry("actor_role", "ADMIN")
                 .containsEntry("subject_id", employeeId).containsEntry("category", "time").containsEntry("outcome", "SUCCESS")
                 .containsEntry("entity_type", "workday").containsEntry("entity_id", workdayId).containsEntry("reason", "Forgot to end");
         // ending it again changes nothing and writes nothing
         AuditTrace repeatTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(repeatTrace.on(SignIn.fromWebApp(put("/api/workdays/" + workdayId + "/status"))).cookie(ownerCookie)
+        mockMvc.perform(repeatTrace.on(SignIn.fromWebApp(put("/api/v1/workdays/" + workdayId + "/status"))).cookie(ownerCookie)
                 .content("{\"status\":\"DAY_ENDED\",\"reason\":\"Forgot to end\"}")).andExpect(status().isOk());
         assertThat(repeatTrace.entries()).isEmpty();
     }
 
     private String timeEvent(Cookie cookie, String type) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie).content("{\"type\":\"" + type + "\"}"))
+        return mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie).content("{\"type\":\"" + type + "\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
     }
 }

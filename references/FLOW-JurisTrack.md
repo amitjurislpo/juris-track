@@ -4,7 +4,7 @@
 |---|---|---|---|
 | 1.0 | 2026-10-23 | Initial version | Owner |
 | 1.1 | 2026-10-24 | Section 3 and 7: the snapshot and the board row carry `lastBreak`, shown as the time of the last break (FRD 1.1: FR-TIME-11, FR-TEAM-12); history and report rows and the CSV carry it too and label the day's start "Work started" and show an end after midnight with its date (FR-HIST-6, FR-HIST-7, FR-REP-14). | Owner |
-| 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/employees/{employeeId}/login-access`), separate from Deactivate; sign-in flow and a new employee login access flow (section 15) | Owner |
+| 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/v1/employees/{employeeId}/login-access`), separate from Deactivate; sign-in flow and a new employee login access flow (section 15) | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation (new section 14: shift occurrence, attribution, the START decision, roster); sections 3, 4 and 5 rewritten from the calendar day to the shift occurrence | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FRD-JurisTrack.md](FRD-JurisTrack.md) (the requirements, ids `FR-...` are quoted below) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
@@ -29,7 +29,7 @@ flowchart LR
     end
     subgraph Web["Web app, standalone"]
         SPA["React single page app<br/>pages, timer, language, display time zone"]
-        PROXY["Web server or dev proxy<br/>sends /api to the API"]
+        PROXY["Web server or dev proxy<br/>sends /api/v1 to the API"]
     end
     subgraph Api["Spring Boot API"]
         FILT["Filters: request id, body limit,<br/>origin check, cookie or Bearer token"]
@@ -45,7 +45,7 @@ flowchart LR
     OW --> SPA
     MG --> SPA
     EM --> SPA
-    SPA -->|"same origin /api"| PROXY
+    SPA -->|"same origin /api/v1"| PROXY
     PROXY -->|"cookies jt_at and jt_rt"| FILT
     JB -->|"Bearer token, internal network only"| FILT
     FILT --> CTRL
@@ -73,7 +73,7 @@ sequenceDiagram
     participant D as Database
 
     U->>W: Types email
-    W->>A: POST /api/auth/otp-requests
+    W->>A: POST /api/v1/auth/otp-requests
     A->>A: Check rate limit per IP 10 and per email 5 in 15 minutes
     alt limit hit
         A->>D: Audit auth.rate_limited once per window
@@ -90,7 +90,7 @@ sequenceDiagram
         A-->>W: 200 same text in every case
     end
     U->>W: Types the 6 digit code, may tick keep me signed in
-    W->>A: POST /api/auth/sessions
+    W->>A: POST /api/v1/auth/sessions
     A->>A: Failed sign in limit per IP 20 and per account 10
     alt too many failures
         A->>D: Audit auth.rate_limited
@@ -107,7 +107,7 @@ sequenceDiagram
     Note over W,A: Later, every call carries jt_at
     W->>A: Any call with expired jt_at
     A-->>W: 401 TOKEN_EXPIRED
-    W->>A: POST /api/auth/session-refreshes once
+    W->>A: POST /api/v1/auth/session-refreshes once
     alt refresh token valid and unused
         A-->>W: 201 new jt_at and new jt_rt, nothing audited
         W->>A: Repeat the original call once
@@ -119,7 +119,7 @@ sequenceDiagram
         W->>U: Back to the sign-in page
     end
     U->>W: Sign out
-    W->>A: DELETE /api/auth/sessions/current
+    W->>A: DELETE /api/v1/auth/sessions/current
     A->>D: End session, audit auth.signed_out
     A-->>W: 200
 ```
@@ -160,7 +160,7 @@ Caption: an employee is always in exactly one of four states, and only these mov
 
 ```mermaid
 flowchart TD
-    A["Employee presses a button: START, BREAK, RESUME or END"] --> B["Web app disables the button and sends POST /api/me/time-events"]
+    A["Employee presses a button: START, BREAK, RESUME or END"] --> B["Web app disables the button and sends POST /api/v1/me/time-events"]
     B --> C{"Signed in and role is not super admin?"}
     C -->|"no"| E1["401 or 403 FORBIDDEN"]
     C -->|"yes"| C2{"Business suspended?"}
@@ -228,7 +228,7 @@ flowchart TD
     E --> F["Board tile Not ended, report status NOT_ENDED, warning on My time"]
     F --> G{"Who ends the day?"}
     G -->|"Employee presses End or Back to work then End"| H["Normal end, time.workday_ended"]
-    G -->|"Manager or owner of that person"| I["PUT /api/workdays/:workdayId/status with reason"]
+    G -->|"Manager or owner of that person"| I["PUT /api/v1/workdays/:workdayId/status with reason"]
     I --> I2["See section 6, the day ends at the given or last activity time, audit time.workday_closed"]
     G -->|"Owner deactivates the person"| J["Day closed now, workday.closed, see section 12"]
     G -->|"Super admin suspends the business"| K["Day closed now, workday.closed, see section 11"]
@@ -324,7 +324,7 @@ sequenceDiagram
     participant D as Database
 
     U->>W: Sets range, scope, person, manager of the day, status, search
-    W->>A: GET /api/reports/workdays or /summaries
+    W->>A: GET /api/v1/reports/workdays or /summaries
     A->>A: Role must be ADMIN or MANAGER
     alt Employee or Super admin
         A-->>W: 403 FORBIDDEN
@@ -407,7 +407,7 @@ sequenceDiagram
     participant D as Database
 
     U->>W: Opens Audit Log and sets filters
-    W->>A: GET /api/audit-logs with filters
+    W->>A: GET /api/v1/audit-logs with filters
     alt Manager or Employee
         A-->>W: 403 FORBIDDEN
     else Owner
@@ -419,14 +419,14 @@ sequenceDiagram
     D-->>A: Rows
     A-->>W: 200 rows, newest first. Viewing is not audited
     U->>W: Clicks a row
-    W->>A: GET /api/audit-logs/:auditLogId
+    W->>A: GET /api/v1/audit-logs/:auditLogId
     A-->>W: 200 full entry with before and after, or 404 for another business
     U->>W: Export CSV
     alt more than 10000 matching rows
         W->>U: Explains the cap, narrow the filters
         Note over W,A: If the log grew past the cap after loading, the API answers 422 EXPORT_TOO_LARGE
     else within the cap
-        W->>A: GET /api/audit-logs with format csv, same filters
+        W->>A: GET /api/v1/audit-logs with format csv, same filters
         A->>D: Insert audit.exported with filters and row count
         A-->>W: 200 audit-log-today.csv with BOM, quoted cells, formula guard
     end
@@ -449,7 +449,7 @@ sequenceDiagram
     actor OW as Owner to be
 
     SA->>W: Platform, New business, enters name, time zone, owner name and email
-    W->>A: POST /api/businesses
+    W->>A: POST /api/v1/businesses
     alt caller is not the super admin
         A-->>W: 403 FORBIDDEN
     else fields invalid
@@ -464,14 +464,14 @@ sequenceDiagram
     end
     SA->>OW: Tells the owner to open the sign-in page
     OW->>W: Enters own email
-    W->>A: POST /api/auth/otp-requests
+    W->>A: POST /api/v1/auth/otp-requests
     A->>M: 6 digit code
     M-->>OW: Code arrives
     OW->>W: Enters the code, see section 2
-    W->>A: POST /api/auth/sessions
+    W->>A: POST /api/v1/auth/sessions
     A-->>W: 201 session, owner lands on /admin
     OW->>W: Settings, then adds managers and employees
-    W->>A: POST /api/employees for each person
+    W->>A: POST /api/v1/employees for each person
     A->>D: Audit employee.created. Each person signs in the same way
 ```
 
@@ -483,7 +483,7 @@ Caption: the super admin creates a business and its owner in one step; the owner
 
 ```mermaid
 flowchart TD
-    A["Super admin chooses Suspend or Reactivate, optional reason"] --> B["PUT /api/businesses/:businessId/status with isSuspended"]
+    A["Super admin chooses Suspend or Reactivate, optional reason"] --> B["PUT /api/v1/businesses/:businessId/status with isSuspended"]
     B --> C{"Caller is the super admin and the business exists?"}
     C -->|"no"| X["403 FORBIDDEN or 404 NOT_FOUND"]
     C -->|"yes"| D{"Is the new state different from the stored one?"}
@@ -509,7 +509,7 @@ Caption: suspending a business stops the clocks of everyone working at that mome
 
 ```mermaid
 flowchart TD
-    A["Owner opens an employee and presses Deactivate, optional reason"] --> B["PUT /api/employees/:employeeId/status with isActive false"]
+    A["Owner opens an employee and presses Deactivate, optional reason"] --> B["PUT /api/v1/employees/:employeeId/status with isActive false"]
     B --> C{"Caller is the owner and the employee is in the business?"}
     C -->|"no"| X1["403 FORBIDDEN or 404 NOT_FOUND"]
     C -->|"yes"| D{"Is it the owner's own account?"}
@@ -551,7 +551,7 @@ flowchart LR
 
 Caption: embedded use changes only how the caller is proven; once the token is accepted every rule in this document applies unchanged.
 
-A standalone business is attached to JurisOne only by the super admin (`PUT /api/businesses/:businessId/jurisone-link`, audit `integration.business_linked`; `DELETE` removes it, audit `integration.business_unlinked`).
+A standalone business is attached to JurisOne only by the super admin (`PUT /api/v1/businesses/:businessId/jurisone-link`, audit `integration.business_linked`; `DELETE` removes it, audit `integration.business_unlinked`).
 
 ---
 
@@ -631,11 +631,11 @@ Caption: the 5 October shift and the 6 October shift are two workdays; work afte
 
 ```mermaid
 flowchart TD
-    A["Owner opens Shifts"] --> B["POST /api/shifts name, start, end, grace"]
+    A["Owner opens Shifts"] --> B["POST /api/v1/shifts name, start, end, grace"]
     B --> C{"Name free, times valid?"}
     C -->|"no"| C1["409 SHIFT_NAME_IN_USE or 400"]
     C -->|"yes"| D["201 id, audit shift.created"]
-    D --> E["PUT /api/employees/:id/shift from a date"]
+    D --> E["PUT /api/v1/employees/:id/shift from a date"]
     E --> F{"Shift active and date not in the past?"}
     F -->|"no"| F1["422 SHIFT_INACTIVE or SHIFT_EFFECTIVE_DATE_IN_PAST"]
     F -->|"yes"| G["Assignment history row, audit employee.shift_changed<br/>old workdays keep their snapshot"]
@@ -643,7 +643,7 @@ flowchart TD
     H --> I{"Within 365 days and no workday on that date?"}
     I -->|"no"| I1["422 SCHEDULE_DATE_TOO_FAR or SCHEDULE_DATE_HAS_WORKDAY"]
     I -->|"yes"| J["Upsert, one audit entry schedule.entry_set per changed date"]
-    J --> K["Manager reads GET /api/schedule-entries, employee reads GET /api/me/schedule"]
+    J --> K["Manager reads GET /api/v1/schedule-entries, employee reads GET /api/v1/me/schedule"]
     D --> L["Deactivate a shift"]
     L --> M{"Default shift or active employees on it?"}
     M -->|"yes"| M1["422 DEFAULT_SHIFT_REQUIRED or SHIFT_IN_USE"]
@@ -655,7 +655,7 @@ Caption: only the owner writes shifts, assignments and the roster; every change 
 
 ```mermaid
 flowchart TD
-    A["Owner opens an employee and presses Disable login or Enable login, optional reason"] --> B["PUT /api/employees/:employeeId/login-access with isEnabled"]
+    A["Owner opens an employee and presses Disable login or Enable login, optional reason"] --> B["PUT /api/v1/employees/:employeeId/login-access with isEnabled"]
     B --> C{"Caller is the owner and the person is in the business?"}
     C -->|"no"| X1["403 FORBIDDEN or 404 NOT_FOUND"]
     C -->|"yes"| D{"Same state as now?"}
@@ -683,10 +683,10 @@ sequenceDiagram
     actor E as Employee with login off
     participant A as API
     participant D as Database
-    E->>A: POST /api/auth/otp-requests with their email
+    E->>A: POST /api/v1/auth/otp-requests with their email
     A->>D: Audit auth.sign_in_code_requested DENIED reason login_disabled, once per window
     A-->>E: 200 the usual text, no code is sent
-    E->>A: POST /api/auth/sessions with any code
+    E->>A: POST /api/v1/auth/sessions with any code
     A->>D: Audit auth.sign_in_failed reason login_disabled
     A-->>E: 401 That code is wrong or has expired, same as an unknown account
     E->>A: Request with an old cookie or a JurisOne token

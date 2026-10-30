@@ -20,8 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Corrections of somebody else's time by their manager or the owner: move a work or break interval
- * ({@code PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}}, {@code .../break-sessions/{sessionId}}) and end an open workday
- * ({@code PUT /api/workdays/{workdayId}/status}). MANAGER and ADMIN; everybody else 403. Rules: {@link TimeCorrectionService};
+ * ({@code PATCH /api/v1/workdays/{workdayId}/work-sessions/{sessionId}}, {@code .../break-sessions/{sessionId}}) and end an open workday
+ * ({@code PUT /api/v1/workdays/{workdayId}/status}). MANAGER and ADMIN; everybody else 403. Rules: {@link TimeCorrectionService};
  * contract: references/API.md.
  */
 @RestController
@@ -39,21 +39,21 @@ public class TimeCorrectionController {
         this.objectMapper = objectMapper;
     }
 
-    @PatchMapping("/api/workdays/{workdayId}/work-sessions/{sessionId}")
+    @PatchMapping("/api/v1/workdays/{workdayId}/work-sessions/{sessionId}")
     public ApiResult<WorkdaySnapshot> adjustWorkSession(@PathVariable UUID workdayId, @PathVariable UUID sessionId,
             @RequestBody(required = false) JsonNode body) {
         return answer(timeCorrectionService.adjustInterval(auth.requireRole(CORRECTING_ROLES), workdayId, SegmentType.WORK, sessionId,
                 PatchBody.of(body, objectMapper)), "Time corrected.");
     }
 
-    @PatchMapping("/api/workdays/{workdayId}/break-sessions/{sessionId}")
+    @PatchMapping("/api/v1/workdays/{workdayId}/break-sessions/{sessionId}")
     public ApiResult<WorkdaySnapshot> adjustBreakSession(@PathVariable UUID workdayId, @PathVariable UUID sessionId,
             @RequestBody(required = false) JsonNode body) {
         return answer(timeCorrectionService.adjustInterval(auth.requireRole(CORRECTING_ROLES), workdayId, SegmentType.BREAK, sessionId,
                 PatchBody.of(body, objectMapper)), "Time corrected.");
     }
 
-    @PutMapping("/api/workdays/{workdayId}/status")
+    @PutMapping("/api/v1/workdays/{workdayId}/status")
     public ApiResult<WorkdaySnapshot> setWorkdayStatus(@PathVariable UUID workdayId, @RequestBody(required = false) WorkdayStatusInput body) {
         CorrectionResult result = timeCorrectionService.closeWorkday(auth.requireRole(CORRECTING_ROLES), workdayId, body);
         return result.isChanged() ? ApiResult.success("Workday ended.", result.workday())

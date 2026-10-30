@@ -19,7 +19,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /api/me} for every role: {id, firstName, lastName, email, role, businessName, employeeCode, managerName, businessTimeZone};
+ * {@code GET /api/v1/me} for every role: {id, firstName, lastName, email, role, businessName, employeeCode, managerName, businessTimeZone};
  * the super admin has no business.
  */
 class MeTest extends IntegrationTest {
@@ -42,7 +42,7 @@ class MeTest extends IntegrationTest {
         UUID businessId = testData.createBusiness(businessName);
         String email = TestData.uniqueEmail(role.toLowerCase());
         UUID userId = testData.createUser(businessId, role, email, null);
-        mockMvc.perform(get("/api/me").cookie(SignIn.session(mockMvc, email).accessCookie()))
+        mockMvc.perform(get("/api/v1/me").cookie(SignIn.session(mockMvc, email).accessCookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true))
                 .andExpect(jsonPath("$.data.id").value(userId.toString()))
@@ -63,7 +63,7 @@ class MeTest extends IntegrationTest {
         UUID managerId = testData.createUser(businessId, "MANAGER", TestData.uniqueEmail("manager"), null, "Manish", "Manager", "M-1");
         String email = TestData.uniqueEmail("report");
         testData.createUser(businessId, "EMPLOYEE", email, managerId, "Asha", "Rao", "E-7");
-        mockMvc.perform(get("/api/me").cookie(SignIn.session(mockMvc, email).accessCookie()))
+        mockMvc.perform(get("/api/v1/me").cookie(SignIn.session(mockMvc, email).accessCookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstName").value("Asha"))
                 .andExpect(jsonPath("$.data.employeeCode").value("E-7"))
@@ -75,7 +75,7 @@ class MeTest extends IntegrationTest {
     void theSuperAdminHasNoBusiness() throws Exception {
         String email = TestData.uniqueEmail("platform");
         testData.createUser(null, "SUPER_ADMIN", email, null);
-        mockMvc.perform(get("/api/me").cookie(SignIn.session(mockMvc, email).accessCookie()))
+        mockMvc.perform(get("/api/v1/me").cookie(SignIn.session(mockMvc, email).accessCookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("SUPER_ADMIN"))
                 .andExpect(jsonPath("$.data.businessName").value(nullValue()))
@@ -84,6 +84,6 @@ class MeTest extends IntegrationTest {
 
     @Test
     void signedOutIs401() throws Exception {
-        mockMvc.perform(get("/api/me")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(get("/api/v1/me")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 }

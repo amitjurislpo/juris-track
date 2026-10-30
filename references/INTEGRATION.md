@@ -12,7 +12,7 @@ the integration will follow.
 | Login screen | JurisTrack's own (email + 6-digit emailed code) | JurisOne's (unchanged) |
 | Session | JurisTrack cookies (`jt_at` access JWT, `jt_rt` rotating refresh) | JurisOne's session; JurisTrack never sees the cookies |
 | UI shell | JurisTrack's own shell (`src/standalone` in the frontend) | JurisOne's shell; JurisTrack pages (`src/track`) open inside it |
-| API caller | the browser, through the web app's `/api` proxy | the JurisOne backend (gateway) |
+| API caller | the browser, through the web app's `/api/v1` proxy | the JurisOne backend (gateway) |
 | Users and business | created and managed in JurisTrack (admin, or sign-up of the company) | created just in time from the JurisOne token |
 | Database | JurisTrack's own (`juristrack`) | the same JurisTrack database/service, one row set per business |
 
@@ -22,14 +22,14 @@ Both modes use the same endpoints, the same permission rules and the same tables
 
 ```
 Browser (JurisOne UI, JurisOne cookies)
-   |  GET/POST /api/juris-track/**             (same origin as JurisOne, extends the existing placeholder path)
+   |  GET/POST /api/v1/juris-track/**             (same origin as JurisOne, extends the existing placeholder path)
    v
 JurisOne backend  = gateway (BFF)
    |  1. checks the JurisOne session, the business plan/grant (module JURIS_TRACK) and the user's JurisOne permission
    |  2. signs a short-lived JWT for this call
    |  3. forwards the request:  Authorization: Bearer <jwt>   (+ X-Request-Id, original method/path/query/body)
    v
-JurisTrack API  /api/**  (internal network only, never exposed to browsers in this mode)
+JurisTrack API  /api/v1/**  (internal network only, never exposed to browsers in this mode)
    |  verifies the JWT, provisions the business/user if new, applies its own rules, answers
 ```
 
@@ -54,7 +54,7 @@ leaves the JurisOne backend, JurisOne keeps control of who may use the module (p
 **Just-in-time provisioning (implemented):** on a valid token, in system mode inside one transaction: find the business by `businesses.jurisone_business_id` (create it
 with the JurisOne business name and defaults if new, refresh the name otherwise), then the user by `users.jurisone_employee_id`; if not found, match by email
 **inside that business** (a user of the linked business who was added by email before is linked), else create the user. **A token never adopts an existing
-business.** A standalone company moves to JurisOne only when the platform super admin links it explicitly (`PUT /api/businesses/{businessId}/jurisone-link`,
+business.** A standalone company moves to JurisOne only when the platform super admin links it explicitly (`PUT /api/v1/businesses/{businessId}/jurisone-link`,
 audited; `DELETE` undoes it); otherwise any standalone owner could plant an employee with a JurisOne colleague's email, and the first token of that company
 would hand the whole company to the planter. **The token is authoritative on every call** for name, email, role (`MANAGER` or `EMPLOYEE`; `ADMIN` only when
 sent; a downgrade takes effect on the next call, **except that an existing ADMIN keeps the owner role** unless the token itself says otherwise, so linking
@@ -66,7 +66,7 @@ to the `SUPER_ADMIN` is refused with 403; a deactivated user, or one whose login
 (the super admin suspends businesses, which also closes their open workdays); any invalid token answers 401 without details and is never logged.
 
 **Roster sync (BUILT, version 2.1 of the documents):** a manager must see all their reports, including those who never opened JurisTrack, so JurisOne also pushes the
-roster. `PUT /api/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees
+roster. `PUT /api/v1/integration/employees` (service token: `aud=juristrack`, `scope=employees:sync`, issued by JurisOne) takes the list of a business's employees
 { id, code, name, email, managerId, isActive } and creates/updates/deactivates users accordingly (idempotent, whole roster or a batch of changes). JurisOne calls
 it when employees or manager assignments change and on a schedule. Just-in-time provisioning from the user token still works as a fallback.
 
@@ -80,7 +80,7 @@ and checked like a user token (signature, algorithm, `iss`, `aud`, `exp - iat` a
 | `businessId`, `businessName` | the one JurisOne business this call is about (the body is about that business only) |
 | `sub`, `email` | **must be absent**: a token with either is refused (`not_a_service_token`) |
 
-The service token opens **only** `PUT /api/integration/employees` (matched exactly); a user token (no scope), a cookie session or a token with another scope
+The service token opens **only** `PUT /api/v1/integration/employees` (matched exactly); a user token (no scope), a cookie session or a token with another scope
 cannot call that endpoint, and a user token that carries a `scope` is refused everywhere else, so a service token never works on any other endpoint. A
 refused token answers 401 without details and is audited as `integration.token_rejected` (`missing_scope`, `wrong_scope`, `not_a_service_token`,
 `service_token_not_accepted`, ...). The business is found by `jurisone_business_id` or created (never an existing standalone business); a suspended
@@ -104,10 +104,10 @@ service token names):
 - `shifts`: the business's shift templates by a JurisOne-chosen `code` (unique per business). JurisTrack creates or updates the shift with that code
   (name, times, grace; changes affect future occurrences only) and remembers the code on it; a shift missing from a later call is left as it is.
   Times are `HH:mm` on the **business time zone's** wall clock; an end at or before the start means the next day; the grace defaults to 180 minutes.
-- `employees[].shiftCode`: the shift assigned to the employee from today on (the same assignment as `PUT /api/employees/{id}/shift`; the history is
+- `employees[].shiftCode`: the shift assigned to the employee from today on (the same assignment as `PUT /api/v1/employees/{id}/shift`; the history is
   kept; the same shift again changes nothing). Absent or null: the assignment is left as it is.
 - `employees[].schedule`: the roster for up to the next 62 days, one entry per date; `shiftCode` null is a **week off** (weeks off are rotational).
-  Entries are the same records as `PUT /api/employees/{id}/schedule-entries`: idempotent upsert per date, a date that already has a workday is skipped
+  Entries are the same records as `PUT /api/v1/employees/{id}/schedule-entries`: idempotent upsert per date, a date that already has a workday is skipped
   and reported, dates beyond 365 days are refused. Dates not listed are left as they are.
 - Idempotent: the same body twice changes nothing and writes no further audit entry beyond `integration.roster_synced` (counts only). Every changed
   shift, assignment or roster entry is audited like the manual change (`shift.*`, `employee.shift_changed`, `schedule.entry_set`) with source `INTEGRATION`.
@@ -124,7 +124,7 @@ cross-site defence is the JurisOne gateway's job.
 
 ## 3. Standalone: how a direct user signs in
 
-Same flow as JurisOne's own sign-in: `POST /api/auth/otp-requests` (email), then `POST /api/auth/sessions` (email + code); cookies `jt_at` / `jt_rt`; fixed code
+Same flow as JurisOne's own sign-in: `POST /api/v1/auth/otp-requests` (email), then `POST /api/v1/auth/sessions` (email + code); cookies `jt_at` / `jt_rt`; fixed code
 `000000` only in dev. Settings (all in `application-<env>.properties`): `juristrack.otp.code-ttl-minutes` (10), `max-attempts` (5, then the code is burnt), `requests-per-ip` (10) and `requests-per-email` (5) per `window-minutes` (15), `failed-sign-ins-per-ip` (20); `juristrack.security.access-token-ttl-seconds` (300), `session-ttl-days`, `short-session-hours` (12, when "keep me signed in" is off), `refresh-reuse-grace-seconds`, `cookie-secure` (true in uat/prd). Limits are in memory (one instance). Inactive or unknown emails get the same generic answer and no code. Email addresses are globally unique, so the business is resolved from the email. The first super admin comes from the `seed` command; the super admin then creates
 businesses and their owners (open question 2), and owners add their employees.
 
@@ -157,7 +157,7 @@ No HR, Finance or other functional roles exist in JurisTrack. "Individual" (smal
 interval, close a forgotten workday), **never their own**. A reason of at least 5 characters is mandatory, overlaps/future/inverted intervals are rejected, and
 the change is written to the audit log in the same transaction. When a manager's own time needs correcting, their manager (or the owner) does it.
 
-**UI structure for every user:** a personal **section** (Dashboard, My time, My history, Profile; endpoints `/api/me/time`, `/api/me/time-events`, `/api/workdays/mine`, `/api/workdays/{id}`) that is always there, even for a manager; a manager additionally
+**UI structure for every user:** a personal **section** (Dashboard, My time, My history, Profile; endpoints `/api/v1/me/time`, `/api/v1/me/time-events`, `/api/v1/workdays/mine`, `/api/v1/workdays/{id}`) that is always there, even for a manager; a manager additionally
 gets the **Team tab** (live board with working / on break / not started / day ended, productive time per person, reports, each report's history, the indirect-reports
 switch). The same pages in both modes, so the design is identical when embedded.
 
@@ -173,9 +173,9 @@ switch). The same pages in both modes, so the design is identical when embedded.
 - `src/track/` holds all JurisTrack pages, routes (`trackRoutes`), actions, types and rules. It does not own login or the shell and imports nothing from
   `src/standalone`. Everything environment-specific comes through an injected `TrackContext` (API base path, extra headers such as `Authorization`, current user,
   translate function, navigate).
-- `src/standalone/` holds the shell, sidebar, login, session (`GET /api/me`), theme, toasts and language switcher, and supplies the `TrackContext` (`/api`, cookie session).
+- `src/standalone/` holds the shell, sidebar, login, session (`GET /api/v1/me`), theme, toasts and language switcher, and supplies the `TrackContext` (`/api/v1`, cookie session).
 - Embedding into the JurisOne UI (later): the JurisOne frontend imports `src/track` (as a package or a federated module) and supplies its own `TrackContext` whose
-  base path is `/api/juris-track` (the gateway) and whose headers are empty (JurisOne adds the token server-side). The JurisOne shell uses the same design CSS
+  base path is `/api/v1/juris-track` (the gateway) and whose headers are empty (JurisOne adds the token server-side). The JurisOne shell uses the same design CSS
   (both apps use the People prototype CSS), so the pages look native.
 
 ## 5. Decisions and open questions
@@ -188,7 +188,7 @@ Decided by the owner:
 5. Embedded: one role, the **JurisTrack manager**, granted in JurisOne; whoever has it sees everyone under them in the reporting line.
 
 Still open (defaults in bold; change anything later without redesign):
-- Gateway path: **`/api/juris-track/**` on the JurisOne backend** (extends the existing placeholder `GET /api/juris-track`).
+- Gateway path: **`/api/v1/juris-track/**` on the JurisOne backend** (extends the existing placeholder `GET /api/v1/juris-track`).
 - How a standalone company gets created: **the `SUPER_ADMIN` creates the business and its owner in the app; the first super admin comes from the `seed` command
   (`juristrack.seed.super-admin-email`); self-sign-up later**.
 - Key distribution: **one key pair, public key in a property/env var; JWKS later**. Embedded API deployment: **internal-only network**.

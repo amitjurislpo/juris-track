@@ -32,11 +32,11 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code /api/businesses}: the platform super admin's businesses (SUPER_ADMIN only; the super admin has no business, so these requests
+ * {@code /api/v1/businesses}: the platform super admin's businesses (SUPER_ADMIN only; the super admin has no business, so these requests
  * run in system mode and see every business). Rules: {@link BusinessService}; contract: references/API.md.
  */
 @RestController
-@RequestMapping("/api/businesses")
+@RequestMapping("/api/v1/businesses")
 public class BusinessController {
 
     private final Auth auth;

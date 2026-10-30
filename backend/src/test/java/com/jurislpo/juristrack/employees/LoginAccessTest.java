@@ -29,7 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * {@code PUT /api/employees/{id}/login-access}: the owner switches a person's sign-in off and on without deactivating them. Switching
+ * {@code PUT /api/v1/employees/{id}/login-access}: the owner switches a person's sign-in off and on without deactivating them. Switching
  * off ends their sessions, closes their open workday and refuses every sign-in like an unknown account; the person stays in the list.
  */
 class LoginAccessTest extends IntegrationTest {
@@ -66,11 +66,11 @@ class LoginAccessTest extends IntegrationTest {
     }
 
     private ResultActions setLoginAccess(Cookie cookie, UUID targetId, String json) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + targetId + "/login-access")).cookie(cookie).content(json));
+        return mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + targetId + "/login-access")).cookie(cookie).content(json));
     }
 
     private void startWork(Cookie cookie) throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
     }
 
     private int auditCount(String action) {
@@ -84,12 +84,12 @@ class LoginAccessTest extends IntegrationTest {
 
     @Test
     void newPeopleCanSignInAndTheFlagIsOnTheListAndTheDetail() throws Exception {
-        mockMvc.perform(get("/api/employees/" + employeeId).cookie(ownerCookie)).andExpect(status().isOk())
+        mockMvc.perform(get("/api/v1/employees/" + employeeId).cookie(ownerCookie)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.isLoginEnabled").value(true));
         setLoginAccess(ownerCookie, employeeId, "{\"isEnabled\":false}").andExpect(status().isOk());
-        mockMvc.perform(get("/api/employees/" + employeeId).cookie(ownerCookie)).andExpect(jsonPath("$.data.isLoginEnabled").value(false))
+        mockMvc.perform(get("/api/v1/employees/" + employeeId).cookie(ownerCookie)).andExpect(jsonPath("$.data.isLoginEnabled").value(false))
                 .andExpect(jsonPath("$.data.isActive").value(true));
-        mockMvc.perform(get("/api/employees?search=Esha").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows[0].isLoginEnabled").value(false))
+        mockMvc.perform(get("/api/v1/employees?search=Esha").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows[0].isLoginEnabled").value(false))
                 .andExpect(jsonPath("$.data.rows[0].isActive").value(true));
     }
 
@@ -106,9 +106,9 @@ class LoginAccessTest extends IntegrationTest {
 
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id = ? AND revoked_at IS NULL", Integer.class, employeeId)).isZero();
         assertThat(jdbcTemplate.queryForList("SELECT revoked_reason FROM sessions WHERE user_id = ?", String.class, employeeId)).containsOnly("login_disabled");
-        mockMvc.perform(get("/api/me").cookie(firstDevice.accessCookie())).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/me").cookie(secondDevice.accessCookie())).andExpect(status().isUnauthorized());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/session-refreshes")).cookie(secondDevice.refreshCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(firstDevice.accessCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(secondDevice.accessCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes")).cookie(secondDevice.refreshCookie())).andExpect(status().isUnauthorized());
 
         Map<String, Object> workday = jdbcTemplate.queryForMap("SELECT status::text AS status, active_employee_id, productive_seconds FROM workdays WHERE employee_id = ?",
                 employeeId);
@@ -124,7 +124,7 @@ class LoginAccessTest extends IntegrationTest {
         assertThat((String) entry.get("after_json")).contains("\"isLoginEnabled\": false").contains("\"endedSessions\": 2").contains("\"closedWorkdayId\"");
 
         // still in the business: the default list (active people) and the detail show them
-        mockMvc.perform(get("/api/employees/" + employeeId).cookie(ownerCookie)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/employees/" + employeeId).cookie(ownerCookie)).andExpect(status().isOk());
     }
 
     @Test
@@ -159,7 +159,7 @@ class LoginAccessTest extends IntegrationTest {
                 .andExpect(jsonPath("$.message").value("Login enabled.")).andExpect(jsonPath("$.data.isLoginEnabled").value(true));
         assertThat(auditEntry("employee.login_enabled")).containsEntry("actor_id", ownerId).containsEntry("reason", "Back");
         assertThat(jdbcTemplate.queryForObject("SELECT status::text FROM workdays WHERE employee_id = ?", String.class, employeeId)).isEqualTo("COMPLETED");
-        mockMvc.perform(get("/api/me").cookie(SignIn.session(mockMvc, employeeEmail).accessCookie())).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").cookie(SignIn.session(mockMvc, employeeEmail).accessCookie())).andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM workdays WHERE employee_id = ? AND active_employee_id IS NOT NULL", Integer.class,
                 employeeId)).isZero();
     }
@@ -194,7 +194,7 @@ class LoginAccessTest extends IntegrationTest {
         setLoginAccess(ownerCookie, employeeId, "{\"reason\":\"x\"}").andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].field").value("isEnabled"));
         setLoginAccess(ownerCookie, employeeId, "{\"isEnabled\":false,\"reason\":\"" + "r".repeat(501) + "\"}").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("reason"));
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/login-access")).cookie(ownerCookie)).andExpect(status().isBadRequest());
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/login-access")).cookie(ownerCookie)).andExpect(status().isBadRequest());
         assertThat(jdbcTemplate.queryForObject("SELECT is_login_enabled FROM users WHERE id = ?", Boolean.class, employeeId)).isTrue();
     }
 
@@ -222,7 +222,7 @@ class LoginAccessTest extends IntegrationTest {
 
     @Test
     void signedOutIs401() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/login-access")).content("{\"isEnabled\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/login-access")).content("{\"isEnabled\":false}"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -231,8 +231,8 @@ class LoginAccessTest extends IntegrationTest {
         SessionCookies device = SignIn.session(mockMvc, employeeEmail);
         // the flag flips without the sessions being ended (as a race with a sign-in would leave it)
         jdbcTemplate.update("UPDATE users SET is_login_enabled = false WHERE id = ?", employeeId);
-        mockMvc.perform(get("/api/me").cookie(device.accessCookie())).andExpect(status().isUnauthorized());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/session-refreshes")).cookie(device.refreshCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(device.accessCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes")).cookie(device.refreshCookie())).andExpect(status().isUnauthorized());
         assertThat(jdbcTemplate.queryForObject("SELECT revoked_reason FROM sessions WHERE user_id = ?", String.class, employeeId)).isEqualTo("login_disabled");
     }
 }

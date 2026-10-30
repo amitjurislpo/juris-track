@@ -26,9 +26,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** {@code /api/shifts}: the business's shift templates. Everybody of the business reads; the owner (ADMIN) writes. Rules: {@link ShiftService}. */
+/** {@code /api/v1/shifts}: the business's shift templates. Everybody of the business reads; the owner (ADMIN) writes. Rules: {@link ShiftService}. */
 @RestController
-@RequestMapping("/api/shifts")
+@RequestMapping("/api/v1/shifts")
 public class ShiftController {
 
     private static final Role[] BUSINESS_ROLES = {Role.ADMIN, Role.MANAGER, Role.EMPLOYEE};

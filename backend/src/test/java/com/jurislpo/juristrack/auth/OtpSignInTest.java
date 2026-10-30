@@ -163,7 +163,7 @@ class OtpSignInTest extends IntegrationTest {
         SignIn.requestCode(mockMvc, "not-an-email").andExpect(status().isBadRequest());
         SignIn.postCode(mockMvc, newEmployee(), "12ab", true).andExpect(status().isBadRequest());
         // there are no passwords
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions"))
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/sessions"))
                 .content("{\"email\":\"" + newEmployee() + "\",\"password\":\"anything-at-all-1\"}")).andExpect(status().isBadRequest());
     }
 
@@ -181,10 +181,10 @@ class OtpSignInTest extends IntegrationTest {
         String email = newEmployee();
         // ten guesses, each from another address (the header is believed: the connection comes from a trusted proxy)
         for (int i = 0; i < 10; i++) {
-            mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).header("X-Forwarded-For", "198.51.100." + (10 + i))
+            mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/sessions")).header("X-Forwarded-For", "198.51.100." + (10 + i))
                     .content("{\"email\":\"" + email + "\",\"otp\":\"123456\"}")).andExpect(status().isUnauthorized());
         }
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).header("X-Forwarded-For", "198.51.100.99")
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/sessions")).header("X-Forwarded-For", "198.51.100.99")
                 .content("{\"email\":\"" + email + "\",\"otp\":\"123456\"}")).andExpect(status().isTooManyRequests());
     }
 
@@ -193,13 +193,13 @@ class OtpSignInTest extends IntegrationTest {
         // 20 wrong codes, each claiming another address in X-Forwarded-For, from one connection that is not a proxy: still one IP address
         List<String> emails = List.of(newEmployee(), newEmployee(), newEmployee());
         for (int i = 0; i < 20; i++) {
-            mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).with(request -> {
+            mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/sessions")).with(request -> {
                         request.setRemoteAddr("203.0.113.77");
                         return request;
                     }).header("X-Forwarded-For", "192.0.2." + (1 + i))
                     .content("{\"email\":\"" + emails.get(i % 3) + "\",\"otp\":\"123456\"}")).andExpect(status().isUnauthorized());
         }
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/sessions")).with(request -> {
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/sessions")).with(request -> {
                     request.setRemoteAddr("203.0.113.77");
                     return request;
                 }).header("X-Forwarded-For", "192.0.2.200")

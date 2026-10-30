@@ -101,15 +101,15 @@ abstract class ReportTestBase extends IntegrationTest {
     }
 
     ResultActions workdays(Cookie accessCookie, String query) throws Exception {
-        return mockMvc.perform(request("/api/reports/workdays", query).cookie(accessCookie));
+        return mockMvc.perform(request("/api/v1/reports/workdays", query).cookie(accessCookie));
     }
 
     ResultActions summaries(Cookie accessCookie, String query) throws Exception {
-        return mockMvc.perform(request("/api/reports/summaries", query).cookie(accessCookie));
+        return mockMvc.perform(request("/api/v1/reports/summaries", query).cookie(accessCookie));
     }
 
     ResultActions csv(Cookie accessCookie, String query) throws Exception {
-        return mockMvc.perform(request("/api/reports/workdays", query).cookie(accessCookie).header("accept", "text/csv"));
+        return mockMvc.perform(request("/api/v1/reports/workdays", query).cookie(accessCookie).header("accept", "text/csv"));
     }
 
     static MockHttpServletRequestBuilder request(String path, String query) {

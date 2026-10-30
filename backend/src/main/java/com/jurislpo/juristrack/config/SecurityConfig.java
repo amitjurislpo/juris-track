@@ -1,6 +1,7 @@
 package com.jurislpo.juristrack.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jurislpo.juristrack.common.ApiPaths;
 import com.jurislpo.juristrack.exception.ForbiddenException;
 import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.repository.SessionRepository;
@@ -30,7 +31,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 /**
  * Stateless: no JSESSIONID, no form or basic login. The caller is authenticated by {@link RequestAuthenticationFilter}: the
  * {@code jt_at} session cookie (standalone sign-in by emailed code), or JurisOne's Bearer token when embedded. Only the health
- * endpoint and the sign-in endpoints are open; every other {@code /api/**} call needs a signed-in user and answers 401
+ * endpoint and the sign-in endpoints are open; every other {@code /api/v1/**} call needs a signed-in user and answers 401
  * problem+json without one. Spring's CSRF token is off because the defence is SameSite=Lax cookies + the
  * {@link OriginCheckFilter} on writes, as in JurisOne. Spring Security's default security headers stay on
  * ({@code X-Content-Type-Options: nosniff}, {@code X-Frame-Options: DENY}, no-cache, HSTS over https).
@@ -66,11 +67,11 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                 // signing in, renewing and ending a session work without a valid access token
-                .requestMatchers(HttpMethod.POST, "/api/auth/otp-requests", "/api/auth/sessions", "/api/auth/session-refreshes").permitAll()
-                .requestMatchers(HttpMethod.DELETE, "/api/auth/sessions/current").permitAll()
+                .requestMatchers(HttpMethod.POST, ApiPaths.PREFIX + "/auth/otp-requests", ApiPaths.PREFIX + "/auth/sessions", ApiPaths.PREFIX + "/auth/session-refreshes").permitAll()
+                .requestMatchers(HttpMethod.DELETE, ApiPaths.PREFIX + "/auth/sessions/current").permitAll()
                 // the roster sync takes JurisOne's service token and nothing else (RequestAuthenticationFilter); a user or a cookie session is refused
-                .requestMatchers("/api/integration/**").hasRole("INTEGRATION_SERVICE")
-                .requestMatchers("/api/**").authenticated()
+                .requestMatchers(ApiPaths.PREFIX + "/integration/**").hasRole("INTEGRATION_SERVICE")
+                .requestMatchers(ApiPaths.ALL).authenticated()
                 .anyRequest().denyAll());
         return http.build();
     }
@@ -85,7 +86,7 @@ public class SecurityConfig {
         corsConfiguration.setExposedHeaders(List.of(RequestIdFilter.REQUEST_ID_HEADER));
         corsConfiguration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource corsConfigurationSource = new UrlBasedCorsConfigurationSource();
-        corsConfigurationSource.registerCorsConfiguration("/api/**", corsConfiguration);
+        corsConfigurationSource.registerCorsConfiguration(ApiPaths.ALL, corsConfiguration);
         return corsConfigurationSource;
     }
 }

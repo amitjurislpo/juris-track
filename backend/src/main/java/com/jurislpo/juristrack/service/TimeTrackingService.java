@@ -77,7 +77,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class TimeTrackingService {
 
-    /** {@code POST /api/me/time-events} body: {@code type} = START, BREAK, RESUME or END (any case). */
+    /** {@code POST /api/v1/me/time-events} body: {@code type} = START, BREAK, RESUME or END (any case). */
     public record TimeEventInput(String type) {}
 
     /**

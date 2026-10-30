@@ -88,7 +88,7 @@ public class WorkdayHistoryService {
     public record DailyPoint(LocalDate date, long productiveSeconds, long breakSeconds, int workdays) {}
 
     /**
-     * {@code GET /api/workdays/mine}: one page of rows plus what the whole range adds up to.
+     * {@code GET /api/v1/workdays/mine}: one page of rows plus what the whole range adds up to.
      *
      * @param rows        this page's workdays
      * @param total       workdays in the range (all pages)
@@ -103,7 +103,7 @@ public class WorkdayHistoryService {
     public record WorkdayHistory(List<WorkdayRow> rows, long total, int page, int pageSize, String range, LocalDate from, LocalDate to,
             WorkdayTotalsSummary totals, List<DailyPoint> dailySeries) {}
 
-    /** The sort keys of {@code GET /api/workdays/mine}, in the order the API documents them. */
+    /** The sort keys of {@code GET /api/v1/workdays/mine}, in the order the API documents them. */
     public static final List<String> SORT_KEYS = List.of("date", "startedAt", "endedAt", "productiveSeconds", "breakSeconds", "spanSeconds",
             "breakCount");
     private static final Map<String, Comparator<WorkdayRow>> SORT_ORDERS = Map.of(

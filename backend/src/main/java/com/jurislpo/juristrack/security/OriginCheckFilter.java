@@ -1,6 +1,7 @@
 package com.jurislpo.juristrack.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jurislpo.juristrack.common.ApiPaths;
 import com.jurislpo.juristrack.exception.Problems;
 import com.jurislpo.juristrack.service.AuditAction;
 import com.jurislpo.juristrack.service.AuditAggregation;
@@ -22,7 +23,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * The CSRF defence (with the {@code SameSite=Lax} cookies): every state-changing {@code /api} request must carry an
+ * The CSRF defence (with the {@code SameSite=Lax} cookies): every state-changing {@code /api/v1} request must carry an
  * {@code Origin} header equal to {@code juristrack.frontend-origin}, the web app's public URL; otherwise 403
  * {@code CROSS_SITE_BLOCKED}. Requests authenticated by JurisOne's Bearer token are exempt: a browser never sends that header by
  * itself, so there is nothing to forge (JurisOne's service token of the roster sync is exempt for the same reason). Runs after {@link RequestAuthenticationFilter}. A blocked request is audited
@@ -47,7 +48,7 @@ public class OriginCheckFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return SAFE_METHODS.contains(request.getMethod()) || !request.getRequestURI().startsWith("/api/");
+        return SAFE_METHODS.contains(request.getMethod()) || !request.getRequestURI().startsWith(ApiPaths.PREFIX + "/");
     }
 
     @Override

@@ -59,7 +59,7 @@ class EmployeeWriteTest extends IntegrationTest {
     }
 
     private String createEmployee(String json) throws Exception {
-        String response = mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie).content(json))
+        String response = mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie).content(json))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return JsonPath.read(response, "$.data.id");
     }
@@ -76,14 +76,14 @@ class EmployeeWriteTest extends IntegrationTest {
     @Test
     void theOwnerAddsAnEmployeeWhoCanSignInAtOnce() throws Exception {
         String email = TestData.uniqueEmail("new.employee");
-        String response = mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie).content(
+        String response = mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie).content(
                         "{\"employeeCode\":\" W-010 \",\"firstName\":\" Asha \",\"lastName\":\"Rao\",\"email\":\"" + email.toUpperCase()
                                 + "\",\"role\":\"EMPLOYEE\",\"managerId\":\"" + managerId + "\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.message").value("Employee added."))
                 .andReturn().getResponse().getContentAsString();
         String employeeId = JsonPath.read(response, "$.data.id");
-        mockMvc.perform(get("/api/employees/" + employeeId).cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees/" + employeeId).cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.employeeCode").value("W-010"))
                 .andExpect(jsonPath("$.data.firstName").value("Asha"))
                 .andExpect(jsonPath("$.data.email").value(email))
@@ -96,12 +96,12 @@ class EmployeeWriteTest extends IntegrationTest {
         assertThat((String) entry.get("after_json")).contains("\"email\": \"" + email + "\"").contains("\"managerId\": \"" + managerId + "\"");
         assertThat(entry.get("before_json")).isNull();
 
-        mockMvc.perform(get("/api/me").cookie(SignIn.session(mockMvc, email).accessCookie())).andExpect(status().isOk())
+        mockMvc.perform(get("/api/v1/me").cookie(SignIn.session(mockMvc, email).accessCookie())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.managerName").value("Manish Manager"));
 
         // the role defaults to EMPLOYEE; code and manager are optional
         String minimalId = createEmployee("{\"firstName\":\"Ben\",\"lastName\":\"Carter\",\"email\":\"" + TestData.uniqueEmail("ben") + "\"}");
-        mockMvc.perform(get("/api/employees/" + minimalId).cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees/" + minimalId).cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.role").value("EMPLOYEE"))
                 .andExpect(jsonPath("$.data.employeeCode").value(nullValue()))
                 .andExpect(jsonPath("$.data.managerId").value(nullValue()));
@@ -109,28 +109,28 @@ class EmployeeWriteTest extends IntegrationTest {
 
     @Test
     void badInputIs400() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"employeeCode\":\"bad code!\",\"firstName\":\"\",\"email\":\"nope\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.errors[*].field").value(hasItems("employeeCode", "firstName", "lastName", "email")));
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"firstName\":\"" + "x".repeat(61) + "\",\"lastName\":\"Rao\",\"email\":\"" + TestData.uniqueEmail("long") + "\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.detail").value("First name must be at most 60 characters."));
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"" + TestData.uniqueEmail("role") + "\",\"role\":\"BOSS\"}"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"" + TestData.uniqueEmail("manager") + "\",\"managerId\":\"not-a-uuid\"}"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)).andExpect(status().isBadRequest());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)).andExpect(status().isBadRequest());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM users WHERE business_id = ?", Integer.class, businessId)).isEqualTo(2);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"ADMIN", "SUPER_ADMIN"})
     void ownersAndSuperAdminsAreNotCreatedHere(String role) throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"" + TestData.uniqueEmail("role") + "\",\"role\":\"" + role + "\"}"))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("ROLE_NOT_ASSIGNABLE"));
     }
@@ -140,10 +140,10 @@ class EmployeeWriteTest extends IntegrationTest {
         String otherBusinessEmail = TestData.uniqueEmail("elsewhere");
         UUID otherBusinessId = testData.createBusiness("Elsewhere " + UUID.randomUUID());
         testData.createUser(otherBusinessId, "EMPLOYEE", otherBusinessEmail, null, "Else", "Where", "W-500");
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"" + otherBusinessEmail.toUpperCase() + "\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EMAIL_IN_USE"));
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                         .content("{\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"" + TestData.uniqueEmail("code") + "\",\"employeeCode\":\"W-002\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EMPLOYEE_CODE_IN_USE"));
         // another business's code is free here
@@ -151,9 +151,9 @@ class EmployeeWriteTest extends IntegrationTest {
 
         // the same on an edit
         String employeeId = createEmployee("{\"firstName\":\"C\",\"lastName\":\"D\",\"email\":\"" + TestData.uniqueEmail("edit") + "\"}");
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{\"email\":\"" + otherBusinessEmail + "\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{\"email\":\"" + otherBusinessEmail + "\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EMAIL_IN_USE"));
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{\"employeeCode\":\"W-001\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{\"employeeCode\":\"W-001\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EMPLOYEE_CODE_IN_USE"));
         assertThat(auditCount("employee.updated", employeeId)).isZero();
     }
@@ -164,7 +164,7 @@ class EmployeeWriteTest extends IntegrationTest {
         String employeeId = createEmployee("{\"employeeCode\":\"W-020\",\"firstName\":\"Chen\",\"lastName\":\"Li\",\"email\":\"" + email
                 + "\",\"managerId\":\"" + managerId + "\"}");
         String newEmail = TestData.uniqueEmail("patched");
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie)
                         .content("{\"lastName\":\"Lee\",\"email\":\"" + newEmail + "\",\"role\":\"MANAGER\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Employee saved."))
@@ -179,26 +179,26 @@ class EmployeeWriteTest extends IntegrationTest {
         assertThat((String) entry.get("after_json")).contains("\"lastName\": \"Lee\"").contains("\"role\": \"MANAGER\"");
 
         // null clears the code and the manager; nothing sent changes nothing and writes no audit entry
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{\"employeeCode\":null,\"managerId\":null}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{\"employeeCode\":null,\"managerId\":null}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.employeeCode").value(nullValue()))
                 .andExpect(jsonPath("$.data.managerId").value(nullValue()));
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{}")).andExpect(status().isOk());
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{\"lastName\":\"Lee\"}")).andExpect(status().isOk());
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{}")).andExpect(status().isOk());
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{\"lastName\":\"Lee\"}")).andExpect(status().isOk());
         assertThat(auditCount("employee.updated", employeeId)).isEqualTo(2);
 
         // a name or role cannot be cleared
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{\"firstName\":null,\"role\":null}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{\"firstName\":null,\"role\":null}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[*].field").value(hasItems("firstName", "role")));
     }
 
     @Test
     void theOwnersRoleIsNotChangedHereButTheirDetailsAre() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + ownerId)).cookie(ownerCookie).content("{\"role\":\"MANAGER\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + ownerId)).cookie(ownerCookie).content("{\"role\":\"MANAGER\"}"))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("ROLE_NOT_ASSIGNABLE"));
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + managerId)).cookie(ownerCookie).content("{\"role\":\"ADMIN\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + managerId)).cookie(ownerCookie).content("{\"role\":\"ADMIN\"}"))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("ROLE_NOT_ASSIGNABLE"));
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + ownerId)).cookie(ownerCookie).content("{\"firstName\":\"Olive\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + ownerId)).cookie(ownerCookie).content("{\"firstName\":\"Olive\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.firstName").value("Olive")).andExpect(jsonPath("$.data.role").value("ADMIN"));
     }
 
@@ -209,16 +209,16 @@ class EmployeeWriteTest extends IntegrationTest {
         SessionCookies firstDevice = SignIn.session(mockMvc, email);
         SessionCookies secondDevice = SignIn.session(mockMvc, email);
 
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie)
                         .content("{\"isActive\":false,\"reason\":\"Left the company\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Employee deactivated."))
                 .andExpect(jsonPath("$.data.isActive").value(false));
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id = ?::uuid AND revoked_at IS NULL", Integer.class, employeeId)).isZero();
         assertThat(jdbcTemplate.queryForList("SELECT revoked_reason FROM sessions WHERE user_id = ?::uuid", String.class, employeeId)).containsOnly("user_inactive");
-        mockMvc.perform(get("/api/me").cookie(firstDevice.accessCookie())).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/me").cookie(secondDevice.accessCookie())).andExpect(status().isUnauthorized());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/session-refreshes")).cookie(secondDevice.refreshCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(firstDevice.accessCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(secondDevice.accessCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes")).cookie(secondDevice.refreshCookie())).andExpect(status().isUnauthorized());
         int codesBefore = jdbcTemplate.queryForObject("SELECT count(*) FROM login_otps WHERE email = ?", Integer.class, email);
         SignIn.requestCode(mockMvc, email).andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM login_otps WHERE email = ?", Integer.class, email)).isEqualTo(codesBefore);
@@ -229,22 +229,22 @@ class EmployeeWriteTest extends IntegrationTest {
         assertThat((String) entry.get("after_json")).contains("\"isActive\": false").contains("\"endedSessions\": 2");
 
         // deactivating again changes nothing; reactivating lets them sign in again
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isOk());
         assertThat(auditCount("employee.deactivated", employeeId)).isEqualTo(1);
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":true}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":true}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.isActive").value(true));
         assertThat(auditCount("employee.reactivated", employeeId)).isEqualTo(1);
         rateLimiter.clear();
-        mockMvc.perform(get("/api/me").cookie(SignIn.session(mockMvc, email).accessCookie())).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").cookie(SignIn.session(mockMvc, email).accessCookie())).andExpect(status().isOk());
     }
 
     @Test
     void theOwnerCannotDeactivateThemselfButAnotherOwner() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + ownerId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + ownerId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("CANNOT_DEACTIVATE_SELF"));
         UUID secondOwnerId = testData.createUser(businessId, "ADMIN", TestData.uniqueEmail("second.owner"), null);
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + secondOwnerId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + secondOwnerId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.isActive").value(false));
         assertThat(jdbcTemplate.queryForObject("SELECT is_active FROM users WHERE id = ?", Boolean.class, ownerId)).isTrue();
     }
@@ -262,9 +262,9 @@ class EmployeeWriteTest extends IntegrationTest {
 
     @Test
     void statusNeedsIsActive() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + managerId + "/status")).cookie(ownerCookie).content("{\"reason\":\"x\"}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + managerId + "/status")).cookie(ownerCookie).content("{\"reason\":\"x\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].field").value("isActive"));
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + managerId + "/status")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + managerId + "/status")).cookie(ownerCookie)
                         .content("{\"isActive\":false,\"reason\":\"" + "r".repeat(501) + "\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].field").value("reason"));
     }
@@ -273,9 +273,9 @@ class EmployeeWriteTest extends IntegrationTest {
     void anotherBusinessesEmployeeIs404ForEveryWrite() throws Exception {
         UUID otherBusinessId = testData.createBusiness("Isolated " + UUID.randomUUID());
         UUID strangerId = testData.createUser(otherBusinessId, "EMPLOYEE", TestData.uniqueEmail("stranger"), null, "Stranger", "Danger", null);
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + strangerId)).cookie(ownerCookie).content("{\"firstName\":\"Hacked\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + strangerId)).cookie(ownerCookie).content("{\"firstName\":\"Hacked\"}"))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + strangerId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + strangerId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isNotFound());
         assertThat(jdbcTemplate.queryForMap("SELECT first_name, is_active FROM users WHERE id = ?", strangerId))
                 .containsEntry("first_name", "Stranger").containsEntry("is_active", true);
@@ -288,10 +288,10 @@ class EmployeeWriteTest extends IntegrationTest {
         String email = TestData.uniqueEmail(role.toLowerCase());
         testData.createUser("SUPER_ADMIN".equals(role) ? null : businessId, role, email, null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(cookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(cookie)
                 .content("{\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"" + TestData.uniqueEmail("x") + "\"}")).andExpect(status().isForbidden());
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + managerId)).cookie(cookie).content("{\"firstName\":\"X\"}")).andExpect(status().isForbidden());
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + managerId + "/status")).cookie(cookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + managerId)).cookie(cookie).content("{\"firstName\":\"X\"}")).andExpect(status().isForbidden());
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + managerId + "/status")).cookie(cookie).content("{\"isActive\":false}"))
                 .andExpect(status().isForbidden());
         assertThat(jdbcTemplate.queryForMap("SELECT first_name, is_active FROM users WHERE id = ?", managerId))
                 .containsEntry("first_name", "Manish").containsEntry("is_active", true);
@@ -299,8 +299,8 @@ class EmployeeWriteTest extends IntegrationTest {
 
     @Test
     void signedOutIs401() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).content("{}")).andExpect(status().isUnauthorized());
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + managerId)).content("{}")).andExpect(status().isUnauthorized());
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + managerId + "/status")).content("{}")).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).content("{}")).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + managerId)).content("{}")).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + managerId + "/status")).content("{}")).andExpect(status().isUnauthorized());
     }
 }

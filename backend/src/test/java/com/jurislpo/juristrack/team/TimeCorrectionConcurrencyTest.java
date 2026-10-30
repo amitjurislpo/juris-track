@@ -59,7 +59,7 @@ class TimeCorrectionConcurrencyTest extends IntegrationTest {
     void correctionsAndTimeEventsOfTheSamePersonNeverCorruptTheWorkday() throws Exception {
         clock.setTo("2026-10-05T03:30:00Z");
         String workdayId = team.applyEvent(team.employeeId, "START");
-        String firstSessionPath = "/api/workdays/" + workdayId + "/work-sessions/"
+        String firstSessionPath = "/api/v1/workdays/" + workdayId + "/work-sessions/"
                 + jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid", String.class, workdayId);
         List<Integer> correctionStatuses = new ArrayList<>();
         for (int round = 0; round < ROUNDS; round++) {
