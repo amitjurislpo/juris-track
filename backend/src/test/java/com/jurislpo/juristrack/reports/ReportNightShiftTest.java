@@ -50,7 +50,7 @@ class ReportNightShiftTest extends ReportTestBase {
     }
 
     private void recordEvent(Cookie accessCookie, String type) throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(accessCookie).content("{\"type\":\"" + type + "\"}"))
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(accessCookie).content("{\"type\":\"" + type + "\"}"))
                 .andExpect(status().isCreated());
     }
 }

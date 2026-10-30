@@ -70,7 +70,7 @@ class TimeHardeningTest extends IntegrationTest {
     }
 
     private ResultActions closeWorkday(String workdayId, String body) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(put("/api/workdays/" + workdayId + "/status")).cookie(managerCookie).content(body));
+        return mockMvc.perform(SignIn.fromWebApp(put("/api/v1/workdays/" + workdayId + "/status")).cookie(managerCookie).content(body));
     }
 
     private List<UUID> workSessionIds(String workdayId) {
@@ -157,7 +157,7 @@ class TimeHardeningTest extends IntegrationTest {
         // a day recorded with microseconds (as the API stored them before), read by a client that keeps milliseconds
         UUID completedWorkdayId = insertWorkday("2026-10-19", "2026-10-19T03:30:00.999500Z", "2026-10-19T04:30:00.999200Z", true);
         UUID workSessionId = insertWorkSession(completedWorkdayId, "2026-10-19T03:30:00.999500Z", "2026-10-19T04:30:00.999200Z");
-        correct("/api/workdays/" + completedWorkdayId + "/work-sessions/" + workSessionId,
+        correct("/api/v1/workdays/" + completedWorkdayId + "/work-sessions/" + workSessionId,
                 "{\"startedAt\":\"2026-10-19T03:30:00.999Z\",\"endedAt\":\"2026-10-19T04:30:00.999Z\",\"reason\":\"" + REASON + "\"}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.message").value("Nothing changed."));
         assertThat(correctionEntries()).isZero();
@@ -179,7 +179,7 @@ class TimeHardeningTest extends IntegrationTest {
     void aCorrectionFarOutsideTheWorkdayIsRefusedWithACodeNeverA500() throws Exception {
         String workdayId = workedDay("2026-10-20T03:30:00Z", 8);
         clock.setTo("2026-10-22T12:00:00Z");
-        String path = "/api/workdays/" + workdayId + "/work-sessions/" + workSessionIds(workdayId).get(0);
+        String path = "/api/v1/workdays/" + workdayId + "/work-sessions/" + workSessionIds(workdayId).get(0);
         // a wrong year, year 1 (used to overflow the totals: 500), and the evening before the workday's date in India
         for (String startedAt : List.of("2001-01-01T00:00:00Z", "0001-01-01T00:00:00Z", "2026-10-19T12:00:00Z")) {
             correct(path, "{\"startedAt\":\"" + startedAt + "\",\"reason\":\"" + REASON + "\"}").andExpect(status().isUnprocessableEntity())
@@ -202,11 +202,11 @@ class TimeHardeningTest extends IntegrationTest {
         String secondWorkdayId = workedDay("2026-10-21T03:30:00Z", 8);
         clock.setTo("2026-10-22T12:00:00Z");
         // the first day's work stretched into the second day's hours: the same hours would count twice
-        correct("/api/workdays/" + firstWorkdayId + "/work-sessions/" + workSessionIds(firstWorkdayId).get(0),
+        correct("/api/v1/workdays/" + firstWorkdayId + "/work-sessions/" + workSessionIds(firstWorkdayId).get(0),
                 "{\"endedAt\":\"2026-10-21T06:00:00Z\",\"reason\":\"" + REASON + "\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("WORKDAY_OVERLAP"));
         // touching is fine
-        correct("/api/workdays/" + firstWorkdayId + "/work-sessions/" + workSessionIds(firstWorkdayId).get(0),
+        correct("/api/v1/workdays/" + firstWorkdayId + "/work-sessions/" + workSessionIds(firstWorkdayId).get(0),
                 "{\"endedAt\":\"2026-10-21T03:30:00Z\",\"reason\":\"" + REASON + "\"}").andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'time.correction_refused' AND reason = 'WORKDAY_OVERLAP' "
                 + "AND subject_id = ?", Integer.class, employeeId)).isEqualTo(1);

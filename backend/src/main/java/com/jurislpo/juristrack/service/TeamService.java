@@ -67,7 +67,7 @@ public class TeamService {
 
     /**
      * One person on the live board with today's state; the time fields are those of the personal snapshot
-     * ({@code GET /api/me/time}), so the client runs the same live timer. Without a workday every number is 0 and every time null.
+     * ({@code GET /api/v1/me/time}), so the client runs the same live timer. Without a workday every number is 0 and every time null.
      *
      * @param employee  who it is
      * @param status    NOT_STARTED, WORKING, ON_BREAK or DAY_ENDED
@@ -98,16 +98,16 @@ public class TeamService {
     public record TeamMetrics(int total, int working, int onBreak, int notStarted, int weekOff, int dayEnded, int stale,
             long totalProductiveSeconds, long totalBreakSeconds, long totalExtraSeconds, long averageProductiveSeconds) {}
 
-    /** {@code GET /api/team/members}: one page of the board plus what the client needs to run the live timers. */
+    /** {@code GET /api/v1/team/members}: one page of the board plus what the client needs to run the live timers. */
     public record TeamBoard(List<TeamMemberRow> rows, long total, int page, int pageSize, String scope, Instant serverTime, LocalDate today,
             String businessTimeZone, int staleWorkdayHours, TeamMetrics metrics) {}
 
-    /** {@code GET /api/team/members/{employeeId}}: the person and their time state as {@code GET /api/me/time} shows one's own. */
+    /** {@code GET /api/v1/team/members/{employeeId}}: the person and their time state as {@code GET /api/v1/me/time} shows one's own. */
     public record TeamMemberDetail(TeamMemberEmployee employee, Instant serverTime, LocalDate today, String businessTimeZone,
             int staleWorkdayHours, TrackingStatus status, LocalDate shiftDate, @JsonProperty("isOffDay") boolean isOffDay, WorkdayShift shift,
             WorkdaySnapshot workday) {}
 
-    /** The sort keys of {@code GET /api/team/members}. */
+    /** The sort keys of {@code GET /api/v1/team/members}. */
     public static final List<String> SORT_KEYS = List.of("name", "status", "productiveSeconds", "lastActivity");
     private static final String SCOPE_DIRECT = "direct";
     private static final String SCOPE_INDIRECT = "indirect";
@@ -211,7 +211,7 @@ public class TeamService {
                 snapshot == null ? TrackingStatus.NOT_STARTED : snapshot.status(), occurrence.date(), attribution.isOffDay(), WorkdayShift.of(occurrence, zone), snapshot);
     }
 
-    /** One person's history, as {@code GET /api/workdays/mine} answers one's own; 404 outside the scope. Audited as access. */
+    /** One person's history, as {@code GET /api/v1/workdays/mine} answers one's own; 404 outside the scope. Audited as access. */
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     public WorkdayHistory listMemberWorkdays(CurrentUser viewer, UUID employeeId, Map<String, String> queryParameters) {
         requireVisibleMember(viewer, employeeId);

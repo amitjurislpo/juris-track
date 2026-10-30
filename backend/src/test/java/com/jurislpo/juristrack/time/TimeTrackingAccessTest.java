@@ -86,23 +86,23 @@ class TimeTrackingAccessTest extends IntegrationTest {
         String email = TestData.uniqueEmail("access.platform");
         testData.createUser(null, "SUPER_ADMIN", email, null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(get("/api/me/time").cookie(cookie)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie).content("{\"type\":\"START\"}"))
+        mockMvc.perform(get("/api/v1/me/time").cookie(cookie)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie).content("{\"type\":\"START\"}"))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/workdays/mine").cookie(cookie)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/workdays/" + UUID.randomUUID()).cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/workdays/mine").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/workdays/" + UUID.randomUUID()).cookie(cookie)).andExpect(status().isForbidden());
     }
 
     @Test
     void signedOutCallsAre401AndAWriteWithoutTheAppsOriginIsBlocked() throws Exception {
-        mockMvc.perform(get("/api/me/time")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
-        mockMvc.perform(get("/api/workdays/mine")).andExpect(status().isUnauthorized());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).content("{\"type\":\"START\"}")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me/time")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(get("/api/v1/workdays/mine")).andExpect(status().isUnauthorized());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).content("{\"type\":\"START\"}")).andExpect(status().isUnauthorized());
 
         String email = TestData.uniqueEmail("access.origin");
         UUID employeeId = testData.createUser(businessId, "EMPLOYEE", email, null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(post("/api/me/time-events").cookie(cookie).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"START\"}"))
+        mockMvc.perform(post("/api/v1/me/time-events").cookie(cookie).contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"START\"}"))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CROSS_SITE_BLOCKED"));
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM workdays WHERE employee_id = ?", Integer.class, employeeId)).isZero();
     }
@@ -117,9 +117,9 @@ class TimeTrackingAccessTest extends IntegrationTest {
         String email = TestData.uniqueEmail("access.body");
         testData.createUser(businessId, "EMPLOYEE", email, null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie).content("{}")).andExpect(status().isBadRequest());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie)).andExpect(status().isBadRequest());
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie).content("{\"type\":")).andExpect(status().isBadRequest());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie).content("{}")).andExpect(status().isBadRequest());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie)).andExpect(status().isBadRequest());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie).content("{\"type\":")).andExpect(status().isBadRequest());
     }
 
     /** The employee id never comes from the request: an extra field naming somebody else is ignored. */
@@ -129,7 +129,7 @@ class TimeTrackingAccessTest extends IntegrationTest {
         UUID selfId = testData.createUser(businessId, "EMPLOYEE", email, null);
         UUID otherId = testData.createUser(businessId, "EMPLOYEE", TestData.uniqueEmail("access.other"), null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookie)
                 .content("{\"type\":\"START\",\"employeeId\":\"" + otherId + "\"}")).andExpect(status().isCreated());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM workdays WHERE employee_id = ?", Integer.class, selfId)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM workdays WHERE employee_id = ?", Integer.class, otherId)).isZero();
@@ -176,11 +176,11 @@ class TimeTrackingAccessTest extends IntegrationTest {
         Cookie superAdminCookie = SignIn.session(mockMvc, superAdminEmail).accessCookie();
         TimeTracker tracker = signInNew(businessId, "EMPLOYEE", null);
         tracker.apply("START");
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":true}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":true}"))
                 .andExpect(status().isOk());
         tracker.send("END").andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"));
         tracker.history("").andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"));
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":false}"))
                 .andExpect(status().isOk());
         // the suspension closed the open day (it does not count as work) and the reactivation does not reopen it
         assertThat((String) tracker.stateValue("$.data.status")).isEqualTo("DAY_ENDED");

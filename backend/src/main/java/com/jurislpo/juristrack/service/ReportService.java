@@ -58,8 +58,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The reports of managers and owners (contract: references/API.md): the workdays of the people the caller may see for a date
- * range ({@code GET /api/reports/workdays}, also as CSV), and the same workdays added up per employee, per manager or per date
- * ({@code GET /api/reports/summaries}). Ported from the old app's {@code reports.service.ts} ({@code getWorkdayRecords},
+ * range ({@code GET /api/v1/reports/workdays}, also as CSV), and the same workdays added up per employee, per manager or per date
+ * ({@code GET /api/v1/reports/summaries}). Ported from the old app's {@code reports.service.ts} ({@code getWorkdayRecords},
  * {@code totalsOf}, {@code aggregate}, {@code dailySeries}) and {@code api/reports/export/route.ts}; teams became the reporting line.
  *
  * <p><b>Who sees whom</b> (INTEGRATION.md 3b): a MANAGER sees their direct reports ({@code scope=direct}, the default) or also the
@@ -105,12 +105,12 @@ public class ReportService {
     public record ReportTotals(int workdays, int employees, long productiveSeconds, long breakSeconds, long spanSeconds, int breakCount,
             long averageProductiveSeconds, long extraSeconds) {}
 
-    /** {@code GET /api/reports/workdays}: one page of workdays plus the totals and the daily series of the whole range. */
+    /** {@code GET /api/v1/reports/workdays}: one page of workdays plus the totals and the daily series of the whole range. */
     public record WorkdayReport(List<ReportRow> rows, long total, int page, int pageSize, String range, LocalDate from, LocalDate to,
             String scope, ReportTotals totals, List<DailyPoint> dailySeries) {}
 
     /**
-     * One group of {@code GET /api/reports/summaries}.
+     * One group of {@code GET /api/v1/reports/summaries}.
      *
      * @param key            the employee's id, the manager's id ({@value #NO_MANAGER_KEY} for workdays without a manager) or the date
      * @param label          the employee's or manager's name, or the date; null for the "no manager" group
@@ -123,7 +123,7 @@ public class ReportService {
             long breakSeconds, long spanSeconds, int breakCount, long averageProductiveSeconds, Instant firstStartedAt, Instant lastEndedAt,
             long extraSeconds) {}
 
-    /** {@code GET /api/reports/summaries}: one page of groups plus the totals and the daily series of the whole range. */
+    /** {@code GET /api/v1/reports/summaries}: one page of groups plus the totals and the daily series of the whole range. */
     public record SummaryReport(List<SummaryRow> rows, long total, int page, int pageSize, String groupBy, String range, LocalDate from,
             LocalDate to, String scope, ReportTotals totals, List<DailyPoint> dailySeries) {}
 
@@ -207,7 +207,7 @@ public class ReportService {
         this.maximumExportRows = maximumExportRows;
     }
 
-    /** {@code GET /api/reports/workdays}: default {@code sort=date}, {@code sortDirection=desc} (newest first), {@code range=week}. */
+    /** {@code GET /api/v1/reports/workdays}: default {@code sort=date}, {@code sortDirection=desc} (newest first), {@code range=week}. */
     @Transactional
     public WorkdayReport listWorkdays(CurrentUser currentUser, Map<String, String> queryParameters) {
         InputValidator validator = new InputValidator();
@@ -220,7 +220,7 @@ public class ReportService {
     }
 
     /**
-     * {@code GET /api/reports/summaries}: {@code groupBy} = employee (default) | manager | date; default {@code sort=label}, ascending
+     * {@code GET /api/v1/reports/summaries}: {@code groupBy} = employee (default) | manager | date; default {@code sort=label}, ascending
      * (descending, newest first, for {@code groupBy=date}).
      */
     @Transactional

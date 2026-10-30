@@ -53,9 +53,9 @@ public enum AuditAction {
     // ── embedded in JurisOne ──
     /** A business was created from a JurisOne token. */
     BUSINESS_PROVISIONED("integration.business_provisioned", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
-    /** The super admin linked a standalone business to its JurisOne business ({@code PUT /api/businesses/{businessId}/jurisone-link}); a token never does. */
+    /** The super admin linked a standalone business to its JurisOne business ({@code PUT /api/v1/businesses/{businessId}/jurisone-link}); a token never does. */
     BUSINESS_LINKED("integration.business_linked", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
-    /** The super admin removed a business's link to JurisOne ({@code DELETE /api/businesses/{businessId}/jurisone-link}); {@code before} holds the JurisOne id. */
+    /** The super admin removed a business's link to JurisOne ({@code DELETE /api/v1/businesses/{businessId}/jurisone-link}); {@code before} holds the JurisOne id. */
     BUSINESS_UNLINKED("integration.business_unlinked", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
     /** A linked business was renamed because the token carried JurisOne's new name. */
     BUSINESS_UPDATED_FROM_TOKEN("integration.business_updated", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
@@ -69,7 +69,7 @@ public enum AuditAction {
     INTEGRATION_TOKEN_REJECTED("integration.token_rejected", AuditCategory.INTEGRATION, AuditOutcome.DENIED),
     /** A valid JurisOne token whose person may not use JurisTrack: deactivated, or the email belongs to another business or the super admin. */
     INTEGRATION_USER_REFUSED("integration.user_refused", AuditCategory.INTEGRATION, AuditOutcome.DENIED),
-    /** JurisOne pushed its roster ({@code PUT /api/integration/employees}): one entry per call, counts only (also when nothing changed); the changes themselves have their own entries. */
+    /** JurisOne pushed its roster ({@code PUT /api/v1/integration/employees}): one entry per call, counts only (also when nothing changed); the changes themselves have their own entries. */
     ROSTER_SYNCED("integration.roster_synced", AuditCategory.INTEGRATION, AuditOutcome.SUCCESS),
 
     // ── businesses ──
@@ -96,7 +96,7 @@ public enum AuditAction {
     /** The owner switched an employee's sign-in on again. */
     EMPLOYEE_LOGIN_ENABLED("employee.login_enabled", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
     /** A business rule refused a change to an employee (422: manager rules, role, last owner, own account; the code is the reason). */
-    /** The owner gave an employee a shift from a date on ({@code PUT /api/employees/{employeeId}/shift}): {@code before} / {@code after} hold the shift and the date. */
+    /** The owner gave an employee a shift from a date on ({@code PUT /api/v1/employees/{employeeId}/shift}): {@code before} / {@code after} hold the shift and the date. */
     EMPLOYEE_SHIFT_CHANGED("employee.shift_changed", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),
     /** The owner set one date of an employee's roster to a shift or a week off. */
     SCHEDULE_ENTRY_SET("schedule.entry_set", AuditCategory.PEOPLE, AuditOutcome.SUCCESS),

@@ -52,11 +52,11 @@ class ManagerRulesTest extends IntegrationTest {
     }
 
     private ResultActions setManager(UUID employeeId, Object managerId) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + employeeId)).cookie(ownerCookie).content("{\"managerId\":\"" + managerId + "\"}"));
+        return mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + employeeId)).cookie(ownerCookie).content("{\"managerId\":\"" + managerId + "\"}"));
     }
 
     private ResultActions createWithManager(Object managerId) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(post("/api/employees")).cookie(ownerCookie)
+        return mockMvc.perform(SignIn.fromWebApp(post("/api/v1/employees")).cookie(ownerCookie)
                 .content("{\"firstName\":\"New\",\"lastName\":\"Hire\",\"email\":\"" + TestData.uniqueEmail("hire") + "\",\"managerId\":\"" + managerId + "\"}"));
     }
 
@@ -113,18 +113,18 @@ class ManagerRulesTest extends IntegrationTest {
 
     @Test
     void aManagerWithActiveReportsDoesNotBecomeAnEmployee() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + leadId)).cookie(ownerCookie).content("{\"role\":\"EMPLOYEE\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + leadId)).cookie(ownerCookie).content("{\"role\":\"EMPLOYEE\"}"))
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("MANAGER_HAS_REPORTS"));
         // once the report has another manager, the role changes
         setManager(workerId, directorId).andExpect(status().isOk());
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + leadId)).cookie(ownerCookie).content("{\"role\":\"EMPLOYEE\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + leadId)).cookie(ownerCookie).content("{\"role\":\"EMPLOYEE\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("EMPLOYEE"));
         // a deactivated report does not hold the role back
         UUID internId = testData.createUser(businessId, "EMPLOYEE", TestData.uniqueEmail("intern"), directorId);
         testData.deactivate(internId);
         setManager(workerId, ownerId).andExpect(status().isOk());
         setManager(leadId, ownerId).andExpect(status().isOk());
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/employees/" + directorId)).cookie(ownerCookie).content("{\"role\":\"EMPLOYEE\"}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/employees/" + directorId)).cookie(ownerCookie).content("{\"role\":\"EMPLOYEE\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("EMPLOYEE"));
         // an EMPLOYEE cannot be chosen as a manager afterwards
         setManager(workerId, directorId).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("MANAGER_ROLE_REQUIRED"));

@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * One person inside the caller's scope ("manager A cannot view an employee of team B", "employees can only view themselves" of the
- * old verify-flows checks): {@code GET /api/team/members/{employeeId}}, {@code .../workdays} and {@code GET /api/workdays/{workdayId}}
+ * old verify-flows checks): {@code GET /api/v1/team/members/{employeeId}}, {@code .../workdays} and {@code GET /api/v1/workdays/{workdayId}}
  * of somebody else. A manager opens their direct and indirect reports, the owner anybody of the business; everything else (also the
  * caller themselves on the Team endpoints) is 404. Every such read is audited as access.
  */
@@ -55,7 +55,7 @@ class TeamWorkdayAccessTest extends IntegrationTest {
         clock.advance(Duration.ofMinutes(45));
         team.applyEvent(team.employeeId, "BREAK");
         clock.advance(Duration.ofMinutes(5));
-        String answer = team.read(team.managerAId, "/api/team/members/" + team.employeeId).andExpect(status().isOk()).andReturn().getResponse()
+        String answer = team.read(team.managerAId, "/api/v1/team/members/" + team.employeeId).andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat((String) JsonPath.read(answer, "$.data.employee.id")).isEqualTo(team.employeeId.toString());
         assertThat((String) JsonPath.read(answer, "$.data.employee.managerName")).isEqualTo("Bala Bose");
@@ -69,10 +69,10 @@ class TeamWorkdayAccessTest extends IntegrationTest {
         assertThat(segmentTypes).containsExactly("WORK", "BREAK");
         assertThat(accessEntries("access.team_member_viewed", team.managerAId, team.employeeId)).isEqualTo(1);
 
-        team.read(team.managerBId, "/api/team/members/" + team.employeeOfCId).andExpect(status().isNotFound());
-        team.read(team.managerBId, "/api/team/members/" + team.employeeOfAId).andExpect(status().isNotFound())
+        team.read(team.managerBId, "/api/v1/team/members/" + team.employeeOfCId).andExpect(status().isNotFound());
+        team.read(team.managerBId, "/api/v1/team/members/" + team.employeeOfAId).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("Employee not found."));
-        String directManagerView = team.read(team.managerBId, "/api/team/members/" + team.employeeId).andExpect(status().isOk()).andReturn()
+        String directManagerView = team.read(team.managerBId, "/api/v1/team/members/" + team.employeeId).andExpect(status().isOk()).andReturn()
                 .getResponse().getContentAsString();
         assertThat((String) JsonPath.read(directManagerView, "$.data.status")).isEqualTo("ON_BREAK");
     }
@@ -80,11 +80,11 @@ class TeamWorkdayAccessTest extends IntegrationTest {
     @Test
     void outOfScopeUnknownAndOwnIdsAre404() throws Exception {
         for (UUID notVisibleId : List.of(team.ownerId, team.managerCId, team.employeeOfCId, team.managerAId, UUID.randomUUID())) {
-            team.read(team.managerAId, "/api/team/members/" + notVisibleId).andExpect(status().isNotFound());
-            team.read(team.managerAId, "/api/team/members/" + notVisibleId + "/workdays").andExpect(status().isNotFound());
+            team.read(team.managerAId, "/api/v1/team/members/" + notVisibleId).andExpect(status().isNotFound());
+            team.read(team.managerAId, "/api/v1/team/members/" + notVisibleId + "/workdays").andExpect(status().isNotFound());
         }
-        team.read(team.ownerId, "/api/team/members/" + team.ownerId).andExpect(status().isNotFound());
-        team.read(team.ownerId, "/api/team/members/not-a-uuid").andExpect(status().isBadRequest());
+        team.read(team.ownerId, "/api/v1/team/members/" + team.ownerId).andExpect(status().isNotFound());
+        team.read(team.ownerId, "/api/v1/team/members/not-a-uuid").andExpect(status().isBadRequest());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE actor_id = ? AND action LIKE 'access.%'", Integer.class,
                 team.managerAId)).isZero();
     }
@@ -94,10 +94,10 @@ class TeamWorkdayAccessTest extends IntegrationTest {
         team.applyEvent(team.employeeOfCId, "START");
         jdbcTemplate.update("UPDATE users SET is_active = false WHERE id = ?", team.employeeOfAId);
         for (UUID personId : List.of(team.managerAId, team.managerBId, team.employeeId, team.employeeOfAId, team.managerCId, team.employeeOfCId)) {
-            team.read(team.ownerId, "/api/team/members/" + personId).andExpect(status().isOk());
+            team.read(team.ownerId, "/api/v1/team/members/" + personId).andExpect(status().isOk());
         }
-        team.read(team.ownerId, "/api/team/members/" + team.employeeOfCId).andExpect(jsonPath("$.data.status").value("WORKING"));
-        team.read(team.ownerId, "/api/team/members/" + team.employeeOfAId).andExpect(jsonPath("$.data.status").value("NOT_STARTED"))
+        team.read(team.ownerId, "/api/v1/team/members/" + team.employeeOfCId).andExpect(jsonPath("$.data.status").value("WORKING"));
+        team.read(team.ownerId, "/api/v1/team/members/" + team.employeeOfAId).andExpect(jsonPath("$.data.status").value("NOT_STARTED"))
                 .andExpect(jsonPath("$.data.workday").isEmpty()).andExpect(jsonPath("$.data.employee.isActive").value(false));
     }
 
@@ -110,7 +110,7 @@ class TeamWorkdayAccessTest extends IntegrationTest {
         team.applyEvent(team.employeeId, "START");
         clock.advance(Duration.ofHours(1));
 
-        String answer = team.read(team.managerAId, "/api/team/members/" + team.employeeId + "/workdays?range=week").andExpect(status().isOk())
+        String answer = team.read(team.managerAId, "/api/v1/team/members/" + team.employeeId + "/workdays?range=week").andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat((String) JsonPath.read(answer, "$.data.range")).isEqualTo("week");
         assertThat((String) JsonPath.read(answer, "$.data.from")).isEqualTo("2026-10-05");
@@ -124,9 +124,9 @@ class TeamWorkdayAccessTest extends IntegrationTest {
                 String.class, team.managerAId, team.employeeId), "$");
         assertThat(after).containsEntry("range", "week").containsEntry("from", "2026-10-05").containsEntry("to", "2026-10-06");
 
-        team.read(team.ownerId, "/api/team/members/" + team.employeeId + "/workdays?range=custom&from=2026-10-05&to=2026-10-05&sort=productiveSeconds")
+        team.read(team.ownerId, "/api/v1/team/members/" + team.employeeId + "/workdays?range=custom&from=2026-10-05&to=2026-10-05&sort=productiveSeconds")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1));
-        team.read(team.ownerId, "/api/team/members/" + team.employeeId + "/workdays?range=decade").andExpect(status().isBadRequest())
+        team.read(team.ownerId, "/api/v1/team/members/" + team.employeeId + "/workdays?range=decade").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("range"));
     }
 
@@ -134,7 +134,7 @@ class TeamWorkdayAccessTest extends IntegrationTest {
     void aManagerOrTheOwnerReadsAWorkdayInTheirScopeAndOthersGet404() throws Exception {
         String workdayId = team.applyEvent(team.employeeId, "START");
         clock.advance(Duration.ofHours(1));
-        String path = "/api/workdays/" + workdayId;
+        String path = "/api/v1/workdays/" + workdayId;
         team.read(team.managerBId, path).andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(workdayId))
                 .andExpect(jsonPath("$.data.productiveSeconds").value(3600));
         team.read(team.managerAId, path).andExpect(status().isOk());
@@ -157,9 +157,9 @@ class TeamWorkdayAccessTest extends IntegrationTest {
         String workdayId = team.applyEvent(team.employeeId, "START");
         // the employee moves to manager C's branch: manager A and B lose sight of them, manager C gains it (including old workdays)
         jdbcTemplate.update("UPDATE users SET manager_id = ? WHERE id = ?", team.managerCId, team.employeeId);
-        team.read(team.managerBId, "/api/workdays/" + workdayId).andExpect(status().isNotFound());
-        team.read(team.managerAId, "/api/team/members/" + team.employeeId).andExpect(status().isNotFound());
-        team.read(team.managerCId, "/api/workdays/" + workdayId).andExpect(status().isOk());
-        team.read(team.managerCId, "/api/team/members/" + team.employeeId).andExpect(status().isOk());
+        team.read(team.managerBId, "/api/v1/workdays/" + workdayId).andExpect(status().isNotFound());
+        team.read(team.managerAId, "/api/v1/team/members/" + team.employeeId).andExpect(status().isNotFound());
+        team.read(team.managerCId, "/api/v1/workdays/" + workdayId).andExpect(status().isOk());
+        team.read(team.managerCId, "/api/v1/team/members/" + team.employeeId).andExpect(status().isOk());
     }
 }

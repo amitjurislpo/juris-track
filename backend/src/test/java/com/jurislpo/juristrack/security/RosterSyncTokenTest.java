@@ -17,7 +17,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@code PUT /api/integration/employees} takes JurisOne's <b>service token</b> only: signed by JurisOne's key, right issuer and audience,
+ * {@code PUT /api/v1/integration/employees} takes JurisOne's <b>service token</b> only: signed by JurisOne's key, right issuer and audience,
  * a short life, single use, scope exactly {@code employees:sync}, no person in it. A user token or a cookie session cannot call it and the
  * service token opens no other endpoint. Refused tokens answer 401 without details and are audited with the reason code.
  */
@@ -43,7 +43,7 @@ class RosterSyncTokenTest extends RosterSyncTestBase {
 
     @Test
     void noTokenAnswers401() throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(put("/api/integration/employees")).content(EMPTY_BODY)).andExpect(status().isUnauthorized())
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/integration/employees")).content(EMPTY_BODY)).andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
@@ -83,13 +83,13 @@ class RosterSyncTokenTest extends RosterSyncTestBase {
     @Test
     void aServiceTokenWorksOnNoOtherEndpoint() throws Exception {
         String token = IntegrationTokens.serviceTokenFor(jurisoneBusinessId, businessName);
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/shifts").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/team/members").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/shifts").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/team/members").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
         // not even the roster path with another method, spelling or a path under it
         String freshToken = IntegrationTokens.serviceTokenFor(jurisoneBusinessId, businessName);
-        mockMvc.perform(get("/api/integration/employees").header("Authorization", "Bearer " + freshToken)).andExpect(status().isUnauthorized());
-        mockMvc.perform(put("/api/integration/employees/").header("Authorization", "Bearer " + freshToken).contentType("application/json").content(EMPTY_BODY))
+        mockMvc.perform(get("/api/v1/integration/employees").header("Authorization", "Bearer " + freshToken)).andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/v1/integration/employees/").header("Authorization", "Bearer " + freshToken).contentType("application/json").content(EMPTY_BODY))
                 .andExpect(status().isUnauthorized());
         // nothing was provisioned by any of it
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM businesses WHERE jurisone_business_id = ?", Integer.class, jurisoneBusinessId)).isZero();
@@ -102,7 +102,7 @@ class RosterSyncTokenTest extends RosterSyncTestBase {
         String ownerEmail = TestData.uniqueEmail("cookie.owner");
         testData.createUser(businessId, "ADMIN", ownerEmail, null);
         Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(put("/api/integration/employees")).cookie(ownerCookie).content(EMPTY_BODY)).andExpect(status().isForbidden())
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/integration/employees")).cookie(ownerCookie).content(EMPTY_BODY)).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 

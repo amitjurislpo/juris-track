@@ -38,7 +38,7 @@ class RefreshGraceTest extends IntegrationTest {
     }
 
     private MockHttpServletResponse refresh(Cookie refreshCookie) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(post("/api/auth/session-refreshes")).cookie(refreshCookie)).andReturn().getResponse();
+        return mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes")).cookie(refreshCookie)).andReturn().getResponse();
     }
 
     @Test
@@ -58,7 +58,7 @@ class RefreshGraceTest extends IntegrationTest {
         assertThat(parallel.getStatus()).isEqualTo(201);
         assertThat(SignIn.setCookieHeader(parallel, "jt_rt")).isNull();
         String accessToken = SignIn.cookieValue(parallel, "jt_at");
-        mockMvc.perform(get("/api/me").cookie(new Cookie("jt_at", accessToken))).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").cookie(new Cookie("jt_at", accessToken))).andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM refresh_tokens token JOIN sessions session ON session.id = token.session_id "
                 + "WHERE session.user_id = ?", Integer.class, userId)).as("the sign-in token and one successor, no fork").isEqualTo(2);
 

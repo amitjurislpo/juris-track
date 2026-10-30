@@ -35,28 +35,28 @@ public class ScheduleController {
         this.scheduleService = scheduleService;
     }
 
-    @GetMapping("/api/schedule-entries")
+    @GetMapping("/api/v1/schedule-entries")
     public ApiResult<ScheduleBoard> listSchedules(@RequestParam Map<String, String> queryParameters) {
         return ApiResult.success(scheduleService.listSchedules(auth.requireRole(Role.ADMIN, Role.MANAGER), queryParameters));
     }
 
-    @GetMapping("/api/me/schedule")
+    @GetMapping("/api/v1/me/schedule")
     public ApiResult<ScheduleRow> findOwnSchedule(@RequestParam Map<String, String> queryParameters) {
         return ApiResult.success(scheduleService.findOwnSchedule(auth.requireRole(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE), queryParameters));
     }
 
-    @PutMapping("/api/employees/{employeeId}/schedule-entries/{date}")
+    @PutMapping("/api/v1/employees/{employeeId}/schedule-entries/{date}")
     public ApiResult<ScheduleDayView> setScheduleEntry(@PathVariable UUID employeeId, @PathVariable String date,
             @RequestBody(required = false) ScheduleEntryBody body) {
         return ApiResult.success("Schedule saved.", scheduleService.setEntry(auth.requireRole(Role.ADMIN), employeeId, date, body));
     }
 
-    @DeleteMapping("/api/employees/{employeeId}/schedule-entries/{date}")
+    @DeleteMapping("/api/v1/employees/{employeeId}/schedule-entries/{date}")
     public ApiResult<ScheduleDayView> removeScheduleEntry(@PathVariable UUID employeeId, @PathVariable String date) {
         return ApiResult.success("Schedule entry removed.", scheduleService.removeEntry(auth.requireRole(Role.ADMIN), employeeId, date));
     }
 
-    @PutMapping("/api/employees/{employeeId}/schedule-entries")
+    @PutMapping("/api/v1/employees/{employeeId}/schedule-entries")
     public ApiResult<List<ScheduleDayView>> setScheduleEntries(@PathVariable UUID employeeId, @RequestBody(required = false) ScheduleEntriesBody body) {
         return ApiResult.success("Schedule saved.", scheduleService.setEntries(auth.requireRole(Role.ADMIN), employeeId, body));
     }

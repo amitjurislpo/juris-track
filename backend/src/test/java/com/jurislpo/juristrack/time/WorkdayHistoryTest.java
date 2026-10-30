@@ -24,7 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code GET /api/workdays/mine} and {@code GET /api/workdays/{workdayId}}: the date range presets, paging and sorting, the totals over
+ * {@code GET /api/v1/workdays/mine} and {@code GET /api/v1/workdays/{workdayId}}: the date range presets, paging and sorting, the totals over
  * the whole range and the zero-filled daily series, live figures for the open day. Business in India; "today" is Wednesday
  * 21 October 2026, 11:00, and the workdays are recorded through the API on their days.
  */

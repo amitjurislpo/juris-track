@@ -30,9 +30,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** {@code /api/employees}: the owner (ADMIN) manages the people of their own business. Rules: {@link EmployeeService}; contract: references/API.md. */
+/** {@code /api/v1/employees}: the owner (ADMIN) manages the people of their own business. Rules: {@link EmployeeService}; contract: references/API.md. */
 @RestController
-@RequestMapping("/api/employees")
+@RequestMapping("/api/v1/employees")
 public class EmployeeController {
 
     private final Auth auth;

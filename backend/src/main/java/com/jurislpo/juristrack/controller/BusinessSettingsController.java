@@ -17,11 +17,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code /api/business}: the owner's (ADMIN's) own business settings (a singular resource: the business of the signed-in owner).
+ * {@code /api/v1/business}: the owner's (ADMIN's) own business settings (a singular resource: the business of the signed-in owner).
  * A new time zone applies to workdays started from then on. Rules: {@link BusinessService}; contract: references/API.md.
  */
 @RestController
-@RequestMapping("/api/business")
+@RequestMapping("/api/v1/business")
 public class BusinessSettingsController {
 
     private final Auth auth;

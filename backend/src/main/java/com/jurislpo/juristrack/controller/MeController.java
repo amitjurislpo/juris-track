@@ -8,9 +8,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** {@code /api/me}: the signed-in user (standalone session or JurisOne's token alike). */
+/** {@code /api/v1/me}: the signed-in user (standalone session or JurisOne's token alike). */
 @RestController
-@RequestMapping("/api/me")
+@RequestMapping("/api/v1/me")
 public class MeController {
 
     private final Auth auth;

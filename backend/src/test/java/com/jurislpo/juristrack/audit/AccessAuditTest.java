@@ -55,30 +55,30 @@ class AccessAuditTest extends IntegrationTest {
     @Test
     void theOwnerListingPeopleIsAuditedOncePerRequestWithTheFilters() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(get("/api/employees?status=all&search=Rao&sort=email&page=1")).cookie(ownerCookie)).andExpect(status().isOk());
+        mockMvc.perform(trace.on(get("/api/v1/employees?status=all&search=Rao&sort=email&page=1")).cookie(ownerCookie)).andExpect(status().isOk());
         Map<String, Object> entry = trace.entry("access.employee_list_viewed");
         assertThat(entry).containsEntry("actor_id", ownerId).containsEntry("business_id", businessId).containsEntry("outcome", "SUCCESS")
-                .containsEntry("category", "access").containsEntry("http_method", "GET").containsEntry("request_path", "/api/employees");
+                .containsEntry("category", "access").containsEntry("http_method", "GET").containsEntry("request_path", "/api/v1/employees");
         assertThat(entry.get("subject_id")).isNull();
         assertThat((String) entry.get("after_json")).contains("\"status\": \"all\"").contains("\"search\": \"Rao\"").contains("\"total\": 1");
         AuditTrace secondTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(secondTrace.on(get("/api/employees")).cookie(ownerCookie)).andExpect(status().isOk());
+        mockMvc.perform(secondTrace.on(get("/api/v1/employees")).cookie(ownerCookie)).andExpect(status().isOk());
         assertThat(secondTrace.count("access.employee_list_viewed")).isEqualTo(1);
     }
 
     @Test
     void theOwnerOpeningAnotherPersonIsAuditedButNotTheirOwnRecord() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(get("/api/employees/" + employeeId)).cookie(ownerCookie)).andExpect(status().isOk());
+        mockMvc.perform(trace.on(get("/api/v1/employees/" + employeeId)).cookie(ownerCookie)).andExpect(status().isOk());
         assertThat(trace.entry("access.employee_viewed")).containsEntry("actor_id", ownerId).containsEntry("subject_id", employeeId)
                 .containsEntry("entity_type", "user").containsEntry("entity_id", employeeId.toString());
         AuditTrace ownTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(ownTrace.on(get("/api/employees/" + ownerId)).cookie(ownerCookie)).andExpect(status().isOk());
+        mockMvc.perform(ownTrace.on(get("/api/v1/employees/" + ownerId)).cookie(ownerCookie)).andExpect(status().isOk());
         assertThat(ownTrace.entries()).isEmpty();
         // another business's person is 404 and nothing was read: the only trace is the probe itself (security.out_of_scope_access, once per user and window)
         UUID strangerId = testData.createUser(testData.createBusiness("Elsewhere " + UUID.randomUUID()), "EMPLOYEE", TestData.uniqueEmail("stranger"), null);
         AuditTrace strangerTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(strangerTrace.on(get("/api/employees/" + strangerId)).cookie(ownerCookie)).andExpect(status().isNotFound());
+        mockMvc.perform(strangerTrace.on(get("/api/v1/employees/" + strangerId)).cookie(ownerCookie)).andExpect(status().isNotFound());
         assertThat(strangerTrace.entries()).singleElement().satisfies(probe -> assertThat(probe).containsEntry("action", "security.out_of_scope_access")
                 .containsEntry("actor_id", ownerId).containsEntry("business_id", businessId).containsEntry("entity_type", "user"));
         assertThat(strangerTrace.count("access.employee_viewed")).isZero();
@@ -90,14 +90,14 @@ class AccessAuditTest extends IntegrationTest {
         UUID superAdminId = testData.createUser(null, "SUPER_ADMIN", superAdminEmail, null);
         Cookie superAdminCookie = SignIn.session(mockMvc, superAdminEmail).accessCookie();
         AuditTrace listTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(listTrace.on(get("/api/businesses?status=active")).cookie(superAdminCookie)).andExpect(status().isOk());
+        mockMvc.perform(listTrace.on(get("/api/v1/businesses?status=active")).cookie(superAdminCookie)).andExpect(status().isOk());
         Map<String, Object> listEntry = listTrace.entry("access.business_list_viewed");
         assertThat(listEntry).containsEntry("actor_id", superAdminId).containsEntry("actor_role", "SUPER_ADMIN");
         assertThat(listEntry.get("business_id")).isNull();
         assertThat((String) listEntry.get("after_json")).contains("\"status\": \"active\"");
 
         AuditTrace detailTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(detailTrace.on(get("/api/businesses/" + businessId)).cookie(superAdminCookie)).andExpect(status().isOk());
+        mockMvc.perform(detailTrace.on(get("/api/v1/businesses/" + businessId)).cookie(superAdminCookie)).andExpect(status().isOk());
         // in the business's own log, so its owner sees that the platform looked
         assertThat(detailTrace.entry("access.business_viewed")).containsEntry("business_id", businessId).containsEntry("subject_id", ownerId)
                 .containsEntry("entity_id", businessId.toString());
@@ -105,16 +105,16 @@ class AccessAuditTest extends IntegrationTest {
 
     @Test
     void readingOwnDataAndPollingIsNotAudited() throws Exception {
-        String workdayId = JsonPath.read(mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}"))
+        String workdayId = JsonPath.read(mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.data.workdayId");
-        List<String> ownReads = List.of("/api/me", "/api/me/time", "/api/me/time", "/api/workdays/mine", "/api/workdays/mine?range=week",
-                "/api/workdays/" + workdayId);
+        List<String> ownReads = List.of("/api/v1/me", "/api/v1/me/time", "/api/v1/me/time", "/api/v1/workdays/mine", "/api/v1/workdays/mine?range=week",
+                "/api/v1/workdays/" + workdayId);
         for (String path : ownReads) {
             AuditTrace trace = new AuditTrace(jdbcTemplate);
             mockMvc.perform(trace.on(get(path)).cookie(employeeCookie)).andExpect(status().isOk());
             assertThat(trace.entries()).as(path).isEmpty();
         }
-        for (String path : List.of("/api/me", "/api/business", "/api/audit-logs")) {
+        for (String path : List.of("/api/v1/me", "/api/v1/business", "/api/v1/audit-logs")) {
             AuditTrace trace = new AuditTrace(jdbcTemplate);
             mockMvc.perform(trace.on(get(path)).cookie(ownerCookie)).andExpect(status().isOk());
             assertThat(trace.entries()).as(path).isEmpty();
@@ -122,7 +122,7 @@ class AccessAuditTest extends IntegrationTest {
         String auditLogId = jdbcTemplate.queryForObject("SELECT id::text FROM audit_logs WHERE business_id = ? ORDER BY created_at DESC LIMIT 1", String.class,
                 businessId);
         AuditTrace detailTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(detailTrace.on(get("/api/audit-logs/" + auditLogId)).cookie(ownerCookie)).andExpect(status().isOk());
+        mockMvc.perform(detailTrace.on(get("/api/v1/audit-logs/" + auditLogId)).cookie(ownerCookie)).andExpect(status().isOk());
         assertThat(detailTrace.entries()).isEmpty();
     }
 
@@ -137,18 +137,18 @@ class AccessAuditTest extends IntegrationTest {
         UUID reportId = testData.createUser(businessId, "EMPLOYEE", reportEmail, managerId, "Ravi", "Report", null);
         Cookie managerCookie = SignIn.session(mockMvc, managerEmail).accessCookie();
         Cookie reportCookie = SignIn.session(mockMvc, reportEmail).accessCookie();
-        String workdayId = JsonPath.read(mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(reportCookie).content("{\"type\":\"START\"}"))
+        String workdayId = JsonPath.read(mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(reportCookie).content("{\"type\":\"START\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.data.workdayId");
 
         List<AccessRead> reads = List.of(
-                new AccessRead("/api/team/members/" + reportId, null, "access.team_member_viewed", reportId, "user", reportId.toString()),
-                new AccessRead("/api/team/members/" + reportId + "/workdays?range=week", null, "access.team_member_workdays_viewed", reportId, "user",
+                new AccessRead("/api/v1/team/members/" + reportId, null, "access.team_member_viewed", reportId, "user", reportId.toString()),
+                new AccessRead("/api/v1/team/members/" + reportId + "/workdays?range=week", null, "access.team_member_workdays_viewed", reportId, "user",
                         reportId.toString()),
-                new AccessRead("/api/workdays/" + workdayId, null, "access.workday_viewed", reportId, "workday", workdayId),
-                new AccessRead("/api/reports/workdays", null, "reports.viewed", null, "report", "workdays"),
-                new AccessRead("/api/reports/workdays?employeeId=" + reportId, null, "reports.viewed", reportId, "report", "workdays"),
-                new AccessRead("/api/reports/summaries?groupBy=date", null, "reports.viewed", null, "report", "summaries"),
-                new AccessRead("/api/reports/workdays", "text/csv", "reports.exported", null, "report", "workdays"));
+                new AccessRead("/api/v1/workdays/" + workdayId, null, "access.workday_viewed", reportId, "workday", workdayId),
+                new AccessRead("/api/v1/reports/workdays", null, "reports.viewed", null, "report", "workdays"),
+                new AccessRead("/api/v1/reports/workdays?employeeId=" + reportId, null, "reports.viewed", reportId, "report", "workdays"),
+                new AccessRead("/api/v1/reports/summaries?groupBy=date", null, "reports.viewed", null, "report", "summaries"),
+                new AccessRead("/api/v1/reports/workdays", "text/csv", "reports.exported", null, "report", "workdays"));
         for (Map.Entry<UUID, Cookie> viewer : Map.of(managerId, managerCookie, ownerId, ownerCookie).entrySet()) {
             for (AccessRead read : reads) {
                 AuditTrace trace = new AuditTrace(jdbcTemplate);
@@ -165,7 +165,7 @@ class AccessAuditTest extends IntegrationTest {
         }
         // the live board refreshes every few seconds and is not recorded
         AuditTrace boardTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(boardTrace.on(get("/api/team/members")).cookie(managerCookie)).andExpect(status().isOk());
+        mockMvc.perform(boardTrace.on(get("/api/v1/team/members")).cookie(managerCookie)).andExpect(status().isOk());
         assertThat(boardTrace.entries()).isEmpty();
     }
 }

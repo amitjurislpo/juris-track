@@ -26,12 +26,12 @@ class TeamAccessAudit {
         this.auditService = auditService;
     }
 
-    /** {@code GET /api/team/members/{employeeId}}: one person's live state. */
+    /** {@code GET /api/v1/team/members/{employeeId}}: one person's live state. */
     void recordMemberViewed(CurrentUser viewer, UUID employeeId) {
         auditService.recordAccess(AuditAction.TEAM_MEMBER_VIEWED, viewer, employeeId, USER_ENTITY, employeeId.toString(), null);
     }
 
-    /** {@code GET /api/team/members/{employeeId}/workdays}: one person's history for a date range. */
+    /** {@code GET /api/v1/team/members/{employeeId}/workdays}: one person's history for a date range. */
     void recordMemberWorkdaysViewed(CurrentUser viewer, UUID employeeId, WorkdayHistory history) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("range", history.range());
@@ -40,7 +40,7 @@ class TeamAccessAudit {
         auditService.recordAccess(AuditAction.TEAM_MEMBER_WORKDAYS_VIEWED, viewer, employeeId, USER_ENTITY, employeeId.toString(), details);
     }
 
-    /** {@code GET /api/workdays/{workdayId}} of somebody else. */
+    /** {@code GET /api/v1/workdays/{workdayId}} of somebody else. */
     void recordWorkdayViewed(CurrentUser viewer, UUID employeeId, UUID workdayId, LocalDate date) {
         auditService.recordAccess(AuditAction.WORKDAY_VIEWED, viewer, employeeId, WORKDAY_ENTITY, workdayId.toString(),
                 Map.of("date", date.toString()));

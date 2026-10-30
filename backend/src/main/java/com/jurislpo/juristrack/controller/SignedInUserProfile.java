@@ -6,7 +6,7 @@ import com.jurislpo.juristrack.security.CurrentUser;
 import java.util.UUID;
 
 /**
- * {@code GET /api/me}: the fields of {@link SignedInUser} plus the signed-in user's employee code, manager and business time zone.
+ * {@code GET /api/v1/me}: the fields of {@link SignedInUser} plus the signed-in user's employee code, manager and business time zone.
  *
  * @param businessName     null for the SUPER_ADMIN (a platform user without a business)
  * @param employeeCode     null when none was given

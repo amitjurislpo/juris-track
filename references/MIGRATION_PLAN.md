@@ -7,7 +7,7 @@
 | D1 | JurisTrack is sold standalone and also embedded in JurisOne (it is not built inside JurisOne). Standalone: own database, own emailed-code sign-in. Embedded: JurisOne login, JurisOne backend as gateway, signed JWT in the `Authorization` header. See `INTEGRATION.md`. Nothing is changed in the JurisOne repos until the owner says so. |
 | D1b | "Same users": JurisOne employees become JurisTrack users **just in time** from the token claims (matched by `jurisone_employee_id`, then email). An optional employee push endpoint can come later. No database import (this replaces the earlier `import-employees` idea). |
 | D13 | Roles: `SUPER_ADMIN` (platform) -> `ADMIN` (business owner, standalone) -> `MANAGER` (JurisTrack manager) -> `EMPLOYEE`. No HR/Finance roles. Everyone has the same personal tracking section; a manager also gets a Team tab. Embedded in JurisOne every employee can use JurisTrack and only manager / not manager matters. See `INTEGRATION.md` section 3b. |
-| D14 | The reporting line replaces teams: `users.manager_id`; a manager sees their reports (direct reports by default); workdays keep a snapshot of the manager at the time. JurisOne pushes the roster (`PUT /api/integration/employees`) and sends `managerId` in the token. (Teams and membership history of the old app are dropped; owner can overrule, see `INTEGRATION.md` section 5.) |
+| D14 | The reporting line replaces teams: `users.manager_id`; a manager sees their reports (direct reports by default); workdays keep a snapshot of the manager at the time. JurisOne pushes the roster (`PUT /api/v1/integration/employees`) and sends `managerId` in the token. (Teams and membership history of the old app are dropped; owner can overrule, see `INTEGRATION.md` section 5.) |
 | D15 | A manager sees direct reports by default; a switch includes the people one level further down (indirect). Depth is a parameter. |
 | D16 | Managers can correct their reports' time in both modes (reason of 5+ characters, overlap/future checks, audit entry), never their own. |
 | D17 | Embedded: one role, the JurisTrack manager, granted in JurisOne and sent as `trackRole=MANAGER` on every token. "Individual" mode = standalone company. Teams are dropped; tests run on fresh data. |
@@ -47,20 +47,20 @@ Each entry carries: when (UTC), actor (user id, role, business), subject (the pe
 | 1 Repos and docs | done |
 | 2 Skeleton (Maven project, 4 env files, Flyway V1, entities, tenancy, seed/reset, Docker) | done |
 | 3 Time engines (interval math, calendar and time zones, date ranges, reporting-line scope) in Java and TypeScript, checked against golden fixtures from the Node code | done |
-| 4 Auth: emailed-code sign-in (`/api/auth/otp-requests`, `/api/auth/sessions`, `/api/auth/sessions/current`, `/api/auth/session-refreshes`), `/api/me`, cookies `jt_at` / `jt_rt`, Origin check, audit service, embedded Bearer token verification with just-in-time provisioning; e2e `auth.spec.ts` | done |
+| 4 Auth: emailed-code sign-in (`/api/v1/auth/otp-requests`, `/api/v1/auth/sessions`, `/api/v1/auth/sessions/current`, `/api/v1/auth/session-refreshes`), `/api/v1/me`, cookies `jt_at` / `jt_rt`, Origin check, audit service, embedded Bearer token verification with just-in-time provisioning; e2e `auth.spec.ts` | done |
 | 5.1 Organization and employees: businesses (super admin), business settings, employees with reporting line, suspension, V2 migration; contract in `API.md` | done: backend 674 tests, frontend 915 unit tests, e2e 25/25, browser sweep of every role (desktop and mobile) |
-| 5.2 Time tracking: `GET /api/me/time`, `POST /api/me/time-events`, `GET /api/workdays/mine`, `GET /api/workdays/{id}`; state machine with reopen after End Day (D5, implemented), per-employee row lock, idempotent repeats, manager snapshot, deactivation closes the open workday | backend done (739 tests); frontend and e2e next |
-| 5.3 Complete audit: V3 migration (append-only trigger, request context columns), `AuditService` with request id / IP / source / outcome, full event catalogue in `API.md`, `GET /api/audit-logs` (+ `?format=csv`, detail), `AuditEndpointCoverageTest` | backend done (merged with 5.4 and 5.5: 1042 tests); audit pages and e2e in progress (parallel lane) |
-| 5.4 Manager Team tab (live board, indirect switch, one person, history, `GET /api/workdays/{id}` inside the scope), corrections (`PATCH .../work-sessions/{id}`, `.../break-sessions/{id}`, `PUT /api/workdays/{id}/status`); contract in `API.md` | backend done (merged, 1042 tests); frontend and e2e next |
-| 5.5 Reports and CSV (`GET /api/reports/workdays` (+ `Accept: text/csv`), `GET /api/reports/summaries`, V11 index), plus the Docker image and backup/restore checks | reports backend done (merged, 1042 tests); frontend, e2e, Docker image and backup/restore checks next |
-| 5b Roster sync `PUT /api/integration/employees` | built (version 2.1): `PUT /api/integration/employees` with JurisOne's service token (scope `employees:sync`), shifts by code, shift assignment, roster dates, deactivation, skipped reasons; `integration.roster_synced` audit |
+| 5.2 Time tracking: `GET /api/v1/me/time`, `POST /api/v1/me/time-events`, `GET /api/v1/workdays/mine`, `GET /api/v1/workdays/{id}`; state machine with reopen after End Day (D5, implemented), per-employee row lock, idempotent repeats, manager snapshot, deactivation closes the open workday | backend done (739 tests); frontend and e2e next |
+| 5.3 Complete audit: V3 migration (append-only trigger, request context columns), `AuditService` with request id / IP / source / outcome, full event catalogue in `API.md`, `GET /api/v1/audit-logs` (+ `?format=csv`, detail), `AuditEndpointCoverageTest` | backend done (merged with 5.4 and 5.5: 1042 tests); audit pages and e2e in progress (parallel lane) |
+| 5.4 Manager Team tab (live board, indirect switch, one person, history, `GET /api/v1/workdays/{id}` inside the scope), corrections (`PATCH .../work-sessions/{id}`, `.../break-sessions/{id}`, `PUT /api/v1/workdays/{id}/status`); contract in `API.md` | backend done (merged, 1042 tests); frontend and e2e next |
+| 5.5 Reports and CSV (`GET /api/v1/reports/workdays` (+ `Accept: text/csv`), `GET /api/v1/reports/summaries`, V11 index), plus the Docker image and backup/restore checks | reports backend done (merged, 1042 tests); frontend, e2e, Docker image and backup/restore checks next |
+| 5b Roster sync `PUT /api/v1/integration/employees` | built (version 2.1): `PUT /api/v1/integration/employees` with JurisOne's service token (scope `employees:sync`), shifts by code, shift assignment, roster dates, deactivation, skipped reasons; `integration.roster_synced` audit |
 | 6 Jobs/seed polish, 7 cleanup, naming sweep, parity checklist | later |
 
 Notes from the merge of 5.3, 5.4 and 5.5: the access-to-others rows of the policy are live (team member, member history, somebody else's workday, reports and report CSV: one `access` entry per request through `AuditService.recordAccess`; the live board is not recorded); corrections write `time.session_adjusted` / `time.workday_closed` in their transaction and a 422 refusal `time.correction_refused` (DENIED) on its own; the report entries carry their category in the `category` column (no longer in `after`); `ReportingScopeService` is wired to the Team tab, corrections and reports; the migrations are V1, V2, V3 and V11 (the next one is V12). The contracts of 5.4 and 5.5 are merged into `API.md`. Roster sync and token key problems belong to 5b; writes with a foreign Origin are refused by CORS before the Origin filter and are not audited.
 
-Notes from module 5.2: the old proposal `POST /api/time/commands` became `POST /api/me/time-events` and the old `GET /api/me/status` became `GET /api/me/time`; history is `/api/workdays/mine` (the own collection is `/mine`). Every applied time event writes an audit entry (`time.*`; the old app audited only admin changes: the owner may drop this). Four of the old 23 verify-flows checks (manager board scope, non-admins cannot adjust, overlapping adjustment rejected, audited adjustment recomputes totals) are ported in module 5.4 (`TeamBoardTest`, `TimeCorrectionTest`).
+Notes from module 5.2: the old proposal `POST /api/v1/time/commands` became `POST /api/v1/me/time-events` and the old `GET /api/v1/me/status` became `GET /api/v1/me/time`; history is `/api/v1/workdays/mine` (the own collection is `/mine`). Every applied time event writes an audit entry (`time.*`; the old app audited only admin changes: the owner may drop this). Four of the old 23 verify-flows checks (manager board scope, non-admins cannot adjust, overlapping adjustment rejected, audited adjustment recomputes totals) are ported in module 5.4 (`TeamBoardTest`, `TimeCorrectionTest`).
 
-Notes from module 5.1: teams are dropped, so `assignTeamAction` becomes `PATCH /api/employees/{id}` with `managerId`; `updateSettingsAction` / `createOrganizationAction` become `GET`/`PATCH /api/business` (owner) and `/api/businesses/{id}` (super admin, who also creates businesses and suspends them); module 5.1 added migration V2.
+Notes from module 5.1: teams are dropped, so `assignTeamAction` becomes `PATCH /api/v1/employees/{id}` with `managerId`; `updateSettingsAction` / `createOrganizationAction` become `GET`/`PATCH /api/v1/business` (owner) and `/api/v1/businesses/{id}` (super admin, who also creates businesses and suspends them); module 5.1 added migration V2.
 
 Notes from Phase 4: the mail properties are `juristrack.mail.username` / `password` (env `${SMTP_USER}` / `${SMTP_PASS}`); signed-out API calls answer 401 problem+json (defect 4 below is fixed); sign-in limits follow JurisOne's (defect 3 below is addressed, still in memory per instance).
 
@@ -116,20 +116,20 @@ Server actions (`src/app/actions/*.ts`), all return `ActionResult`:
 
 | File | Action | Role | What it does | Proposed REST (JurisOne style) |
 |---|---|---|---|---|
-| auth.ts | `loginAction` | public | email+password, throttle, create session, redirect to role home | `POST /api/auth/sessions` (or OTP flow, D2) |
-| auth.ts | `logoutAction` | any | destroy session | `DELETE /api/auth/sessions/current` |
-| time.ts | `timeCommandAction(start|break|resume|end)` | EMPLOYEE, MANAGER | state machine on own workday, per-employee row lock, idempotent | `POST /api/time/commands` or `PUT /api/time/state` (design in Phase 2) |
-| employees.ts | `createEmployeeAction` | ADMIN | create user (+ optional team), returns one-time password | `POST /api/employees` (201) |
-| employees.ts | `updateEmployeeAction` | ADMIN | edit details/role | `PATCH /api/employees/{id}` |
-| employees.ts | `setEmployeeActiveAction` | ADMIN | activate/deactivate (closes open workday, revokes sessions) | `PUT /api/employees/{id}/status` |
-| employees.ts | `assignTeamAction` | ADMIN | move between teams (closes membership, opens new) | `PUT /api/employees/{id}/team` |
-| employees.ts | `resetPasswordAction` | ADMIN | reset to default/generated password, sign out everywhere | `POST /api/employees/{id}/password-resets` |
-| profile.ts | `changePasswordAction` | any | change own password, revoke other sessions | `PUT /api/profile/password` |
-| teams.ts | `createTeamAction`, `updateTeamAction`, `setTeamActiveAction`, `deleteTeamAction` | ADMIN | team CRUD, manager assignment, activate, delete | `POST/PATCH/DELETE /api/teams[/{id}]`, `PUT /api/teams/{id}/status` |
-| admin-time.ts | `adjustSessionAction` | ADMIN | edit a work/break interval (reason required, overlap check, recompute totals, audit) | `PATCH /api/time/sessions/{id}` |
-| admin-time.ts | `closeWorkdayAction` | ADMIN | close a forgotten workday (reason required, audit) | `PUT /api/time/workdays/{id}/status` |
-| admin-time.ts / organization.ts | `updateSettingsAction`, `createOrganizationAction` | ADMIN | organization name, time zone, stale hours, display zones; first-run create | `PUT /api/organization` |
-| preferences.ts | `setDisplayTimezoneAction` | any | per-browser display zone, stored in cookie `jt_tz` | `PUT /api/me/preferences` (or keep as a frontend cookie, D6) |
+| auth.ts | `loginAction` | public | email+password, throttle, create session, redirect to role home | `POST /api/v1/auth/sessions` (or OTP flow, D2) |
+| auth.ts | `logoutAction` | any | destroy session | `DELETE /api/v1/auth/sessions/current` |
+| time.ts | `timeCommandAction(start|break|resume|end)` | EMPLOYEE, MANAGER | state machine on own workday, per-employee row lock, idempotent | `POST /api/v1/time/commands` or `PUT /api/v1/time/state` (design in Phase 2) |
+| employees.ts | `createEmployeeAction` | ADMIN | create user (+ optional team), returns one-time password | `POST /api/v1/employees` (201) |
+| employees.ts | `updateEmployeeAction` | ADMIN | edit details/role | `PATCH /api/v1/employees/{id}` |
+| employees.ts | `setEmployeeActiveAction` | ADMIN | activate/deactivate (closes open workday, revokes sessions) | `PUT /api/v1/employees/{id}/status` |
+| employees.ts | `assignTeamAction` | ADMIN | move between teams (closes membership, opens new) | `PUT /api/v1/employees/{id}/team` |
+| employees.ts | `resetPasswordAction` | ADMIN | reset to default/generated password, sign out everywhere | `POST /api/v1/employees/{id}/password-resets` |
+| profile.ts | `changePasswordAction` | any | change own password, revoke other sessions | `PUT /api/v1/profile/password` |
+| teams.ts | `createTeamAction`, `updateTeamAction`, `setTeamActiveAction`, `deleteTeamAction` | ADMIN | team CRUD, manager assignment, activate, delete | `POST/PATCH/DELETE /api/v1/teams[/{id}]`, `PUT /api/v1/teams/{id}/status` |
+| admin-time.ts | `adjustSessionAction` | ADMIN | edit a work/break interval (reason required, overlap check, recompute totals, audit) | `PATCH /api/v1/time/sessions/{id}` |
+| admin-time.ts | `closeWorkdayAction` | ADMIN | close a forgotten workday (reason required, audit) | `PUT /api/v1/time/workdays/{id}/status` |
+| admin-time.ts / organization.ts | `updateSettingsAction`, `createOrganizationAction` | ADMIN | organization name, time zone, stale hours, display zones; first-run create | `PUT /api/v1/organization` |
+| preferences.ts | `setDisplayTimezoneAction` | any | per-browser display zone, stored in cookie `jt_tz` | `PUT /api/v1/me/preferences` (or keep as a frontend cookie, D6) |
 
 Route handlers (`src/app/api/**`): `GET /api/me/status` (own state, polled every 30 s), `GET /api/board` (live board, filters date/teamId/employeeId/status, polled
 every 15 s), `GET /api/employees/[id]/status`, `GET /api/reports/export` (CSV: UTF-8 BOM, CRLF, formula-injection guard, headers name the display zone). Unauthenticated
@@ -225,7 +225,7 @@ Playwright specs.
 
 ## 9. What already exists in JurisOne for JurisTrack
 
-- JurisOne has a **Juris Track module placeholder**: nav item `juris-track` (`Nav.JURIS_TRACK`), `GET /api/juris-track` (404 unless the business's plan or a grant includes
+- JurisOne has a **Juris Track module placeholder**: nav item `juris-track` (`Nav.JURIS_TRACK`), `GET /api/v1/juris-track` (404 unless the business's plan or a grant includes
   the module), and a frontend page that says "Coming soon". Businesses and subscriptions are already modelled (multi-business, row-level security).
 - JurisOne also has employees, roles/permissions, departments, holidays, shifts, attendance (punches, regularization), org time zones, audit log, notifications,
   email outbox, sign-in by emailed code, argon2/JWT sessions. JurisTrack's users/teams/roles/audit/settings overlap with these.

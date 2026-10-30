@@ -30,7 +30,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Spring Boot API (BACKEND_PORT on the host, 8081 inside). The web app (juris-track-frontend) proxies /api/* to it.
+  # Spring Boot API (BACKEND_PORT on the host, 8081 inside). The web app (juris-track-frontend) proxies /api/v1/* to it.
   backend:
     build: ./backend
     container_name: ${COMPOSE_PROJECT_NAME:-juristrack-backend}-backend

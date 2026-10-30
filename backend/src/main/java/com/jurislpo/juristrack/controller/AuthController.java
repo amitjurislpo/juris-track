@@ -25,17 +25,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code /api/auth/*}: standalone sign-in by emailed code. A code request creates an emailed code, signing in creates a
+ * {@code /api/v1/auth/*}: standalone sign-in by emailed code. A code request creates an emailed code, signing in creates a
  * session (the {@code jt_at} / {@code jt_rt} cookies), a refresh creates a renewed session, signing out deletes the current one.
  */
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    /** {@code POST /api/auth/otp-requests} body. */
+    /** {@code POST /api/v1/auth/otp-requests} body. */
     public record CodeRequest(String email) {}
 
-    /** {@code POST /api/auth/sessions} body: {@code remember} = "keep me signed in". */
+    /** {@code POST /api/v1/auth/sessions} body: {@code remember} = "keep me signed in". */
     public record SignInRequest(String email, String otp, Boolean remember) {}
 
     private final AuthService authService;

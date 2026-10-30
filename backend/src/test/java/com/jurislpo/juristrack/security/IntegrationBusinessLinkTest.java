@@ -20,7 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * A standalone business moves to JurisOne only through the super admin's explicit link ({@code PUT /api/businesses/{id}/jurisone-link}),
+ * A standalone business moves to JurisOne only through the super admin's explicit link ({@code PUT /api/v1/businesses/{id}/jurisone-link}),
  * never by a token's email; once linked, its people are linked by email on their first token, and a token never takes the ADMIN role
  * away from an owner.
  */
@@ -41,11 +41,11 @@ class IntegrationBusinessLinkTest extends EmbeddedIntegrationTest {
     }
 
     private ResultActions link(UUID businessId, String body) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/jurisone-link")).cookie(superAdminCookie).content(body));
+        return mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/jurisone-link")).cookie(superAdminCookie).content(body));
     }
 
     private ResultActions callMe(Employee employee) throws Exception {
-        return mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)));
+        return mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)));
     }
 
     private String roleOf(UUID userId) {
@@ -112,13 +112,13 @@ class IntegrationBusinessLinkTest extends EmbeddedIntegrationTest {
         link(otherBusinessId, "{}").andExpect(status().isBadRequest());
         link(UUID.randomUUID(), "{\"jurisoneBusinessId\":\"" + UUID.randomUUID() + "\"}").andExpect(status().isNotFound());
 
-        mockMvc.perform(SignIn.fromWebApp(delete("/api/businesses/" + businessId + "/jurisone-link")).cookie(superAdminCookie)).andExpect(status().isOk())
+        mockMvc.perform(SignIn.fromWebApp(delete("/api/v1/businesses/" + businessId + "/jurisone-link")).cookie(superAdminCookie)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.isLinkedToJurisone").value(false));
         assertThat(jdbcTemplate.queryForObject("SELECT jurisone_business_id FROM businesses WHERE id = ?", UUID.class, businessId)).isNull();
         assertThat(jdbcTemplate.queryForObject("SELECT \"before\"->>'jurisoneBusinessId' FROM audit_logs WHERE action = 'integration.business_unlinked' "
                 + "AND business_id = ?", String.class, businessId)).isEqualTo(jurisoneBusinessId.toString());
         // unlinking again changes nothing; now the other business may take the JurisOne id
-        mockMvc.perform(SignIn.fromWebApp(delete("/api/businesses/" + businessId + "/jurisone-link")).cookie(superAdminCookie)).andExpect(status().isOk());
+        mockMvc.perform(SignIn.fromWebApp(delete("/api/v1/businesses/" + businessId + "/jurisone-link")).cookie(superAdminCookie)).andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'integration.business_unlinked' AND business_id = ?",
                 Integer.class, businessId)).isEqualTo(1);
         link(otherBusinessId, "{\"jurisoneBusinessId\":\"" + jurisoneBusinessId + "\"}").andExpect(status().isOk());
@@ -130,9 +130,9 @@ class IntegrationBusinessLinkTest extends EmbeddedIntegrationTest {
         String ownerEmail = TestData.uniqueEmail("link.self");
         testData.createUser(businessId, "ADMIN", ownerEmail, null);
         Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/jurisone-link")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/jurisone-link")).cookie(ownerCookie)
                 .content("{\"jurisoneBusinessId\":\"" + UUID.randomUUID() + "\"}")).andExpect(status().isForbidden());
-        mockMvc.perform(SignIn.fromWebApp(delete("/api/businesses/" + businessId + "/jurisone-link")).cookie(ownerCookie)).andExpect(status().isForbidden());
+        mockMvc.perform(SignIn.fromWebApp(delete("/api/v1/businesses/" + businessId + "/jurisone-link")).cookie(ownerCookie)).andExpect(status().isForbidden());
         assertThat(jdbcTemplate.queryForObject("SELECT jurisone_business_id FROM businesses WHERE id = ?", UUID.class, businessId)).isNull();
     }
 }

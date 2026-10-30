@@ -70,11 +70,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class EmployeeService {
 
-    /** {@code POST /api/employees} body; {@code role} defaults to EMPLOYEE, {@code employeeCode} and {@code managerId} are optional. */
+    /** {@code POST /api/v1/employees} body; {@code role} defaults to EMPLOYEE, {@code employeeCode} and {@code managerId} are optional. */
     public record EmployeeInput(String employeeCode, String firstName, String lastName, String email, Role role, UUID managerId) {}
 
     /**
-     * {@code PATCH /api/employees/{id}} body: a field that is left out stays as it is ({@code null} here); a field sent as
+     * {@code PATCH /api/v1/employees/{id}} body: a field that is left out stays as it is ({@code null} here); a field sent as
      * {@code null} is cleared ({@code Optional.empty()}), which only {@code employeeCode} and {@code managerId} allow.
      */
     public record EmployeeChanges(Optional<String> employeeCode, Optional<String> firstName, Optional<String> lastName, Optional<String> email,
@@ -90,22 +90,22 @@ public class EmployeeService {
         }
     }
 
-    /** {@code PUT /api/employees/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
+    /** {@code PUT /api/v1/employees/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
     public record EmployeeStatusChange(@JsonProperty("isActive") Boolean isActive, String reason) {}
 
-    /** {@code PUT /api/employees/{id}/shift} body: the shift and the first shift date it applies to (default today in the business zone). */
+    /** {@code PUT /api/v1/employees/{id}/shift} body: the shift and the first shift date it applies to (default today in the business zone). */
     public record ShiftAssignmentInput(UUID shiftId, String effectiveFrom) {}
-    /** {@code PUT /api/employees/{id}/login-access} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
+    /** {@code PUT /api/v1/employees/{id}/login-access} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
     public record LoginAccessChange(@JsonProperty("isEnabled") Boolean isEnabled, String reason) {}
 
-    /** The sort keys of {@code GET /api/employees}, in the order the API documents them. */
+    /** The sort keys of {@code GET /api/v1/employees}, in the order the API documents them. */
     public static final List<String> SORT_KEYS = List.of("name", "employeeCode", "email", "role", "status", "lastLoginAt");
     private static final List<Role> LISTED_ROLES = List.of(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE);
     private static final String USER_ENTITY = "user";
     private static final String NOT_FOUND = "Employee not found.";
     /** The reason of the {@code workday.closed} entry written when an employee's login is switched off. */
     private static final String LOGIN_DISABLED_REASON = "login_disabled";
-    /** The query parameters of {@code GET /api/employees} that the access entry keeps. */
+    /** The query parameters of {@code GET /api/v1/employees} that the access entry keeps. */
     private static final List<String> LIST_PARAMETERS = List.of("search", "status", "role", "managerId", "sort", "sortDirection", "page", "pageSize");
 
     private final UserRepository userRepository;
@@ -474,7 +474,7 @@ public class EmployeeService {
         }
     }
 
-    /** What {@code GET /api/me} adds for the signed-in user: employee code, manager name, business time zone. */
+    /** What {@code GET /api/v1/me} adds for the signed-in user: employee code, manager name, business time zone. */
     @Transactional(readOnly = true)
     public UserProfileDetails findProfileDetails(CurrentUser currentUser) {
         return employeeQueryRepository.findProfileDetails(currentUser.userId());

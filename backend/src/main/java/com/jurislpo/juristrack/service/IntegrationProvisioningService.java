@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>the business by {@code jurisone_business_id}; when there is none yet, a new business is created with the JurisOne name and
  *       the defaults, unless the token's person already exists (a refusal, see below). A token never adopts the business of an
  *       existing user: a standalone business moves to JurisOne only through the super admin's explicit link
- *       ({@code PUT /api/businesses/{businessId}/jurisone-link}). Its name follows JurisOne's.</li>
+ *       ({@code PUT /api/v1/businesses/{businessId}/jurisone-link}). Its name follows JurisOne's.</li>
  *   <li>the user by {@code jurisone_employee_id}, else by email inside that same business (an existing user of the linked business is
  *       linked), else created.</li>
  *   <li>first and last name from {@code name}, the role from {@code trackRole} (JurisOne decides who is a JurisTrack manager; an
@@ -99,7 +99,7 @@ public class IntegrationProvisioningService {
         Optional<Business> linkedBusiness = businessRepository.findByJurisoneBusinessId(claims.jurisoneBusinessId());
         if (linkedBusiness.isEmpty() && user != null) {
             // Never adopt the business of an existing user by email: a standalone owner can plant any email. A business moves to JurisOne
-            // only through the super admin's explicit link (PUT /api/businesses/{businessId}/jurisone-link).
+            // only through the super admin's explicit link (PUT /api/v1/businesses/{businessId}/jurisone-link).
             throw new AccessRefusedException(REFUSED_EMAIL_OF_ANOTHER_BUSINESS, false, user.getBusinessId(), user.getId());
         }
         Business business = linkedBusiness.map(existingBusiness -> renameFromToken(existingBusiness, claims.businessName()))

@@ -1,6 +1,7 @@
 package com.jurislpo.juristrack.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jurislpo.juristrack.common.ApiPaths;
 import com.jurislpo.juristrack.exception.BusinessSuspendedException;
 import com.jurislpo.juristrack.exception.ForbiddenException;
 import com.jurislpo.juristrack.exception.Problems;
@@ -44,7 +45,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <ul>
  *   <li><b>Embedded</b> ({@code juristrack.integration.enabled=true} and an {@code Authorization: Bearer} header): JurisOne's
  *       token is verified ({@link IntegrationTokenVerifier}) and its business and user are provisioned just in time. A refused
- *       token answers 401 at once (no details, never logged), a deactivated user 403. On {@code PUT /api/integration/employees} (the roster
+ *       token answers 401 at once (no details, never logged), a deactivated user 403. On {@code PUT /api/v1/integration/employees} (the roster
  *       sync, and nowhere else) the Bearer token must instead be JurisOne's service token ({@link IntegrationTokenVerifier#verifyServiceToken}):
  *       the request is then made by {@link IntegrationServiceClaims}, not by a user.</li>
  *   <li><b>Standalone</b>: the {@code jt_at} access-token cookie. Signature and expiry are checked first, then one lookup confirms
@@ -75,7 +76,7 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
     private static final String SESSION_ENTITY = "session";
     private static final String BEARER_PREFIX = "Bearer ";
     /** {@code PUT} here is the roster sync, the only request that takes JurisOne's service token. */
-    public static final String ROSTER_SYNC_PATH = "/api/integration/employees";
+    public static final String ROSTER_SYNC_PATH = ApiPaths.PREFIX + "/integration/employees";
     private static final Duration TOUCH_EVERY = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(RequestAuthenticationFilter.class);
 

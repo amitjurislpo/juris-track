@@ -51,10 +51,10 @@ public class EmployeeQueryRepository {
      */
     public record EmployeeFilter(Boolean isActive, List<Role> roles, UUID managerId) {}
 
-    /** What {@code GET /api/me} adds to the signed-in user. */
+    /** What {@code GET /api/v1/me} adds to the signed-in user. */
     public record UserProfileDetails(String employeeCode, String managerName, String businessTimeZone) {}
 
-    /** The SQL behind each sort key of {@code GET /api/employees}, ascending ({@code %s} is the direction). */
+    /** The SQL behind each sort key of {@code GET /api/v1/employees}, ascending ({@code %s} is the direction). */
     public static final Map<String, String> SORT_COLUMNS = Map.of(
             "name", "lower(person.first_name) %1$s, lower(person.last_name) %1$s",
             "employeeCode", "person.employee_code %s NULLS LAST",

@@ -42,7 +42,7 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
     }
 
     ResultActions callMe(String token) throws Exception {
-        return mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + token));
+        return mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + token));
     }
 
     Map<String, Object> userRow(UUID jurisoneEmployeeId) {
@@ -221,10 +221,10 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
     void bearerRequestsNeedNoOriginAndHaveNoSession() throws Exception {
         Employee employee = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "ADMIN");
         // one token per request: tokens are single-use
-        mockMvc.perform(patch("/api/business").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)).contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(patch("/api/v1/business").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"staleWorkdayHours\": 10}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.staleWorkdayHours").value(10));
-        mockMvc.perform(delete("/api/auth/sessions/current").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)))
+        mockMvc.perform(delete("/api/v1/auth/sessions/current").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee)))
                 .andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id = ?", Integer.class, userRow(employee.employeeId()).get("id")))
                 .isZero();
@@ -236,9 +236,9 @@ class IntegrationTokenTest extends EmbeddedIntegrationTest {
         Employee colleague = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
         callMe(IntegrationTokens.tokenFor(colleague)).andExpect(status().isOk());
         UUID otherBusinessUserId = testData.createUser(testData.createBusiness("Other " + UUID.randomUUID()), "EMPLOYEE", TestData.uniqueEmail("other"), null);
-        mockMvc.perform(get("/api/employees/" + userRow(colleague.employeeId()).get("id")).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(owner)))
+        mockMvc.perform(get("/api/v1/employees/" + userRow(colleague.employeeId()).get("id")).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(owner)))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/api/employees/" + otherBusinessUserId).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(owner)))
+        mockMvc.perform(get("/api/v1/employees/" + otherBusinessUserId).header("Authorization", "Bearer " + IntegrationTokens.tokenFor(owner)))
                 .andExpect(status().isNotFound());
     }
 

@@ -21,8 +21,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * The shift templates ({@code /api/shifts}), the shift of an employee ({@code PUT /api/employees/{id}/shift}) and the roster
- * ({@code /api/schedule-entries}, {@code /api/me/schedule}, {@code /api/employees/{id}/schedule-entries}): rights, validation, audit,
+ * The shift templates ({@code /api/v1/shifts}), the shift of an employee ({@code PUT /api/v1/employees/{id}/shift}) and the roster
+ * ({@code /api/v1/schedule-entries}, {@code /api/v1/me/schedule}, {@code /api/v1/employees/{id}/schedule-entries}): rights, validation, audit,
  * history, precedence (roster entry, then assignment, then the default shift), rotational weeks off, work on a week off, the board's
  * {@code weekOff} figure and the extra time in reports and CSV. Business time zone Asia/Kolkata; "now" is Monday 5 October 2026, 10:00
  * UTC (15:30 in India).
@@ -50,13 +50,13 @@ class ShiftApiTest extends IntegrationTest {
     }
 
     private UUID createShift(String name, String startTime, String endTime) throws Exception {
-        String answer = team.postJson(team.ownerId, "/api/shifts", "{\"name\":\"" + name + "\",\"startTime\":\"" + startTime + "\",\"endTime\":\""
+        String answer = team.postJson(team.ownerId, "/api/v1/shifts", "{\"name\":\"" + name + "\",\"startTime\":\"" + startTime + "\",\"endTime\":\""
                 + endTime + "\"}").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return UUID.fromString(JsonPath.read(answer, "$.data.id"));
     }
 
     private UUID defaultShiftId() throws Exception {
-        String answer = team.read(team.ownerId, "/api/shifts").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String answer = team.read(team.ownerId, "/api/v1/shifts").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         List<String> ids = JsonPath.read(answer, "$.data[?(@.isDefault == true)].id");
         return UUID.fromString(ids.get(0));
     }
@@ -73,7 +73,7 @@ class ShiftApiTest extends IntegrationTest {
 
     @Test
     void everyBusinessHasTheDefaultCalendarDayShift() throws Exception {
-        String answer = team.read(team.employeeId, "/api/shifts").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String answer = team.read(team.employeeId, "/api/v1/shifts").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat((List<?>) JsonPath.read(answer, "$.data")).hasSize(1);
         assertThat((String) JsonPath.read(answer, "$.data[0].name")).isEqualTo("General day");
         assertThat((String) JsonPath.read(answer, "$.data[0].startTime")).isEqualTo("00:00");
@@ -91,38 +91,38 @@ class ShiftApiTest extends IntegrationTest {
         UUID shiftId = createShift("Evening", "16:00", "01:00");
         String body = "{\"name\":\"Other\",\"startTime\":\"10:00\",\"endTime\":\"18:00\"}";
         for (UUID userId : List.of(team.managerAId, team.employeeId)) {
-            team.postJson(userId, "/api/shifts", body).andExpect(status().isForbidden());
-            team.patchJson(userId, "/api/shifts/" + shiftId, "{\"name\":\"X\"}").andExpect(status().isForbidden());
-            team.putJson(userId, "/api/shifts/" + shiftId + "/status", "{\"isActive\":false}").andExpect(status().isForbidden());
-            team.putJson(userId, "/api/employees/" + team.employeeOfAId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}").andExpect(status().isForbidden());
-            team.putJson(userId, "/api/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-12", "{\"shiftId\":null}").andExpect(status().isForbidden());
-            team.deleteJson(userId, "/api/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-12").andExpect(status().isForbidden());
-            team.putJson(userId, "/api/employees/" + team.employeeOfAId + "/schedule-entries", "{\"entries\":[{\"date\":\"2026-10-12\"}]}")
+            team.postJson(userId, "/api/v1/shifts", body).andExpect(status().isForbidden());
+            team.patchJson(userId, "/api/v1/shifts/" + shiftId, "{\"name\":\"X\"}").andExpect(status().isForbidden());
+            team.putJson(userId, "/api/v1/shifts/" + shiftId + "/status", "{\"isActive\":false}").andExpect(status().isForbidden());
+            team.putJson(userId, "/api/v1/employees/" + team.employeeOfAId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}").andExpect(status().isForbidden());
+            team.putJson(userId, "/api/v1/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-12", "{\"shiftId\":null}").andExpect(status().isForbidden());
+            team.deleteJson(userId, "/api/v1/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-12").andExpect(status().isForbidden());
+            team.putJson(userId, "/api/v1/employees/" + team.employeeOfAId + "/schedule-entries", "{\"entries\":[{\"date\":\"2026-10-12\"}]}")
                     .andExpect(status().isForbidden());
-            team.read(userId, "/api/shifts").andExpect(status().isOk());
-            team.read(userId, "/api/shifts/" + shiftId).andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("Evening"))
+            team.read(userId, "/api/v1/shifts").andExpect(status().isOk());
+            team.read(userId, "/api/v1/shifts/" + shiftId).andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("Evening"))
                     .andExpect(jsonPath("$.data.crossesMidnight").value(true)).andExpect(jsonPath("$.data.scheduledMinutes").value(540));
         }
-        team.read(team.employeeId, "/api/schedule-entries").andExpect(status().isForbidden());
-        team.read(team.managerAId, "/api/schedule-entries").andExpect(status().isOk());
-        team.read(team.employeeId, "/api/me/schedule").andExpect(status().isOk());
+        team.read(team.employeeId, "/api/v1/schedule-entries").andExpect(status().isForbidden());
+        team.read(team.managerAId, "/api/v1/schedule-entries").andExpect(status().isOk());
+        team.read(team.employeeId, "/api/v1/me/schedule").andExpect(status().isOk());
         // another business never sees or uses this shift
         TeamFixture other = new TeamFixture(mockMvc, jdbcTemplate, rateLimiter);
-        other.read(other.ownerId, "/api/shifts/" + shiftId).andExpect(status().isNotFound());
-        other.putJson(other.ownerId, "/api/employees/" + other.employeeId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}")
+        other.read(other.ownerId, "/api/v1/shifts/" + shiftId).andExpect(status().isNotFound());
+        other.putJson(other.ownerId, "/api/v1/employees/" + other.employeeId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SHIFT_NOT_FOUND"));
-        assertThat(JsonPath.<List<?>>read(other.read(other.ownerId, "/api/shifts").andReturn().getResponse().getContentAsString(), "$.data")).hasSize(1);
+        assertThat(JsonPath.<List<?>>read(other.read(other.ownerId, "/api/v1/shifts").andReturn().getResponse().getContentAsString(), "$.data")).hasSize(1);
     }
 
     @Test
     void creatingAShiftValidatesAndIsAudited() throws Exception {
-        team.postJson(team.ownerId, "/api/shifts", "{\"name\":\"\",\"startTime\":\"25:00\",\"endTime\":\"9\",\"earlyStartMinutes\":721}")
+        team.postJson(team.ownerId, "/api/v1/shifts", "{\"name\":\"\",\"startTime\":\"25:00\",\"endTime\":\"9\",\"earlyStartMinutes\":721}")
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[*].field", org.hamcrest.Matchers.hasItems("name", "startTime", "endTime",
                         "earlyStartMinutes")));
         UUID shiftId = createShift("US shift", "19:30", "04:30");
-        team.postJson(team.ownerId, "/api/shifts", "{\"name\":\"us SHIFT\",\"startTime\":\"10:00\",\"endTime\":\"18:00\"}")
+        team.postJson(team.ownerId, "/api/v1/shifts", "{\"name\":\"us SHIFT\",\"startTime\":\"10:00\",\"endTime\":\"18:00\"}")
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SHIFT_NAME_IN_USE"));
-        team.read(team.ownerId, "/api/shifts/" + shiftId).andExpect(jsonPath("$.data.earlyStartMinutes").value(180))
+        team.read(team.ownerId, "/api/v1/shifts/" + shiftId).andExpect(jsonPath("$.data.earlyStartMinutes").value(180))
                 .andExpect(jsonPath("$.data.lateEndMinutes").value(180)).andExpect(jsonPath("$.data.isDefault").value(false))
                 .andExpect(jsonPath("$.data.employeeCount").value(0));
         Map<String, Object> entry = jdbcTemplate.queryForMap("SELECT actor_id, entity_id, after::text AS after_json FROM audit_logs WHERE action = 'shift.created'"
@@ -135,17 +135,17 @@ class ShiftApiTest extends IntegrationTest {
     @Test
     void changingAShiftIsAuditedAndTheDefaultShiftKeepsItsTimes() throws Exception {
         UUID shiftId = createShift("UK shift", "14:00", "23:00");
-        team.patchJson(team.ownerId, "/api/shifts/" + shiftId, "{\"endTime\":\"22:30\",\"lateEndMinutes\":60}").andExpect(status().isOk())
+        team.patchJson(team.ownerId, "/api/v1/shifts/" + shiftId, "{\"endTime\":\"22:30\",\"lateEndMinutes\":60}").andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.endTime").value("22:30")).andExpect(jsonPath("$.data.scheduledMinutes").value(510));
         assertThat(auditEntries("shift.updated")).isEqualTo(1);
-        team.patchJson(team.ownerId, "/api/shifts/" + shiftId, "{\"endTime\":\"22:30\"}").andExpect(status().isOk());
+        team.patchJson(team.ownerId, "/api/v1/shifts/" + shiftId, "{\"endTime\":\"22:30\"}").andExpect(status().isOk());
         assertThat(auditEntries("shift.updated")).as("nothing changed, nothing audited").isEqualTo(1);
-        team.patchJson(team.ownerId, "/api/shifts/" + shiftId, "{\"startTime\":\"nine\"}").andExpect(status().isBadRequest());
+        team.patchJson(team.ownerId, "/api/v1/shifts/" + shiftId, "{\"startTime\":\"nine\"}").andExpect(status().isBadRequest());
 
         UUID defaultId = defaultShiftId();
-        team.patchJson(team.ownerId, "/api/shifts/" + defaultId, "{\"startTime\":\"06:00\"}").andExpect(status().isBadRequest());
-        team.patchJson(team.ownerId, "/api/shifts/" + defaultId, "{\"name\":\"Calendar day\"}").andExpect(status().isOk());
-        team.putJson(team.ownerId, "/api/shifts/" + defaultId + "/status", "{\"isActive\":false}").andExpect(status().isUnprocessableEntity())
+        team.patchJson(team.ownerId, "/api/v1/shifts/" + defaultId, "{\"startTime\":\"06:00\"}").andExpect(status().isBadRequest());
+        team.patchJson(team.ownerId, "/api/v1/shifts/" + defaultId, "{\"name\":\"Calendar day\"}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/shifts/" + defaultId + "/status", "{\"isActive\":false}").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("DEFAULT_SHIFT_REQUIRED"));
     }
 
@@ -153,22 +153,22 @@ class ShiftApiTest extends IntegrationTest {
     void aShiftWithActiveEmployeesCannotBeDeactivatedAndAnInactiveShiftCannotBeGiven() throws Exception {
         UUID shiftId = createShift("US shift", "19:30", "04:30");
         UUID unusedId = createShift("Spare", "08:00", "16:00");
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}").andExpect(status().isOk());
-        team.putJson(team.ownerId, "/api/shifts/" + shiftId + "/status", "{\"isActive\":false}").andExpect(status().isUnprocessableEntity())
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/shifts/" + shiftId + "/status", "{\"isActive\":false}").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SHIFT_IN_USE"));
-        team.read(team.ownerId, "/api/shifts/" + shiftId).andExpect(jsonPath("$.data.employeeCount").value(1));
-        team.putJson(team.ownerId, "/api/shifts/" + unusedId + "/status", "{\"isActive\":false}").andExpect(status().isOk())
+        team.read(team.ownerId, "/api/v1/shifts/" + shiftId).andExpect(jsonPath("$.data.employeeCount").value(1));
+        team.putJson(team.ownerId, "/api/v1/shifts/" + unusedId + "/status", "{\"isActive\":false}").andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.isActive").value(false));
         assertThat(auditEntries("shift.status_changed")).isEqualTo(1);
-        team.putJson(team.ownerId, "/api/shifts/" + unusedId + "/status", "{\"isActive\":false}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/shifts/" + unusedId + "/status", "{\"isActive\":false}").andExpect(status().isOk());
         assertThat(auditEntries("shift.status_changed")).isEqualTo(1);
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeOfAId + "/shift", "{\"shiftId\":\"" + unusedId + "\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeOfAId + "/shift", "{\"shiftId\":\"" + unusedId + "\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SHIFT_INACTIVE"));
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-12", "{\"shiftId\":\"" + unusedId + "\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-12", "{\"shiftId\":\"" + unusedId + "\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SHIFT_INACTIVE"));
-        team.read(team.ownerId, "/api/shifts?isActive=true").andExpect(jsonPath("$.data.length()").value(2));
-        team.read(team.ownerId, "/api/shifts?isActive=false").andExpect(jsonPath("$.data.length()").value(1));
-        team.read(team.ownerId, "/api/shifts?isActive=maybe").andExpect(status().isBadRequest());
+        team.read(team.ownerId, "/api/v1/shifts?isActive=true").andExpect(jsonPath("$.data.length()").value(2));
+        team.read(team.ownerId, "/api/v1/shifts?isActive=false").andExpect(jsonPath("$.data.length()").value(1));
+        team.read(team.ownerId, "/api/v1/shifts?isActive=maybe").andExpect(status().isBadRequest());
     }
 
     @Test
@@ -179,12 +179,12 @@ class ShiftApiTest extends IntegrationTest {
         clock.setTo("2026-10-05T11:00:00Z");
         team.applyEvent(team.employeeId, "END");
 
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-06\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-06\"}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.shift.name").value("General day"));
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-04\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-04\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("SHIFT_EFFECTIVE_DATE_IN_PAST"));
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"effectiveFrom\":\"2026-10-06\"}").andExpect(status().isBadRequest());
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"soon\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"effectiveFrom\":\"2026-10-06\"}").andExpect(status().isBadRequest());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"soon\"}")
                 .andExpect(status().isBadRequest());
         assertThat(auditEntries("employee.shift_changed")).isEqualTo(1);
         Map<String, Object> entry = jdbcTemplate.queryForMap("SELECT before::text AS before_json, after::text AS after_json FROM audit_logs"
@@ -192,16 +192,16 @@ class ShiftApiTest extends IntegrationTest {
         assertThat((String) JsonPath.read((String) entry.get("before_json"), "$.shiftName")).isEqualTo("General day");
         assertThat((String) JsonPath.read((String) entry.get("after_json"), "$.shiftName")).isEqualTo("US shift");
         assertThat((String) JsonPath.read((String) entry.get("after_json"), "$.effectiveFrom")).isEqualTo("2026-10-06");
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-06\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-06\"}")
                 .andExpect(status().isOk());
         assertThat(auditEntries("employee.shift_changed")).as("the same shift again changes nothing").isEqualTo(1);
 
         // the shift applies from its date on: today is still the default shift, tomorrow evening the US shift
-        String employeeList = team.read(team.ownerId, "/api/employees/" + team.employeeId).andExpect(status().isOk()).andReturn().getResponse()
+        String employeeList = team.read(team.ownerId, "/api/v1/employees/" + team.employeeId).andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat((String) JsonPath.read(employeeList, "$.data.shift.name")).isEqualTo("General day");
         clock.setTo("2026-10-06T16:00:00Z"); // 21:30 on the 6th
-        team.read(team.ownerId, "/api/employees/" + team.employeeId).andExpect(jsonPath("$.data.shift.name").value("US shift"))
+        team.read(team.ownerId, "/api/v1/employees/" + team.employeeId).andExpect(jsonPath("$.data.shift.name").value("US shift"))
                 .andExpect(jsonPath("$.data.shift.startTime").value("19:30"));
         String tomorrow = team.sendEvent(team.employeeId, "START").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         assertThat((String) JsonPath.read(tomorrow, "$.data.state.workday.shift.name")).isEqualTo("US shift");
@@ -211,7 +211,7 @@ class ShiftApiTest extends IntegrationTest {
                 Integer.class, oldWorkdayId)).isEqualTo(24 * HOUR);
         // a later assignment back to the default shift leaves the US workday as it was
         UUID defaultId = defaultShiftId();
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + defaultId + "\",\"effectiveFrom\":\"2026-10-20\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + defaultId + "\",\"effectiveFrom\":\"2026-10-20\"}")
                 .andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForList("SELECT shift_name FROM workdays WHERE employee_id = ? ORDER BY started_at", String.class, team.employeeId))
                 .containsExactly("General day", "US shift");
@@ -221,15 +221,15 @@ class ShiftApiTest extends IntegrationTest {
     void theRosterEntryBeatsTheAssignmentAndTheAssignmentBeatsTheDefault() throws Exception {
         UUID usShiftId = createShift("US shift", "19:30", "04:30");
         UUID ukShiftId = createShift("UK shift", "14:00", "23:00");
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-07\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\",\"effectiveFrom\":\"2026-10-07\"}")
                 .andExpect(status().isOk());
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-08", "{\"shiftId\":\"" + ukShiftId + "\",\"reason\":\"Cover\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-08", "{\"shiftId\":\"" + ukShiftId + "\",\"reason\":\"Cover\"}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("ENTRY")).andExpect(jsonPath("$.data.shiftName").value("UK shift"))
                 .andExpect(jsonPath("$.data.reason").value("Cover"));
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-09", "{\"shiftId\":null}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-09", "{\"shiftId\":null}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.isOff").value(true)).andExpect(jsonPath("$.data.shiftId").value(org.hamcrest.Matchers.nullValue()));
 
-        String answer = team.read(team.ownerId, "/api/schedule-entries?employeeId=" + team.employeeId + "&from=2026-10-05&to=2026-10-10")
+        String answer = team.read(team.ownerId, "/api/v1/schedule-entries?employeeId=" + team.employeeId + "&from=2026-10-05&to=2026-10-10")
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat((List<?>) JsonPath.read(answer, "$.data.rows")).hasSize(1);
         assertThat((String) JsonPath.read(answer, "$.data.rows[0].name")).isEqualTo("Esha Iyer");
@@ -243,20 +243,20 @@ class ShiftApiTest extends IntegrationTest {
         assertThat(dayOfRow(answer, "2026-10-10")).isEqualTo("ASSIGNMENT/US shift/false");
 
         // the employee reads their own schedule; a manager reads reports (and only reports)
-        String own = team.read(team.employeeId, "/api/me/schedule?from=2026-10-08&to=2026-10-09").andExpect(status().isOk()).andReturn().getResponse()
+        String own = team.read(team.employeeId, "/api/v1/me/schedule?from=2026-10-08&to=2026-10-09").andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat(dayOf(own, "2026-10-09")).isEqualTo("ENTRY/null/true");
-        String managerView = team.read(team.managerAId, "/api/schedule-entries?from=2026-10-08&to=2026-10-08").andExpect(status().isOk()).andReturn()
+        String managerView = team.read(team.managerAId, "/api/v1/schedule-entries?from=2026-10-08&to=2026-10-08").andExpect(status().isOk()).andReturn()
                 .getResponse().getContentAsString();
         assertThat((List<String>) JsonPath.read(managerView, "$.data.rows[*].employeeId")).contains(team.employeeId.toString(), team.managerBId.toString(),
                 team.employeeOfAId.toString()).doesNotContain(team.employeeOfCId.toString());
-        team.read(team.ownerId, "/api/schedule-entries?from=2026-10-01&to=2026-12-31").andExpect(status().isBadRequest());
-        team.read(team.ownerId, "/api/schedule-entries?from=2026-10-09&to=2026-10-08").andExpect(status().isBadRequest());
+        team.read(team.ownerId, "/api/v1/schedule-entries?from=2026-10-01&to=2026-12-31").andExpect(status().isBadRequest());
+        team.read(team.ownerId, "/api/v1/schedule-entries?from=2026-10-09&to=2026-10-08").andExpect(status().isBadRequest());
 
         // removing an entry returns the date to the assignment; removing again changes nothing
-        team.deleteJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-08").andExpect(status().isOk())
+        team.deleteJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-08").andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.source").value("ASSIGNMENT")).andExpect(jsonPath("$.data.shiftName").value("US shift"));
-        team.deleteJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-08").andExpect(status().isOk());
+        team.deleteJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-08").andExpect(status().isOk());
         assertThat(auditEntries("schedule.entry_set")).isEqualTo(2);
         assertThat(auditEntries("schedule.entry_removed")).isEqualTo(1);
     }
@@ -273,7 +273,7 @@ class ShiftApiTest extends IntegrationTest {
         // rotational weeks off: Wednesday of the first week, Friday of the second, Sunday of the third
         String body = "{\"entries\":[{\"date\":\"2026-10-07\",\"shiftId\":null},{\"date\":\"2026-10-16\",\"shiftId\":null,\"reason\":\"Rota\"},"
                 + "{\"date\":\"2026-10-25\",\"shiftId\":null},{\"date\":\"2026-10-26\",\"shiftId\":\"" + ukShiftId + "\"}]}";
-        String employeePath = "/api/employees/" + team.employeeOfAId + "/schedule-entries";
+        String employeePath = "/api/v1/employees/" + team.employeeOfAId + "/schedule-entries";
         team.putJson(team.ownerId, employeePath, body).andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(4))
                 .andExpect(jsonPath("$.data[0].isOff").value(true)).andExpect(jsonPath("$.data[3].shiftName").value("UK shift"));
         assertThat(auditEntries("schedule.entry_set")).isEqualTo(4);
@@ -303,30 +303,30 @@ class ShiftApiTest extends IntegrationTest {
         team.putJson(team.ownerId, employeePath + "/2027-10-05", "{\"shiftId\":null}").andExpect(status().isOk());
         team.putJson(team.ownerId, employeePath + "/2027-10-06", "{\"shiftId\":null}").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SCHEDULE_DATE_TOO_FAR"));
-        team.putJson(team.ownerId, "/api/employees/" + UUID.randomUUID() + "/schedule-entries/2026-10-12", "{\"shiftId\":null}").andExpect(status().isNotFound());
+        team.putJson(team.ownerId, "/api/v1/employees/" + UUID.randomUUID() + "/schedule-entries/2026-10-12", "{\"shiftId\":null}").andExpect(status().isNotFound());
         team.putJson(team.ownerId, employeePath + "/12-10-2026", "{\"shiftId\":null}").andExpect(status().isBadRequest());
     }
 
     @Test
     void aDateWithAWorkdayCannotChange() throws Exception {
         team.applyEvent(team.employeeId, "START"); // today, 5 October
-        String path = "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-05";
+        String path = "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-05";
         team.putJson(team.ownerId, path, "{\"shiftId\":null}").andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SCHEDULE_DATE_HAS_WORKDAY"));
         // a past date without a workday is fine
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-03", "{\"shiftId\":null}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-03", "{\"shiftId\":null}").andExpect(status().isOk());
     }
 
     @Test
     void workOnAWeekOffIsAllowedFlaggedAndAllExtraTime() throws Exception {
         UUID usShiftId = createShift("US shift", "19:30", "04:30");
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\"}").andExpect(status().isOk());
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-06", "{\"shiftId\":null}").andExpect(status().isOk());
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-06", "{\"shiftId\":null}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\"}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-06", "{\"shiftId\":null}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeOfAId + "/schedule-entries/2026-10-06", "{\"shiftId\":null}").andExpect(status().isOk());
 
         // the board on the week off: both are NOT_STARTED but counted as week off, not as not started
         clock.setTo("2026-10-06T06:30:00Z"); // 12:00 on the 6th
-        String board = team.read(team.ownerId, "/api/team/members").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String board = team.read(team.ownerId, "/api/v1/team/members").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat((Integer) JsonPath.read(board, "$.data.metrics.weekOff")).isEqualTo(2);
         assertThat((Integer) JsonPath.read(board, "$.data.metrics.notStarted")).isEqualTo(4);
         assertThat((Integer) JsonPath.read(board, "$.data.metrics.total")).isEqualTo(6);
@@ -355,33 +355,33 @@ class ShiftApiTest extends IntegrationTest {
                 .containsEntry("shift_name", "US shift");
 
         // the report and the CSV carry the extra time and the week-off marker
-        String report = team.read(team.ownerId, "/api/reports/workdays?range=custom&from=2026-10-06&to=2026-10-06").andExpect(status().isOk()).andReturn()
+        String report = team.read(team.ownerId, "/api/v1/reports/workdays?range=custom&from=2026-10-06&to=2026-10-06").andExpect(status().isOk()).andReturn()
                 .getResponse().getContentAsString();
         assertThat((Integer) JsonPath.read(report, "$.data.totals.extraSeconds")).isEqualTo(3 * HOUR);
         assertThat((Boolean) JsonPath.read(report, "$.data.rows[0].isOffDay")).isTrue();
         assertThat((Integer) JsonPath.read(report, "$.data.rows[0].extraSeconds")).isEqualTo(3 * HOUR);
-        String csv = new String(mockMvc.perform(get("/api/reports/workdays?range=custom&from=2026-10-06&to=2026-10-06").cookie(team.cookieOf(team.ownerId))
+        String csv = new String(mockMvc.perform(get("/api/v1/reports/workdays?range=custom&from=2026-10-06&to=2026-10-06").cookie(team.cookieOf(team.ownerId))
                 .header("accept", "text/csv")).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
         String[] lines = csv.split("\r\n");
         assertThat(lines[0]).endsWith("Span hours,Breaks,Last break (IST),Extra hours,Shift,Scheduled start (IST),Scheduled end (IST),Outside shift,Week off");
         assertThat(lines[1]).endsWith(",3.00,0.00,3.00,0,,3.00,US shift,19:30,04:30,Yes,Yes");
-        String summary = team.read(team.ownerId, "/api/reports/summaries?range=custom&from=2026-10-06&to=2026-10-06&groupBy=employee").andExpect(status().isOk())
+        String summary = team.read(team.ownerId, "/api/v1/reports/summaries?range=custom&from=2026-10-06&to=2026-10-06&groupBy=employee").andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat((Integer) JsonPath.read(summary, "$.data.rows[0].extraSeconds")).isEqualTo(3 * HOUR);
     }
 
     private String board() throws Exception {
-        return team.read(team.ownerId, "/api/team/members").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return team.read(team.ownerId, "/api/v1/team/members").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     }
 
     private String me(UUID userId) throws Exception {
-        return team.read(userId, "/api/me/time").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return team.read(userId, "/api/v1/me/time").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     }
 
     @Test
     void aStartInTheGapIsAllowedFlaggedAndExtra() throws Exception {
         UUID usShiftId = createShift("US shift", "19:30", "04:30");
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\"}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\"}").andExpect(status().isOk());
         clock.setTo("2026-10-06T05:30:00Z"); // 11:00 on the 6th: between the 5th's shift (ended 04:30) and the 6th's (19:30)
         String startAnswer = team.sendEvent(team.employeeId, "START").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         assertThat((Boolean) JsonPath.read(startAnswer, "$.data.state.workday.isOutsideShift")).isTrue();
@@ -389,7 +389,7 @@ class ShiftApiTest extends IntegrationTest {
         assertThat((String) JsonPath.read(startAnswer, "$.data.state.workday.date")).as("the nearest occurrence").isEqualTo("2026-10-05");
         clock.setTo("2026-10-06T07:30:00Z");
         String workdayId = team.applyEvent(team.employeeId, "END");
-        String ended = team.read(team.employeeId, "/api/workdays/" + workdayId).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String ended = team.read(team.employeeId, "/api/v1/workdays/" + workdayId).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat((Integer) JsonPath.read(ended, "$.data.productiveSeconds")).isEqualTo(2 * HOUR);
         assertThat((Integer) JsonPath.read(ended, "$.data.extraSeconds")).isEqualTo(2 * HOUR);
         assertThat((Boolean) JsonPath.read(ended, "$.data.isOutsideShift")).isTrue();
@@ -399,8 +399,8 @@ class ShiftApiTest extends IntegrationTest {
     void aPerDateOverrideChangesTheOccurrenceAStartBelongsTo() throws Exception {
         UUID usShiftId = createShift("US shift", "19:30", "04:30");
         UUID ukShiftId = createShift("UK shift", "14:00", "23:00");
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\"}").andExpect(status().isOk());
-        team.putJson(team.ownerId, "/api/employees/" + team.employeeId + "/schedule-entries/2026-10-05", "{\"shiftId\":\"" + ukShiftId + "\"}")
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/shift", "{\"shiftId\":\"" + usShiftId + "\"}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + team.employeeId + "/schedule-entries/2026-10-05", "{\"shiftId\":\"" + ukShiftId + "\"}")
                 .andExpect(status().isOk());
         clock.setTo("2026-10-05T08:30:00Z"); // 14:00 today
         String startAnswer = team.sendEvent(team.employeeId, "START").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();

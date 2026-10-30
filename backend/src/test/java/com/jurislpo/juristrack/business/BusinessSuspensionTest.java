@@ -49,7 +49,7 @@ class BusinessSuspensionTest extends IntegrationTest {
     }
 
     private void setSuspended(boolean isSuspended) throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status")).cookie(superAdminCookie)
                 .content("{\"isSuspended\":" + isSuspended + "}")).andExpect(status().isOk());
     }
 
@@ -68,17 +68,17 @@ class BusinessSuspensionTest extends IntegrationTest {
         SessionCookies otherCookies = SignIn.session(mockMvc, otherEmail);
 
         setSuspended(true);
-        mockMvc.perform(get("/api/me").cookie(employeeCookies.accessCookie())).andExpect(status().isForbidden())
+        mockMvc.perform(get("/api/v1/me").cookie(employeeCookies.accessCookie())).andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"))
                 .andExpect(jsonPath("$.detail").value("Your company's access to JurisTrack is suspended. Please contact support."));
-        mockMvc.perform(get("/api/employees").cookie(ownerCookies.accessCookie())).andExpect(status().isForbidden())
+        mockMvc.perform(get("/api/v1/employees").cookie(ownerCookies.accessCookie())).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("BUSINESS_SUSPENDED"));
-        mockMvc.perform(get("/api/me").cookie(otherCookies.accessCookie())).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").cookie(otherCookies.accessCookie())).andExpect(status().isOk());
 
         // the session was not ended: it works again after reactivation
         setSuspended(false);
-        mockMvc.perform(get("/api/me").cookie(employeeCookies.accessCookie())).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").cookie(employeeCookies.accessCookie())).andExpect(status().isOk());
     }
 
     @Test
@@ -100,9 +100,9 @@ class BusinessSuspensionTest extends IntegrationTest {
     void signingOutStillWorksWhileSuspended() throws Exception {
         SessionCookies cookies = SignIn.session(mockMvc, employeeEmail);
         setSuspended(true);
-        mockMvc.perform(delete("/api/auth/sessions/current").header("origin", SignIn.ORIGIN).cookie(cookies.accessCookie(), cookies.refreshCookie()))
+        mockMvc.perform(delete("/api/v1/auth/sessions/current").header("origin", SignIn.ORIGIN).cookie(cookies.accessCookie(), cookies.refreshCookie()))
                 .andExpect(status().isOk());
         setSuspended(false);
-        mockMvc.perform(get("/api/me").cookie(cookies.accessCookie())).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(cookies.accessCookie())).andExpect(status().isUnauthorized());
     }
 }

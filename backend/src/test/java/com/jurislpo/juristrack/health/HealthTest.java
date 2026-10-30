@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** The health endpoint is open and UP (database included); everything under /api needs a session and says so as problem+json. */
+/** The health endpoint is open and UP (database included); everything under /api/v1 needs a session and says so as problem+json. */
 class HealthTest extends IntegrationTest {
 
     @Autowired MockMvc mockMvc;
@@ -25,13 +25,13 @@ class HealthTest extends IntegrationTest {
 
     @Test
     void apiCallsWithoutASessionAnswer401ProblemDetails() throws Exception {
-        mockMvc.perform(get("/api/workdays/mine"))
+        mockMvc.perform(get("/api/v1/workdays/mine"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                 .andExpect(jsonPath("$.detail").value("Your session has ended. Please sign in again."))
-                .andExpect(jsonPath("$.instance").value("/api/workdays/mine"));
+                .andExpect(jsonPath("$.instance").value("/api/v1/workdays/mine"));
     }
 
     @Test

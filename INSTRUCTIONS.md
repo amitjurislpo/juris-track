@@ -43,12 +43,12 @@ Add new lines at the bottom of the right section. Hindi, Hinglish or English are
 - Java packages are lowercase and follow the layers already used (`controller`, `service`, `repository`, `entity`, `engine`, `security`). A file holds the one class it is named after.
 
 **REST API (backend, and the frontend calls that use it)**
-- A URL names a resource, never an action: plural nouns for collections (`/api/leave/requests`), the id in the path (`/api/people/{id}`), sub-resources for what belongs to it (`/api/people/{id}/photo`). No verbs in paths. An action that has no resource of its own is modelled as creating one (`POST /api/auth/otp-requests`, `POST /api/policies/{id}/acknowledgements`), or as setting a state (`PUT /api/people/{id}/status`).
+- A URL names a resource, never an action: plural nouns for collections (`/api/v1/leave/requests`), the id in the path (`/api/v1/people/{id}`), sub-resources for what belongs to it (`/api/v1/people/{id}/photo`). No verbs in paths. An action that has no resource of its own is modelled as creating one (`POST /api/v1/auth/otp-requests`, `POST /api/v1/policies/{id}/acknowledgements`), or as setting a state (`PUT /api/v1/people/{id}/status`).
 - Methods: `GET` reads and never changes anything; `POST` creates (answer `201` with the new id); `PUT` sets or replaces and is idempotent; `PATCH` changes part of a resource; `DELETE` removes. Do not tunnel changes through `GET`.
 - Collections take their filters, sorting and paging as camelCase query parameters (`status`, `departmentId`, `month`, `search`, `sortBy`, `page`), always descriptive. The current user's own collection is `/mine` everywhere.
 - Status codes mean what they say: `200`, `201`, `204`, `400` bad input, `401` not signed in, `402` subscription, `403` not allowed, `404` not found, `409` conflict, `422` a business rule refused it, `429` too many requests. Errors use the one error shape the API already has (RFC 7807 problem details); never invent another.
 - A new endpoint is added together with its integration test, its entry in `references/API.md` (the endpoint contract) and, where it changes a rule, `references/MIGRATION_PLAN.md` / `references/INTEGRATION.md`, and (for a write) an audit entry.
-- Screens that need several things at once (`/api/home`, `/api/overview`, `/api/team`, `/api/shell`) are view models, not resources. Keep them few; do not add more where a resource will do.
+- Screens that need several things at once (`/api/v1/home`, `/api/v1/overview`, `/api/v1/team`, `/api/v1/shell`) are view models, not resources. Keep them few; do not add more where a resource will do.
 - Do not rename or remove an endpoint, parameter or JSON field without changing every caller (the other repo, the tests) in the same change.
 
 **Backend specifics**

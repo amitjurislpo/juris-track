@@ -69,7 +69,7 @@ class DeactivationClosesWorkdayTest extends IntegrationTest {
     }
 
     private void deactivate(String reasonJson) throws Exception {
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie)
                 .content("{\"isActive\":false" + reasonJson + "}")).andExpect(status().isOk());
     }
 
@@ -102,7 +102,7 @@ class DeactivationClosesWorkdayTest extends IntegrationTest {
         // the deactivated person is signed out: no more time events or reads
         tracker.send("RESUME").andExpect(status().isUnauthorized());
         tracker.send("START").andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/me/time").cookie(employeeCookie)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me/time").cookie(employeeCookie)).andExpect(status().isUnauthorized());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM workdays WHERE employee_id = ?", Integer.class, employeeId)).isEqualTo(1);
     }
 
@@ -116,7 +116,7 @@ class DeactivationClosesWorkdayTest extends IntegrationTest {
         assertThat(jdbcTemplate.queryForObject("SELECT productive_seconds FROM workdays WHERE employee_id = ?", Integer.class, employeeId))
                 .isEqualTo(3600);
 
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":true}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":true}"))
                 .andExpect(status().isOk());
         deactivate(""); // nothing open this time
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs WHERE action = 'workday.closed' AND subject_id = ?", Integer.class,

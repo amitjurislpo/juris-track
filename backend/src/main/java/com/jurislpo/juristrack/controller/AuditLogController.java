@@ -22,12 +22,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code /api/audit-logs}: the audit log, read-only. The owner (ADMIN) reads their business's entries, the platform SUPER_ADMIN every
+ * {@code /api/v1/audit-logs}: the audit log, read-only. The owner (ADMIN) reads their business's entries, the platform SUPER_ADMIN every
  * entry; everybody else gets 403. {@code format=csv} answers the same filtered list as a CSV file. Rules: {@link AuditLogService};
  * contract: references/API.md.
  */
 @RestController
-@RequestMapping("/api/audit-logs")
+@RequestMapping("/api/v1/audit-logs")
 public class AuditLogController {
 
     private static final MediaType CSV = new MediaType("text", "csv", StandardCharsets.UTF_8);

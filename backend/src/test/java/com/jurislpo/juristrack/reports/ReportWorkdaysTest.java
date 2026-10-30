@@ -21,7 +21,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@code GET /api/reports/workdays}: who may call it and whom they see (scope direct / indirect / all), every filter, sorting and paging,
+ * {@code GET /api/v1/reports/workdays}: who may call it and whom they see (scope direct / indirect / all), every filter, sorting and paging,
  * the totals and the daily series against the rows, live figures and "Not ended" for open days, the manager of the day, the audit
  * entry of every request, and the business boundary. Data: {@link ReportTestBase}.
  */
@@ -133,8 +133,8 @@ class ReportWorkdaysTest extends ReportTestBase {
         Cookie superAdmin = signIn(superAdminEmail);
         workdays(superAdmin, "").andExpect(status().isForbidden());
         summaries(superAdmin, "").andExpect(status().isForbidden());
-        mockMvc.perform(request("/api/reports/workdays", "")).andExpect(status().isUnauthorized());
-        mockMvc.perform(request("/api/reports/summaries", "")).andExpect(status().isUnauthorized());
+        mockMvc.perform(request("/api/v1/reports/workdays", "")).andExpect(status().isUnauthorized());
+        mockMvc.perform(request("/api/v1/reports/summaries", "")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -170,7 +170,7 @@ class ReportWorkdaysTest extends ReportTestBase {
         workdays(owner, "search=esha").andExpect(jsonPath("$.data.total").value(3));
         workdays(owner, "search=empthree").andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.rows[0].employee.name").value("Ravi Indirect"));
-        mockMvc.perform(request("/api/reports/workdays", "").param("search", "zed other").cookie(owner)).andExpect(jsonPath("$.data.total").value(2));
+        mockMvc.perform(request("/api/v1/reports/workdays", "").param("search", "zed other").cookie(owner)).andExpect(jsonPath("$.data.total").value(2));
         workdays(owner, "search=nobody").andExpect(jsonPath("$.data.total").value(0)).andExpect(jsonPath("$.data.totals.workdays").value(0));
     }
 
@@ -287,7 +287,7 @@ class ReportWorkdaysTest extends ReportTestBase {
 
     @Test
     void aSignedOutCallerWithTheWebAppOriginIsStill401() throws Exception {
-        mockMvc.perform(request("/api/reports/workdays", "").header("origin", SignIn.ORIGIN)).andExpect(status().isUnauthorized());
+        mockMvc.perform(request("/api/v1/reports/workdays", "").header("origin", SignIn.ORIGIN)).andExpect(status().isUnauthorized());
     }
 
     private static long sum(List<Integer> values) {

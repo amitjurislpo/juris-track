@@ -21,7 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Corrections of a work or break interval ({@code PATCH /api/workdays/{workdayId}/work-sessions|break-sessions/{sessionId}}): the old
+ * Corrections of a work or break interval ({@code PATCH /api/v1/workdays/{workdayId}/work-sessions|break-sessions/{sessionId}}): the old
  * verify-flows checks "non-admins cannot adjust", "overlapping adjustment is rejected" and "valid adjustment recomputes totals and
  * writes an audit entry", with the new rule that a manager corrects their direct and indirect reports and nobody their own time.
  *
@@ -67,11 +67,11 @@ class TimeCorrectionTest extends IntegrationTest {
     }
 
     private String workSessionPath(UUID sessionId) {
-        return "/api/workdays/" + workdayId + "/work-sessions/" + sessionId;
+        return "/api/v1/workdays/" + workdayId + "/work-sessions/" + sessionId;
     }
 
     private String breakSessionPath(UUID sessionId) {
-        return "/api/workdays/" + workdayId + "/break-sessions/" + sessionId;
+        return "/api/v1/workdays/" + workdayId + "/break-sessions/" + sessionId;
     }
 
     private static String body(String startedAt, String endedAt, String reason) {
@@ -119,16 +119,16 @@ class TimeCorrectionTest extends IntegrationTest {
 
         String managerWorkdayId = team.applyEvent(team.managerBId, "START");
         UUID managerSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid", UUID.class, managerWorkdayId);
-        team.patchJson(team.managerBId, "/api/workdays/" + managerWorkdayId + "/work-sessions/" + managerSessionId,
+        team.patchJson(team.managerBId, "/api/v1/workdays/" + managerWorkdayId + "/work-sessions/" + managerSessionId,
                 body("2026-10-05T11:00:00Z", null, REASON)).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("CANNOT_CORRECT_OWN_TIME"))
                 .andExpect(jsonPath("$.detail").value("You cannot correct your own time. Ask your manager or the owner to do it."));
         String ownerWorkdayId = team.applyEvent(team.ownerId, "START");
         UUID ownerSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid", UUID.class, ownerWorkdayId);
-        team.patchJson(team.ownerId, "/api/workdays/" + ownerWorkdayId + "/work-sessions/" + ownerSessionId, body("2026-10-05T11:00:00Z", null, REASON))
+        team.patchJson(team.ownerId, "/api/v1/workdays/" + ownerWorkdayId + "/work-sessions/" + ownerSessionId, body("2026-10-05T11:00:00Z", null, REASON))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CANNOT_CORRECT_OWN_TIME"));
         // their own manager can
-        team.patchJson(team.managerAId, "/api/workdays/" + managerWorkdayId + "/work-sessions/" + managerSessionId,
+        team.patchJson(team.managerAId, "/api/v1/workdays/" + managerWorkdayId + "/work-sessions/" + managerSessionId,
                 body("2026-10-05T11:00:00Z", null, REASON)).andExpect(status().isOk());
 
         assertThat(workdayRow().get("productive_seconds")).isEqualTo(27000);
@@ -140,7 +140,7 @@ class TimeCorrectionTest extends IntegrationTest {
         String correction = body("2026-10-05T03:00:00Z", null, REASON);
         team.patchJson(team.managerCId, workSessionPath(firstWorkSessionId), correction).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("Workday not found."));
-        team.putJson(team.managerCId, "/api/workdays/" + workdayId + "/status", "{\"status\":\"DAY_ENDED\",\"reason\":\"" + REASON + "\"}")
+        team.putJson(team.managerCId, "/api/v1/workdays/" + workdayId + "/status", "{\"status\":\"DAY_ENDED\",\"reason\":\"" + REASON + "\"}")
                 .andExpect(status().isNotFound());
         TeamFixture otherBusiness = new TeamFixture(mockMvc, jdbcTemplate, rateLimiter);
         otherBusiness.patchJson(otherBusiness.ownerId, workSessionPath(firstWorkSessionId), correction).andExpect(status().isNotFound());
@@ -279,18 +279,18 @@ class TimeCorrectionTest extends IntegrationTest {
                 .andExpect(jsonPath("$.detail").value("Time record not found."));
         team.patchJson(team.ownerId, workSessionPath(UUID.randomUUID()), correction).andExpect(status().isNotFound());
         String otherWorkdayId = team.applyEvent(team.employeeOfAId, "START");
-        team.patchJson(team.ownerId, "/api/workdays/" + otherWorkdayId + "/work-sessions/" + firstWorkSessionId, correction)
+        team.patchJson(team.ownerId, "/api/v1/workdays/" + otherWorkdayId + "/work-sessions/" + firstWorkSessionId, correction)
                 .andExpect(status().isNotFound());
-        team.patchJson(team.ownerId, "/api/workdays/" + UUID.randomUUID() + "/work-sessions/" + firstWorkSessionId, correction)
+        team.patchJson(team.ownerId, "/api/v1/workdays/" + UUID.randomUUID() + "/work-sessions/" + firstWorkSessionId, correction)
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.detail").value("Workday not found."));
-        team.patchJson(team.ownerId, "/api/workdays/not-a-uuid/work-sessions/" + firstWorkSessionId, correction).andExpect(status().isBadRequest());
+        team.patchJson(team.ownerId, "/api/v1/workdays/not-a-uuid/work-sessions/" + firstWorkSessionId, correction).andExpect(status().isBadRequest());
     }
 
     @Test
     void aRunningIntervalKeepsRunningAndOnlyItsStartMoves() throws Exception {
         String openWorkdayId = team.applyEvent(team.employeeOfAId, "START");
         UUID openSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid", UUID.class, openWorkdayId);
-        String path = "/api/workdays/" + openWorkdayId + "/work-sessions/" + openSessionId;
+        String path = "/api/v1/workdays/" + openWorkdayId + "/work-sessions/" + openSessionId;
         team.patchJson(team.managerAId, path, body(null, "2026-10-05T12:00:00Z", REASON)).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("INTERVAL_STILL_RUNNING"));
         team.patchJson(team.managerAId, path, body("2026-10-05T11:00:00Z", "null", REASON)).andExpect(status().isOk())
