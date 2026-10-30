@@ -20,8 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The reports of managers (their reports) and owners (everybody in the business): {@code GET /api/reports/workdays} (JSON, or the CSV
- * file when the request accepts {@code text/csv}) and {@code GET /api/reports/summaries}. EMPLOYEE and the platform SUPER_ADMIN get
+ * The reports of managers (their reports) and owners (everybody in the business): {@code GET /api/v1/reports/workdays} (JSON, or the CSV
+ * file when the request accepts {@code text/csv}) and {@code GET /api/v1/reports/summaries}. EMPLOYEE and the platform SUPER_ADMIN get
  * 403. Rules: {@link ReportService}; contract: references/API.md.
  */
 @RestController
@@ -40,7 +40,7 @@ public class ReportController {
     }
 
     /** The workday report: JSON by default; the CSV download when {@code Accept} names {@code text/csv}. */
-    @GetMapping("/api/reports/workdays")
+    @GetMapping("/api/v1/reports/workdays")
     public ResponseEntity<?> listWorkdays(@RequestParam Map<String, String> queryParameters,
             @RequestHeader(value = HttpHeaders.ACCEPT, required = false) String accept) {
         CurrentUser currentUser = auth.requireRole(REPORT_ROLES);
@@ -53,7 +53,7 @@ public class ReportController {
                 .body(export.content());
     }
 
-    @GetMapping("/api/reports/summaries")
+    @GetMapping("/api/v1/reports/summaries")
     public ApiResult<SummaryReport> listSummaries(@RequestParam Map<String, String> queryParameters) {
         return ApiResult.success(reportService.listSummaries(auth.requireRole(REPORT_ROLES), queryParameters));
     }

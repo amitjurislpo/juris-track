@@ -44,7 +44,7 @@ public class BusinessQueryRepository {
      */
     public record BusinessFilter(Boolean isSuspended) {}
 
-    /** The SQL behind each sort key of {@code GET /api/businesses} ({@code %s} is the direction). */
+    /** The SQL behind each sort key of {@code GET /api/v1/businesses} ({@code %s} is the direction). */
     public static final Map<String, String> SORT_COLUMNS = Map.of(
             "name", "lower(business.name) %s",
             "createdAt", "business.created_at %s",

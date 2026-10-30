@@ -47,11 +47,11 @@ class SignInAuditTest extends IntegrationTest {
     }
 
     private ResultActions requestCode(AuditTrace trace, String email) throws Exception {
-        return mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/auth/otp-requests"))).content("{\"email\":\"" + email + "\"}"));
+        return mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/auth/otp-requests"))).content("{\"email\":\"" + email + "\"}"));
     }
 
     private ResultActions postCode(AuditTrace trace, String email, String code) throws Exception {
-        return mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/auth/sessions"))).content("{\"email\":\"" + email + "\",\"otp\":\"" + code + "\"}"));
+        return mockMvc.perform(trace.on(SignIn.fromWebApp(post("/api/v1/auth/sessions"))).content("{\"email\":\"" + email + "\",\"otp\":\"" + code + "\"}"));
     }
 
     private AuditTrace trace() {
@@ -158,13 +158,13 @@ class SignInAuditTest extends IntegrationTest {
         UUID userId = testData.createUser(businessId, "EMPLOYEE", email, null);
         SessionCookies cookies = SignIn.session(mockMvc, email);
         AuditTrace trace = trace();
-        mockMvc.perform(trace.on(SignIn.fromWebApp(delete("/api/auth/sessions/current"))).cookie(cookies.refreshCookie())).andExpect(status().isOk());
+        mockMvc.perform(trace.on(SignIn.fromWebApp(delete("/api/v1/auth/sessions/current"))).cookie(cookies.refreshCookie())).andExpect(status().isOk());
         Map<String, Object> entry = trace.entry("auth.signed_out");
         assertThat(entry).containsEntry("actor_id", userId).containsEntry("subject_id", userId).containsEntry("business_id", businessId);
         assertThat((String) entry.get("after_json")).contains("withRefreshCookieOnly");
         // signing out again ends nothing and writes nothing
         AuditTrace againTrace = trace();
-        mockMvc.perform(againTrace.on(SignIn.fromWebApp(delete("/api/auth/sessions/current"))).cookie(cookies.refreshCookie())).andExpect(status().isOk());
+        mockMvc.perform(againTrace.on(SignIn.fromWebApp(delete("/api/v1/auth/sessions/current"))).cookie(cookies.refreshCookie())).andExpect(status().isOk());
         assertThat(againTrace.entries()).isEmpty();
     }
 
@@ -174,15 +174,15 @@ class SignInAuditTest extends IntegrationTest {
         testData.createUser(businessId, "EMPLOYEE", email, null);
         SessionCookies cookies = SignIn.session(mockMvc, email);
         AuditTrace successTrace = trace();
-        mockMvc.perform(successTrace.on(SignIn.fromWebApp(post("/api/auth/session-refreshes"))).cookie(cookies.refreshCookie())).andExpect(status().isCreated());
+        mockMvc.perform(successTrace.on(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes"))).cookie(cookies.refreshCookie())).andExpect(status().isCreated());
         AuditTrace missingTrace = trace();
-        mockMvc.perform(missingTrace.on(SignIn.fromWebApp(post("/api/auth/session-refreshes")))).andExpect(status().isUnauthorized());
+        mockMvc.perform(missingTrace.on(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes")))).andExpect(status().isUnauthorized());
         assertThat(successTrace.entries()).isEmpty();
         assertThat(missingTrace.entries()).isEmpty();
 
         List<AuditTrace> unknownTraces = List.of(trace(), trace());
         for (AuditTrace unknownTrace : unknownTraces) {
-            mockMvc.perform(unknownTrace.on(SignIn.fromWebApp(post("/api/auth/session-refreshes"))).cookie(new Cookie("jt_rt", "stolen-or-made-up")))
+            mockMvc.perform(unknownTrace.on(SignIn.fromWebApp(post("/api/v1/auth/session-refreshes"))).cookie(new Cookie("jt_rt", "stolen-or-made-up")))
                     .andExpect(status().isUnauthorized());
         }
         Map<String, Object> entry = unknownTraces.get(0).entry("auth.session_refresh_failed");

@@ -48,17 +48,17 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class BusinessService {
 
-    /** {@code POST /api/businesses} body; {@code timeZone} defaults to {@value #DEFAULT_TIME_ZONE}. */
+    /** {@code POST /api/v1/businesses} body; {@code timeZone} defaults to {@value #DEFAULT_TIME_ZONE}. */
     public record BusinessInput(String name, String timeZone, OwnerInput owner) {}
 
     /** The new business's owner (ADMIN): signs in with an emailed code; {@code employeeCode} is optional. */
     public record OwnerInput(String firstName, String lastName, String email, String employeeCode) {}
 
-    /** What {@code POST /api/businesses} answers: the new business and its owner. */
+    /** What {@code POST /api/v1/businesses} answers: the new business and its owner. */
     public record CreatedBusiness(UUID id, UUID ownerId) {}
 
     /**
-     * {@code PATCH /api/businesses/{id}} and {@code PATCH /api/business} body: a field left out stays as it is ({@code null} here); a
+     * {@code PATCH /api/v1/businesses/{id}} and {@code PATCH /api/v1/business} body: a field left out stays as it is ({@code null} here); a
      * field sent as {@code null} is refused (every setting has a value).
      */
     public record BusinessChanges(Optional<String> name, Optional<String> timeZone, Optional<Integer> staleWorkdayHours,
@@ -73,23 +73,23 @@ public class BusinessService {
         }
     }
 
-    /** {@code PUT /api/businesses/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
+    /** {@code PUT /api/v1/businesses/{id}/status} body; {@code reason} is optional (at most 500 characters) and goes to the audit log. */
     public record BusinessStatusChange(@JsonProperty("isSuspended") Boolean isSuspended, String reason) {}
 
-    /** {@code PUT /api/businesses/{id}/jurisone-link} body: the JurisOne business this one is linked to (a UUID, as text so a malformed id is a field error). */
+    /** {@code PUT /api/v1/businesses/{id}/jurisone-link} body: the JurisOne business this one is linked to (a UUID, as text so a malformed id is a field error). */
     public record JurisoneLinkInput(String jurisoneBusinessId) {}
 
-    /** A business's settings as its owner sees them ({@code GET /api/business}). */
+    /** A business's settings as its owner sees them ({@code GET /api/v1/business}). */
     public record BusinessSettings(UUID id, String name, String timeZone, int staleWorkdayHours, List<String> displayTimeZones, Instant createdAt,
             Instant updatedAt) {}
 
-    /** A business as the super admin sees it ({@code GET /api/businesses/{id}}); {@code owner} is null when it has no ADMIN. */
+    /** A business as the super admin sees it ({@code GET /api/v1/businesses/{id}}); {@code owner} is null when it has no ADMIN. */
     public record BusinessDetail(UUID id, String name, String timeZone, int staleWorkdayHours, List<String> displayTimeZones,
             @JsonProperty("isSuspended") boolean isSuspended, @JsonProperty("isLinkedToJurisone") boolean isLinkedToJurisone, Instant createdAt,
             Instant updatedAt, BusinessOwner owner, long employeeCount, long activeEmployeeCount) {}
 
     public static final String DEFAULT_TIME_ZONE = "Asia/Kolkata";
-    /** The sort keys of {@code GET /api/businesses}. */
+    /** The sort keys of {@code GET /api/v1/businesses}. */
     public static final List<String> SORT_KEYS = List.of("name", "createdAt", "employeeCount", "status");
     public static final int MINIMUM_STALE_WORKDAY_HOURS = 1;
     public static final int MAXIMUM_STALE_WORKDAY_HOURS = 48;
@@ -101,7 +101,7 @@ public class BusinessService {
     private static final String BUSINESS_ENTITY = "business";
     private static final String USER_ENTITY = "user";
     private static final String NOT_FOUND = "Business not found.";
-    /** The query parameters of {@code GET /api/businesses} that the access entry keeps. */
+    /** The query parameters of {@code GET /api/v1/businesses} that the access entry keeps. */
     private static final List<String> LIST_PARAMETERS = List.of("search", "status", "sort", "sortDirection", "page", "pageSize");
 
     private final BusinessRepository businessRepository;
@@ -250,7 +250,7 @@ public class BusinessService {
     }
 
     /**
-     * Links a standalone business to its JurisOne business ({@code PUT /api/businesses/{businessId}/jurisone-link}): from then on the
+     * Links a standalone business to its JurisOne business ({@code PUT /api/v1/businesses/{businessId}/jurisone-link}): from then on the
      * tokens of that JurisOne business resolve to it, and its people are linked by email on their first token. This is the only way a
      * business is linked to an existing one (a token never adopts a business). The same link again changes nothing and writes no entry.
      * 400 for a missing or malformed id, 404 for an unknown business, 409 {@code BUSINESS_ALREADY_LINKED} when it is linked to another
@@ -286,7 +286,7 @@ public class BusinessService {
         return findDetail(businessId);
     }
 
-    /** Removes the link to JurisOne ({@code DELETE /api/businesses/{businessId}/jurisone-link}); a business that is not linked is left as it is. */
+    /** Removes the link to JurisOne ({@code DELETE /api/v1/businesses/{businessId}/jurisone-link}); a business that is not linked is left as it is. */
     @Transactional
     public BusinessDetail unlinkFromJurisone(CurrentUser superAdmin, UUID businessId) {
         Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));

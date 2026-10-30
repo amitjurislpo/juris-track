@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
 /**
- * The CSV download of the workday report ({@code GET /api/reports/workdays} with {@code Accept: text/csv}): the exact bytes (byte order
+ * The CSV download of the workday report ({@code GET /api/v1/reports/workdays} with {@code Accept: text/csv}): the exact bytes (byte order
  * mark, CRLF after every line, quoting and the formula guard), times and header abbreviation in the display time zone (India, New York,
  * and New York on the day summer time starts), the allowed display zones, errors as problem details, and the audit entry. Data:
  * {@link ReportTestBase}.
@@ -125,11 +125,11 @@ class ReportExportTest extends ReportTestBase {
     @Test
     void jsonStaysTheDefaultRepresentation() throws Exception {
         Cookie owner = signIn(ownerEmail);
-        mockMvc.perform(request("/api/reports/workdays", "").cookie(owner).header("accept", "*/*")).andExpect(status().isOk())
+        mockMvc.perform(request("/api/v1/reports/workdays", "").cookie(owner).header("accept", "*/*")).andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)).andExpect(jsonPath("$.data.total").value(8));
-        mockMvc.perform(request("/api/reports/workdays", "").cookie(owner).header("accept", "application/json, text/plain")).andExpect(status().isOk())
+        mockMvc.perform(request("/api/v1/reports/workdays", "").cookie(owner).header("accept", "application/json, text/plain")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true));
-        mockMvc.perform(request("/api/reports/workdays", "").cookie(owner).header("accept", "text/csv;q=0.9, application/json"))
+        mockMvc.perform(request("/api/v1/reports/workdays", "").cookie(owner).header("accept", "text/csv;q=0.9, application/json"))
                 .andExpect(status().isOk()).andExpect(content().contentType("text/csv;charset=UTF-8"));
     }
 

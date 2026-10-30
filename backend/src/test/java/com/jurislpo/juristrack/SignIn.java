@@ -30,11 +30,11 @@ public final class SignIn {
     }
 
     public static ResultActions requestCode(MockMvc mockMvc, String email) throws Exception {
-        return mockMvc.perform(fromWebApp(post("/api/auth/otp-requests")).content("{\"email\":\"" + email + "\"}"));
+        return mockMvc.perform(fromWebApp(post("/api/v1/auth/otp-requests")).content("{\"email\":\"" + email + "\"}"));
     }
 
     public static ResultActions postCode(MockMvc mockMvc, String email, String code, boolean isRemembered) throws Exception {
-        return mockMvc.perform(fromWebApp(post("/api/auth/sessions"))
+        return mockMvc.perform(fromWebApp(post("/api/v1/auth/sessions"))
                 .content("{\"email\":\"" + email + "\",\"otp\":\"" + code + "\",\"remember\":" + isRemembered + "}"));
     }
 

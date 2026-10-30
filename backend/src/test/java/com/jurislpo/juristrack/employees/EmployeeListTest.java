@@ -22,7 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** {@code GET /api/employees} and {@code GET /api/employees/{id}}: the owner's view of their own business; search, filters, sorting, paging. */
+/** {@code GET /api/v1/employees} and {@code GET /api/v1/employees/{id}}: the owner's view of their own business; search, filters, sorting, paging. */
 class EmployeeListTest extends IntegrationTest {
 
     @Autowired MockMvc mockMvc;
@@ -59,7 +59,7 @@ class EmployeeListTest extends IntegrationTest {
 
     @Test
     void theDefaultListShowsTheActivePeopleOfTheOwnersBusinessByName() throws Exception {
-        mockMvc.perform(get("/api/employees").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").cookie(ownerCookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(4))
                 .andExpect(jsonPath("$.data.page").value(1))
@@ -80,52 +80,52 @@ class EmployeeListTest extends IntegrationTest {
 
     @Test
     void filtersNarrowTheList() throws Exception {
-        mockMvc.perform(get("/api/employees").param("status", "inactive").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("status", "inactive").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[*].firstName").value(contains("Chen")));
-        mockMvc.perform(get("/api/employees").param("status", "all").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(5));
-        mockMvc.perform(get("/api/employees").param("role", "MANAGER,ADMIN").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("status", "all").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(5));
+        mockMvc.perform(get("/api/v1/employees").param("role", "MANAGER,ADMIN").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[*].firstName").value(contains("Manish", "Olivia")));
-        mockMvc.perform(get("/api/employees").param("role", "employee").param("status", "all").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("role", "employee").param("status", "all").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.total").value(3));
-        mockMvc.perform(get("/api/employees").param("managerId", managerId.toString()).cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("managerId", managerId.toString()).cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[*].firstName").value(contains("Asha", "Ben")));
         // search: first name, last name, full name, email, employee code; never another business
-        mockMvc.perform(get("/api/employees").param("search", "asha").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("search", "asha").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.total").value(1)).andExpect(jsonPath("$.data.rows[0].id").value(ashaId.toString()));
-        mockMvc.perform(get("/api/employees").param("search", "ben car").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows[0].id").value(benId.toString()));
-        mockMvc.perform(get("/api/employees").param("search", "l-00").param("status", "all").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(4));
-        mockMvc.perform(get("/api/employees").param("search", "list.manager").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(1));
+        mockMvc.perform(get("/api/v1/employees").param("search", "ben car").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows[0].id").value(benId.toString()));
+        mockMvc.perform(get("/api/v1/employees").param("search", "l-00").param("status", "all").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(4));
+        mockMvc.perform(get("/api/v1/employees").param("search", "list.manager").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(1));
         // % and _ are taken literally
-        mockMvc.perform(get("/api/employees").param("search", "%").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(0));
+        mockMvc.perform(get("/api/v1/employees").param("search", "%").cookie(ownerCookie)).andExpect(jsonPath("$.data.total").value(0));
     }
 
     @Test
     void sortingAndPaging() throws Exception {
-        mockMvc.perform(get("/api/employees").param("sort", "name").param("sortDirection", "desc").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("sort", "name").param("sortDirection", "desc").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[*].firstName").value(contains("Olivia", "Manish", "Ben", "Asha")));
-        mockMvc.perform(get("/api/employees").param("sort", "employeeCode").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("sort", "employeeCode").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[*].firstName").value(contains("Olivia", "Manish", "Asha", "Ben")));
-        mockMvc.perform(get("/api/employees").param("sort", "role").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("sort", "role").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[*].role").value(contains("ADMIN", "MANAGER", "EMPLOYEE", "EMPLOYEE")));
-        mockMvc.perform(get("/api/employees").param("sort", "lastLoginAt").param("sortDirection", "desc").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("sort", "lastLoginAt").param("sortDirection", "desc").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[0].firstName").value("Olivia")) // signed in just now
                 .andExpect(jsonPath("$.data.rows[1].firstName").value("Ben"))
                 .andExpect(jsonPath("$.data.rows[2].firstName").value("Asha"))
                 .andExpect(jsonPath("$.data.rows[3].firstName").value("Manish"));
-        mockMvc.perform(get("/api/employees").param("sort", "status").param("status", "all").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("sort", "status").param("status", "all").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.rows[4].firstName").value("Chen"));
-        mockMvc.perform(get("/api/employees").param("sort", "email").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows[0].firstName").value("Asha"));
-        mockMvc.perform(get("/api/employees").param("pageSize", "3").param("page", "2").cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees").param("sort", "email").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows[0].firstName").value("Asha"));
+        mockMvc.perform(get("/api/v1/employees").param("pageSize", "3").param("page", "2").cookie(ownerCookie))
                 .andExpect(jsonPath("$.data.total").value(4))
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.pageSize").value(3))
                 .andExpect(jsonPath("$.data.rows[*].firstName").value(contains("Olivia")));
-        mockMvc.perform(get("/api/employees").param("page", "9").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows.length()").value(0));
+        mockMvc.perform(get("/api/v1/employees").param("page", "9").cookie(ownerCookie)).andExpect(jsonPath("$.data.rows.length()").value(0));
     }
 
     @Test
     void unknownParametersAre400() throws Exception {
-        mockMvc.perform(get("/api/employees").param("status", "gone").param("role", "SUPER_ADMIN").param("managerId", "nobody")
+        mockMvc.perform(get("/api/v1/employees").param("status", "gone").param("role", "SUPER_ADMIN").param("managerId", "nobody")
                         .param("sort", "salary").param("page", "-1").param("pageSize", "abc").cookie(ownerCookie))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
@@ -134,16 +134,16 @@ class EmployeeListTest extends IntegrationTest {
 
     @Test
     void oneEmployeeOfTheOwnersBusiness() throws Exception {
-        mockMvc.perform(get("/api/employees/" + managerId).cookie(ownerCookie))
+        mockMvc.perform(get("/api/v1/employees/" + managerId).cookie(ownerCookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstName").value("Manish"))
                 .andExpect(jsonPath("$.data.managerName").value("Olivia Owner"))
                 .andExpect(jsonPath("$.data.activeReportCount").value(2))
                 .andExpect(jsonPath("$.data.createdAt").isString());
-        mockMvc.perform(get("/api/employees/" + otherBusinessUserId).cookie(ownerCookie)).andExpect(status().isNotFound())
+        mockMvc.perform(get("/api/v1/employees/" + otherBusinessUserId).cookie(ownerCookie)).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
-        mockMvc.perform(get("/api/employees/" + UUID.randomUUID()).cookie(ownerCookie)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/employees/123").cookie(ownerCookie)).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/employees/" + UUID.randomUUID()).cookie(ownerCookie)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/employees/123").cookie(ownerCookie)).andExpect(status().isBadRequest());
     }
 
     @ParameterizedTest
@@ -152,13 +152,13 @@ class EmployeeListTest extends IntegrationTest {
         String email = TestData.uniqueEmail(role.toLowerCase());
         testData.createUser("SUPER_ADMIN".equals(role) ? null : businessId, role, email, null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(get("/api/employees").cookie(cookie)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        mockMvc.perform(get("/api/employees/" + ashaId).cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/employees").cookie(cookie)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(get("/api/v1/employees/" + ashaId).cookie(cookie)).andExpect(status().isForbidden());
     }
 
     @Test
     void signedOutIs401() throws Exception {
-        mockMvc.perform(get("/api/employees")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/employees/" + ashaId)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/employees")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/employees/" + ashaId)).andExpect(status().isUnauthorized());
     }
 }

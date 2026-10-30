@@ -16,11 +16,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code /api/team/members}: the manager's Team tab (live board, one person's state, one person's history). MANAGER and the owner
+ * {@code /api/v1/team/members}: the manager's Team tab (live board, one person's state, one person's history). MANAGER and the owner
  * (ADMIN); everybody else 403. Rules: {@link TeamService}; contract: references/API.md.
  */
 @RestController
-@RequestMapping("/api/team/members")
+@RequestMapping("/api/v1/team/members")
 public class TeamController {
 
     private static final Role[] TEAM_ROLES = {Role.ADMIN, Role.MANAGER};

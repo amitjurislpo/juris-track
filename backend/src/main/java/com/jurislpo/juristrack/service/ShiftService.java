@@ -35,10 +35,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ShiftService {
 
-    /** {@code POST /api/shifts} body: times as {@code HH:mm}; the grace minutes default to 180. */
+    /** {@code POST /api/v1/shifts} body: times as {@code HH:mm}; the grace minutes default to 180. */
     public record ShiftInput(String name, String startTime, String endTime, Integer earlyStartMinutes, Integer lateEndMinutes) {}
 
-    /** {@code PUT /api/shifts/{shiftId}/status} body. */
+    /** {@code PUT /api/v1/shifts/{shiftId}/status} body. */
     public record ShiftStatusChange(@JsonProperty("isActive") Boolean isActive) {}
 
     /**

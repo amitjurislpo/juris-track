@@ -118,10 +118,10 @@ class RosterSyncTest extends RosterSyncTestBase {
                 userIdOf(secondReportId))).isZero();
 
         Cookie topCookie = SignIn.session(mockMvc, (String) topManager.get("email")).accessCookie();
-        String board = mockMvc.perform(get("/api/team/members").cookie(topCookie)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String board = mockMvc.perform(get("/api/v1/team/members").cookie(topCookie)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         List<String> ids = JsonPath.read(board, "$.data.rows[*].employee.id");
         assertThat(ids).containsExactlyInAnyOrder(userIdOf(middleManagerId).toString(), userIdOf(secondReportId).toString());
-        String indirectBoard = mockMvc.perform(get("/api/team/members?scope=indirect").cookie(topCookie)).andExpect(status().isOk()).andReturn().getResponse()
+        String indirectBoard = mockMvc.perform(get("/api/v1/team/members?scope=indirect").cookie(topCookie)).andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat((List<String>) JsonPath.read(indirectBoard, "$.data.rows[*].employee.id")).containsExactlyInAnyOrder(userIdOf(middleManagerId).toString(),
                 userIdOf(secondReportId).toString(), userIdOf(reportId).toString());
@@ -162,7 +162,7 @@ class RosterSyncTest extends RosterSyncTestBase {
         UUID storedId = userIdOf(employeeId);
         IntegrationTokens.Employee employee = new IntegrationTokens.Employee(employeeId, (String) person.get("email"), "Asha Rao", jurisoneBusinessId,
                 businessName, null, "EMPLOYEE");
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee))).andExpect(status().isOk())
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(employee))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(storedId.toString()));
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM users WHERE business_id = ?", Integer.class, businessId())).isEqualTo(1);
     }
@@ -194,7 +194,7 @@ class RosterSyncTest extends RosterSyncTestBase {
         Map<String, Object> person = person(employeeId, "EMPLOYEE", null);
         sync(body(person)).andExpect(status().isOk());
         Cookie employeeCookie = SignIn.session(mockMvc, (String) person.get("email")).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(employeeCookie)
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie)
                 .content("{\"type\":\"START\"}")).andExpect(status().isCreated());
         UUID storedId = userIdOf(employeeId);
         assertThat(jdbcTemplate.queryForObject("SELECT status::text FROM workdays WHERE employee_id = ?", String.class, storedId)).isNotEqualTo("COMPLETED");
@@ -205,7 +205,7 @@ class RosterSyncTest extends RosterSyncTestBase {
         assertThat(userOf(employeeId)).containsEntry("is_active", false).containsEntry("is_deactivated_by_roster_sync", true);
         assertThat(jdbcTemplate.queryForObject("SELECT status::text FROM workdays WHERE employee_id = ?", String.class, storedId)).isEqualTo("COMPLETED");
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id = ? AND revoked_at IS NULL", Integer.class, storedId)).isZero();
-        mockMvc.perform(get("/api/me").cookie(employeeCookie)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").cookie(employeeCookie)).andExpect(status().isUnauthorized());
         assertThat(auditActionsOfLatestCall()).containsExactlyInAnyOrder("employee.deactivated", "workday.closed", "integration.roster_synced");
         Map<String, Object> deactivation = jdbcTemplate.queryForMap("SELECT actor_id, subject_id, source, reason FROM audit_logs WHERE request_id = ? "
                 + "AND action = 'employee.deactivated'", requestId);
@@ -239,10 +239,10 @@ class RosterSyncTest extends RosterSyncTestBase {
         Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
 
         // deactivated by the owner in JurisTrack
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + userIdOf(byOwnerId) + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + userIdOf(byOwnerId) + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isOk());
         // login switched off by the owner, and (for the case) deactivated by an earlier sync
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + userIdOf(loginOffId) + "/login-access")).cookie(ownerCookie).content("{\"isEnabled\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + userIdOf(loginOffId) + "/login-access")).cookie(ownerCookie).content("{\"isEnabled\":false}"))
                 .andExpect(status().isOk());
         loginOff.put("isActive", false);
         sync(body(loginOff)).andExpect(status().isOk());
@@ -250,9 +250,9 @@ class RosterSyncTest extends RosterSyncTestBase {
         // deactivated by the sync, then reactivated and deactivated again by the owner: the owner's decision stands
         byOwnerAfterSync.put("isActive", false);
         sync(body(byOwnerAfterSync)).andExpect(status().isOk());
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + userIdOf(byOwnerAfterSyncId) + "/status")).cookie(ownerCookie).content("{\"isActive\":true}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + userIdOf(byOwnerAfterSyncId) + "/status")).cookie(ownerCookie).content("{\"isActive\":true}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + userIdOf(byOwnerAfterSyncId) + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + userIdOf(byOwnerAfterSyncId) + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isOk());
         assertThat(userOf(byOwnerAfterSyncId)).containsEntry("is_deactivated_by_roster_sync", false);
 

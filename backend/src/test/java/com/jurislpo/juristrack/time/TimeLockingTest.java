@@ -91,7 +91,7 @@ class TimeLockingTest extends IntegrationTest {
     }
 
     private Future<Integer> deactivateInBackground() {
-        return executor.submit(() -> mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie)
+        return executor.submit(() -> mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie)
                 .content("{\"isActive\":false,\"reason\":\"Left\"}")).andReturn().getResponse().getStatus());
     }
 
@@ -208,7 +208,7 @@ class TimeLockingTest extends IntegrationTest {
         clock.advance(Duration.ofHours(1));
         employee.apply("BREAK");
         clock.advance(Duration.ofMinutes(15));
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status")).cookie(superAdminCookie)
                 .content("{\"isSuspended\":true,\"reason\":\"Unpaid\"}")).andExpect(status().isOk());
         Map<String, Object> workday = jdbcTemplate.queryForMap("SELECT status::text AS status, active_employee_id, productive_seconds, break_seconds, "
                 + "break_count FROM workdays WHERE id = ?::uuid", workdayId);
@@ -218,7 +218,7 @@ class TimeLockingTest extends IntegrationTest {
                 .containsEntry("actor_id", superAdminId).containsEntry("reason", "business_suspended");
 
         clock.advance(Duration.ofHours(2));
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + businessId + "/status")).cookie(superAdminCookie).content("{\"isSuspended\":false}"))
                 .andExpect(status().isOk());
         assertThat((String) employee.stateValue("$.data.status")).isEqualTo("DAY_ENDED");
         assertThat(jdbcTemplate.queryForObject("SELECT productive_seconds FROM workdays WHERE id = ?::uuid", Integer.class, workdayId)).isEqualTo(3600);
@@ -233,7 +233,7 @@ class TimeLockingTest extends IntegrationTest {
         clock.advance(Duration.ofHours(2));
         employee.apply("BREAK");
         clock.advance(Duration.ofMinutes(20));
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + employeeId + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
                 .andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForMap("SELECT status::text AS status, productive_seconds, break_seconds, break_count FROM workdays WHERE id = ?::uuid",
                 workdayId)).containsEntry("status", "COMPLETED").containsEntry("productive_seconds", 7200).containsEntry("break_seconds", 1200)

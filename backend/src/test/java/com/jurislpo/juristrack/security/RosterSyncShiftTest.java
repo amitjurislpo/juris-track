@@ -193,7 +193,7 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
         Map<String, Object> person = person(employeeId, "EMPLOYEE", null);
         sync(body(person)).andExpect(status().isOk());
         Cookie employeeCookie = SignIn.session(mockMvc, (String) person.get("email")).accessCookie();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
         String workdayDate = jdbcTemplate.queryForObject("SELECT work_date::text FROM workdays WHERE employee_id = ?", String.class, userIdOf(employeeId));
 
         person.put("schedule", List.of(scheduleEntry(workdayDate, null), scheduleEntry(daysFromToday(1), null), scheduleEntry(daysFromToday(366), null),
@@ -242,7 +242,7 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
     void aFirstUserTokenCanCarryTheShiftCodeButOnlyForAUserItCreates() throws Exception {
         sync(body(List.of(shift("US", "US shift", "19:30", "04:30"), shift("UK", "UK shift", "14:00", "23:00")))).andExpect(status().isOk());
         Employee newcomer = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(newcomer, claims -> claims.claim("shiftCode", "US"))))
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(newcomer, claims -> claims.claim("shiftCode", "US"))))
                 .andExpect(status().isOk());
         assertThat(currentShiftIdOf(newcomer.employeeId())).isEqualTo(shiftRow("US").get("id"));
         UUID newcomerId = userIdOf(newcomer.employeeId());
@@ -251,7 +251,7 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
         assertThat(entry).containsEntry("source", "INTEGRATION");
 
         // the same person's later token with another code changes nothing (the roster or the owner decides)
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(newcomer, claims -> claims.claim("shiftCode", "UK"))))
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(newcomer, claims -> claims.claim("shiftCode", "UK"))))
                 .andExpect(status().isOk());
         assertThat(currentShiftIdOf(newcomer.employeeId())).isEqualTo(shiftRow("US").get("id"));
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM employee_shift_assignments WHERE employee_id = ?", Integer.class, newcomerId)).isEqualTo(1);
@@ -261,21 +261,21 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
         Map<String, Object> synced = person(syncedId, "EMPLOYEE", null);
         sync(body(synced)).andExpect(status().isOk());
         Employee syncedEmployee = new Employee(syncedId, (String) synced.get("email"), "Asha Rao", jurisoneBusinessId, businessName, null, "EMPLOYEE");
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(syncedEmployee, claims -> claims.claim("shiftCode", "UK"))))
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(syncedEmployee, claims -> claims.claim("shiftCode", "UK"))))
                 .andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM employee_shift_assignments WHERE employee_id = ?", Integer.class, userIdOf(syncedId))).isZero();
 
         // an unknown, blank or oversized code is ignored and the sign-in works
         for (String ignoredCode : List.of("NOPE", "  ", "x".repeat(80))) {
             Employee other = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
-            mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(other, claims -> claims.claim("shiftCode", ignoredCode))))
+            mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(other, claims -> claims.claim("shiftCode", ignoredCode))))
                     .andExpect(status().isOk());
             assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM employee_shift_assignments WHERE employee_id = ?", Integer.class,
                     userIdOf(other.employeeId()))).isZero();
         }
         // a shift code that is not text is ignored too
         Employee numeric = IntegrationTokens.newEmployee(jurisoneBusinessId, businessName, "EMPLOYEE");
-        mockMvc.perform(get("/api/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(numeric, claims -> claims.claim("shiftCode", 7))))
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + IntegrationTokens.tokenFor(numeric, claims -> claims.claim("shiftCode", 7))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.email").value(numeric.email()));
     }
 
@@ -288,7 +288,7 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
         String ownerEmail = com.jurislpo.juristrack.TestData.uniqueEmail("shift.owner");
         testData.createUser(businessId(), "ADMIN", ownerEmail, null);
         Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
-        String answer = mockMvc.perform(get("/api/employees/" + userIdOf(employeeId)).cookie(ownerCookie)).andExpect(status().isOk()).andReturn().getResponse()
+        String answer = mockMvc.perform(get("/api/v1/employees/" + userIdOf(employeeId)).cookie(ownerCookie)).andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat((String) JsonPath.read(answer, "$.data.shift.name")).isEqualTo("Evening");
     }

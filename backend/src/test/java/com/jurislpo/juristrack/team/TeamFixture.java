@@ -84,9 +84,9 @@ final class TeamFixture {
         return cookie;
     }
 
-    /** {@code POST /api/me/time-events} as the user. */
+    /** {@code POST /api/v1/me/time-events} as the user. */
     ResultActions sendEvent(UUID userId, String type) throws Exception {
-        return mockMvc.perform(SignIn.fromWebApp(post("/api/me/time-events")).cookie(cookieOf(userId)).content("{\"type\":\"" + type + "\"}"));
+        return mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(cookieOf(userId)).content("{\"type\":\"" + type + "\"}"));
     }
 
     /** A time event that must change the state (201); answers the workday id it applied to. */

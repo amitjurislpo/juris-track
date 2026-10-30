@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
- * JurisTrack REST API. The web app (juris-track-frontend, port 3006) is its client and proxies /api/* here; embedded in
+ * JurisTrack REST API. The web app (juris-track-frontend, port 3006) is its client and proxies /api/v1/* here; embedded in
  * JurisOne, the JurisOne API is the gateway instead. With a command argument it runs that once and exits:
  * {@code migrate}, {@code seed} or {@code reset} (see cli.Commands).
  */

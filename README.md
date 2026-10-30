@@ -11,7 +11,7 @@ break time are calculated from the recorded intervals. A manager sees the live b
 
 | Part | Technology | Port (dev) |
 |---|---|---|
-| Frontend | React single-page app (Vite, TypeScript) in `juris-track-frontend`; proxies `/api/*` to the API | 3006 |
+| Frontend | React single-page app (Vite, TypeScript) in `juris-track-frontend`; proxies `/api/v1/*` to the API | 3006 |
 | Backend | Java 17, Spring Boot 3, Flyway, Maven Wrapper — in `backend/` | 8081 |
 | Database | PostgreSQL 16 in docker-compose | 5437 on the host |
 | Tests | JUnit 5 + Testcontainers (backend); Vitest and Playwright in the frontend repo | |

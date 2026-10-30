@@ -74,21 +74,21 @@ class NightShiftTest extends IntegrationTest {
     }
 
     UUID createShift(String name, String startTime, String endTime) throws Exception {
-        String answer = team.postJson(team.ownerId, "/api/shifts", "{\"name\":\"" + name + "\",\"startTime\":\"" + startTime + "\",\"endTime\":\""
+        String answer = team.postJson(team.ownerId, "/api/v1/shifts", "{\"name\":\"" + name + "\",\"startTime\":\"" + startTime + "\",\"endTime\":\""
                 + endTime + "\"}").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return UUID.fromString(JsonPath.read(answer, "$.data.id"));
     }
 
     void assign(UUID employeeId, UUID shiftId) throws Exception {
-        team.putJson(team.ownerId, "/api/employees/" + employeeId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}").andExpect(status().isOk());
+        team.putJson(team.ownerId, "/api/v1/employees/" + employeeId + "/shift", "{\"shiftId\":\"" + shiftId + "\"}").andExpect(status().isOk());
     }
 
     private String me(UUID userId) throws Exception {
-        return team.read(userId, "/api/me/time").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return team.read(userId, "/api/v1/me/time").andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     }
 
     private String board(String query) throws Exception {
-        return team.read(team.ownerId, "/api/team/members" + (query.isEmpty() ? "" : "?" + query)).andExpect(status().isOk()).andReturn()
+        return team.read(team.ownerId, "/api/v1/team/members" + (query.isEmpty() ? "" : "?" + query)).andExpect(status().isOk()).andReturn()
                 .getResponse().getContentAsString();
     }
 
@@ -146,7 +146,7 @@ class NightShiftTest extends IntegrationTest {
         assertThat(workday).containsEntry("work_date", DATE).containsEntry("productive_seconds", 10 * HOUR + 1800).containsEntry("break_seconds", 1800)
                 .containsEntry("break_count", 1).containsEntry("extra_seconds", 4 * HOUR).containsEntry("shift_name", "US shift")
                 .containsEntry("is_outside_shift", false);
-        String history = team.read(team.employeeId, "/api/workdays/mine?range=custom&from=2026-10-05&to=2026-10-07").andExpect(status().isOk())
+        String history = team.read(team.employeeId, "/api/v1/workdays/mine?range=custom&from=2026-10-05&to=2026-10-07").andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat((List<?>) JsonPath.read(history, "$.data.rows")).hasSize(1);
         assertThat((String) JsonPath.read(history, "$.data.rows[0].date")).isEqualTo(DATE);
@@ -214,7 +214,7 @@ class NightShiftTest extends IntegrationTest {
         assertThat((Integer) JsonPath.read(answer, "$.data.metrics.totalExtraSeconds")).isEqualTo(2 * HOUR);
         assertThat((List<?>) JsonPath.read(board("status=DAY_ENDED"), "$.data.rows")).hasSize(1);
 
-        String member = team.read(team.managerBId, "/api/team/members/" + team.employeeId).andExpect(status().isOk()).andReturn().getResponse()
+        String member = team.read(team.managerBId, "/api/v1/team/members/" + team.employeeId).andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat((String) JsonPath.read(member, "$.data.status")).isEqualTo("DAY_ENDED");
         assertThat((String) JsonPath.read(member, "$.data.workday.date")).isEqualTo(DATE);
@@ -293,9 +293,9 @@ class NightShiftTest extends IntegrationTest {
 
         // the break moves to 01:00-01:30 on D+1 (after midnight, inside the window): the work after it starts at 01:30 (the gap
         // 00:30-01:00 belongs to neither), so the break still lasts 30 minutes and the productive time is 10 hours
-        team.patchJson(team.managerBId, "/api/workdays/" + workdayId + "/work-sessions/" + lastWorkSessionId,
+        team.patchJson(team.managerBId, "/api/v1/workdays/" + workdayId + "/work-sessions/" + lastWorkSessionId,
                 "{\"startedAt\":\"2026-10-05T20:00:00Z\",\"reason\":\"" + REASON + "\"}").andExpect(status().isOk());
-        team.patchJson(team.managerBId, "/api/workdays/" + workdayId + "/break-sessions/" + breakSessionId,
+        team.patchJson(team.managerBId, "/api/v1/workdays/" + workdayId + "/break-sessions/" + breakSessionId,
                 "{\"startedAt\":\"2026-10-05T19:30:00Z\",\"endedAt\":\"2026-10-05T20:00:00Z\",\"reason\":\"" + REASON + "\"}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.productiveSeconds").value(10 * HOUR))
                 .andExpect(jsonPath("$.data.breakSeconds").value(1800)).andExpect(jsonPath("$.data.breakCount").value(1))
@@ -303,7 +303,7 @@ class NightShiftTest extends IntegrationTest {
 
         // an end after midnight of D+2 is outside the window
         String outOfRange = "Choose a time on " + DATE + " or " + NEXT_DATE + ", in the business time zone. To close a forgotten shift, give the time it really ended.";
-        team.patchJson(team.managerBId, "/api/workdays/" + workdayId + "/work-sessions/" + lastWorkSessionId,
+        team.patchJson(team.managerBId, "/api/v1/workdays/" + workdayId + "/work-sessions/" + lastWorkSessionId,
                 "{\"endedAt\":\"2026-10-06T18:31:00Z\",\"reason\":\"" + REASON + "\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("CORRECTION_OUT_OF_RANGE"))
                 .andExpect(jsonPath("$.detail").value(outOfRange));
@@ -313,7 +313,7 @@ class NightShiftTest extends IntegrationTest {
         clock.setTo("2026-10-05T08:30:00Z"); // 14:00
         String forgottenId = team.applyEvent(team.employeeOfAId, "START");
         clock.setTo("2026-10-08T04:00:00Z");
-        String closePath = "/api/workdays/" + forgottenId + "/status";
+        String closePath = "/api/v1/workdays/" + forgottenId + "/status";
         team.putJson(team.managerAId, closePath, "{\"status\":\"DAY_ENDED\",\"reason\":\"" + REASON + "\"}")
                 .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("CORRECTION_OUT_OF_RANGE"))
                 .andExpect(jsonPath("$.detail").value(outOfRange));
@@ -332,7 +332,7 @@ class NightShiftTest extends IntegrationTest {
         UUID lastWorkSessionId = jdbcTemplate.queryForObject("SELECT id FROM work_sessions WHERE workday_id = ?::uuid ORDER BY started_at DESC LIMIT 1",
                 UUID.class, firstId);
         clock.setTo("2026-10-08T04:00:00Z");
-        String path = "/api/workdays/" + firstId + "/work-sessions/" + lastWorkSessionId;
+        String path = "/api/v1/workdays/" + firstId + "/work-sessions/" + lastWorkSessionId;
 
         team.patchJson(team.managerBId, path, "{\"endedAt\":\"2026-10-06T00:30:00Z\",\"reason\":\"" + REASON + "\"}").andExpect(status().isOk());
         // touching the next shift's start is fine
@@ -347,7 +347,7 @@ class NightShiftTest extends IntegrationTest {
         clock.setTo(START_2130);
         String suspendedId = team.applyEvent(team.employeeOfCId, "START");
         clock.setTo("2026-10-05T20:30:00Z"); // 02:00 on D+1
-        mockMvc.perform(SignIn.fromWebApp(put("/api/employees/" + team.employeeId + "/status")).cookie(team.cookieOf(team.ownerId))
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + team.employeeId + "/status")).cookie(team.cookieOf(team.ownerId))
                 .content("{\"isActive\":false,\"reason\":\"Left the organization\"}")).andExpect(status().isOk());
         Map<String, Object> deactivated = jdbcTemplate.queryForMap("SELECT work_date::text AS work_date, status::text AS status, productive_seconds,"
                 + " ended_at FROM workdays WHERE id = ?::uuid", deactivatedId);
@@ -358,7 +358,7 @@ class NightShiftTest extends IntegrationTest {
         rateLimiter.clear();
         Cookie superAdminCookie = SignIn.session(mockMvc, superAdminEmail).accessCookie();
         clock.setTo("2026-10-05T21:00:00Z"); // 02:30
-        mockMvc.perform(SignIn.fromWebApp(put("/api/businesses/" + team.businessId + "/status")).cookie(superAdminCookie)
+        mockMvc.perform(SignIn.fromWebApp(put("/api/v1/businesses/" + team.businessId + "/status")).cookie(superAdminCookie)
                 .content("{\"isSuspended\":true}")).andExpect(status().isOk());
         Map<String, Object> suspended = jdbcTemplate.queryForMap("SELECT work_date::text AS work_date, status::text AS status, productive_seconds"
                 + " FROM workdays WHERE id = ?::uuid", suspendedId);

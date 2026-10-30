@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
 /**
  * Verifies the token JurisOne sends when JurisTrack runs embedded in it.
  *
- * <p>In embedded mode the browser talks only to JurisOne; the JurisOne API is the gateway ({@code /api/juris-track/**} there,
+ * <p>In embedded mode the browser talks only to JurisOne; the JurisOne API is the gateway ({@code /api/v1/juris-track/**} there,
  * forwarded to this API) and adds {@code Authorization: Bearer <jwt>}: a short-lived JWT signed with JurisOne's <b>private</b>
  * key. JurisTrack holds only the public key ({@code juristrack.integration.public-key}, PEM): an RSA key accepts only RS256,
  * an EC P-256 key only ES256, so {@code alg=none} and symmetric algorithms are refused. Checked:

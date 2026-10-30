@@ -1,15 +1,15 @@
 # JurisTrack API
 
-**Document version 2.1** (2026-10-27; 1.1 last break and "Work started", 1.2 login access, 2.0 shift-based calculation: shifts, roster, shift fields on every workday, extra time, 2.1 JurisOne roster sync). The version table is in `FRD-JurisTrack.md`.
+**Document version 2.2** (2026-10-30; 1.1 last break and "Work started", 1.2 login access, 2.0 shift-based calculation: shifts, roster, shift fields on every workday, extra time, 2.1 JurisOne roster sync, 2.2 API versioned under `/api/v1`). The version table is in `FRD-JurisTrack.md`.
 
 The contract between this backend and its clients (the `juris-track-frontend` web app and, embedded, the JurisOne gateway). Keep it exactly in
 sync with the code: an endpoint, parameter or field is added, renamed or removed here in the same change as in the controller.
 
 ## Conventions (every endpoint)
 
-- **Base path** `/api`. JSON in and out (`Content-Type: application/json`).
-- **Authentication**: standalone, the `jt_at` / `jt_rt` cookies set by `POST /api/auth/sessions`; embedded in JurisOne, `Authorization: Bearer <JurisOne token>`
-  (see `INTEGRATION.md`). Both produce the same signed-in user and the same rules. The one exception is `PUT /api/integration/employees`, which takes
+- **Base path** `/api/v1` (every endpoint; only `/actuator/health` is unversioned). JSON in and out (`Content-Type: application/json`).
+- **Authentication**: standalone, the `jt_at` / `jt_rt` cookies set by `POST /api/v1/auth/sessions`; embedded in JurisOne, `Authorization: Bearer <JurisOne token>`
+  (see `INTEGRATION.md`). Both produce the same signed-in user and the same rules. The one exception is `PUT /api/v1/integration/employees`, which takes
   JurisOne's service token (no user) and nothing else.
 - **Origin check**: a cookie-authenticated `POST`, `PUT`, `PATCH` or `DELETE` must carry `Origin` equal to the web app's URL, else 403 `CROSS_SITE_BLOCKED`.
   Bearer requests are exempt.
@@ -45,56 +45,56 @@ Roles column: who may call it; everybody else signed in gets 403 `FORBIDDEN`, si
 | Method | Path | Roles | Purpose |
 |---|---|---|---|
 | GET | `/actuator/health` | public | Health (`{"status":"UP"}`) |
-| POST | `/api/auth/otp-requests` | public | Email a sign-in code |
-| POST | `/api/auth/sessions` | public | Sign in with the code |
-| POST | `/api/auth/session-refreshes` | public (refresh cookie) | Renew the session |
-| DELETE | `/api/auth/sessions/current` | public | Sign out |
-| GET | `/api/me` | any signed-in user | Who is signed in |
-| GET | `/api/businesses` | SUPER_ADMIN | List businesses |
-| POST | `/api/businesses` | SUPER_ADMIN | Create a business and its owner |
-| GET | `/api/businesses/{businessId}` | SUPER_ADMIN | One business |
-| PATCH | `/api/businesses/{businessId}` | SUPER_ADMIN | Change a business's settings |
-| PUT | `/api/businesses/{businessId}/status` | SUPER_ADMIN | Suspend / reactivate |
-| PUT | `/api/businesses/{businessId}/jurisone-link` | SUPER_ADMIN | Link a standalone business to its JurisOne business |
-| DELETE | `/api/businesses/{businessId}/jurisone-link` | SUPER_ADMIN | Remove that link |
-| GET | `/api/business` | ADMIN | The owner's business settings |
-| PATCH | `/api/business` | ADMIN | Change the owner's business settings |
-| GET | `/api/employees` | ADMIN | List the business's people |
-| POST | `/api/employees` | ADMIN | Add an employee |
-| GET | `/api/employees/{employeeId}` | ADMIN | One employee |
-| PATCH | `/api/employees/{employeeId}` | ADMIN | Change an employee |
-| PUT | `/api/employees/{employeeId}/status` | ADMIN | Deactivate / reactivate |
-| PUT | `/api/employees/{employeeId}/login-access` | ADMIN | Switch the person's sign-in off / on (they stay in the business) |
-| GET | `/api/shifts` | ADMIN, MANAGER, EMPLOYEE | The business's shifts (filter `isActive`) |
-| POST | `/api/shifts` | ADMIN | Create a shift |
-| GET | `/api/shifts/{shiftId}` | ADMIN, MANAGER, EMPLOYEE | One shift |
-| PATCH | `/api/shifts/{shiftId}` | ADMIN | Change a shift (future occurrences only) |
-| PUT | `/api/shifts/{shiftId}/status` | ADMIN | Deactivate / reactivate a shift |
-| PUT | `/api/employees/{employeeId}/shift` | ADMIN | Give an employee a shift from a date on |
-| GET | `/api/schedule-entries` | ADMIN, MANAGER | The roster (shift or week off per date) of the people in scope |
-| GET | `/api/me/schedule` | ADMIN, MANAGER, EMPLOYEE | My roster |
-| PUT | `/api/employees/{employeeId}/schedule-entries/{date}` | ADMIN | Set one date of the roster (a shift or a week off) |
-| DELETE | `/api/employees/{employeeId}/schedule-entries/{date}` | ADMIN | Remove that entry (back to the assigned shift) |
-| PUT | `/api/employees/{employeeId}/schedule-entries` | ADMIN | Set up to 62 dates at once |
-| GET | `/api/me/time` | ADMIN, MANAGER, EMPLOYEE | My current time state (timer, today's timeline) |
-| POST | `/api/me/time-events` | ADMIN, MANAGER, EMPLOYEE | Start work, break, resume, end the day |
-| GET | `/api/workdays/mine` | ADMIN, MANAGER, EMPLOYEE | My history: workdays of a date range, totals, daily series |
-| GET | `/api/workdays/{workdayId}` | ADMIN, MANAGER, EMPLOYEE | One workday with its work and break intervals: my own, or one of somebody in my scope |
-| GET | `/api/team/members` | ADMIN, MANAGER | Live board of the people in the caller's scope |
-| GET | `/api/team/members/{employeeId}` | ADMIN, MANAGER | One person of the scope with their current time state |
-| GET | `/api/team/members/{employeeId}/workdays` | ADMIN, MANAGER | One person's history (as `GET /api/workdays/mine`) |
-| PATCH | `/api/workdays/{workdayId}/work-sessions/{sessionId}` | ADMIN, MANAGER | Correct a work interval of somebody in scope |
-| PATCH | `/api/workdays/{workdayId}/break-sessions/{sessionId}` | ADMIN, MANAGER | Correct a break interval of somebody in scope |
-| PUT | `/api/workdays/{workdayId}/status` | ADMIN, MANAGER | End an open (forgotten) workday of somebody in scope |
-| GET | `/api/reports/workdays` | ADMIN, MANAGER | Workdays of the people in scope for a date range (rows, totals, daily series); with `Accept: text/csv` the CSV file |
-| GET | `/api/reports/summaries` | ADMIN, MANAGER | The same workdays added up per employee, per manager of the day, or per date |
-| GET | `/api/audit-logs` | ADMIN, SUPER_ADMIN | The audit log (filters, paging); `format=csv` exports it |
-| GET | `/api/audit-logs/{auditLogId}` | ADMIN, SUPER_ADMIN | One audit entry in full |
-| PUT | `/api/integration/employees` | JurisOne service token only | JurisOne pushes its shifts and employees (roster sync, idempotent) |
+| POST | `/api/v1/auth/otp-requests` | public | Email a sign-in code |
+| POST | `/api/v1/auth/sessions` | public | Sign in with the code |
+| POST | `/api/v1/auth/session-refreshes` | public (refresh cookie) | Renew the session |
+| DELETE | `/api/v1/auth/sessions/current` | public | Sign out |
+| GET | `/api/v1/me` | any signed-in user | Who is signed in |
+| GET | `/api/v1/businesses` | SUPER_ADMIN | List businesses |
+| POST | `/api/v1/businesses` | SUPER_ADMIN | Create a business and its owner |
+| GET | `/api/v1/businesses/{businessId}` | SUPER_ADMIN | One business |
+| PATCH | `/api/v1/businesses/{businessId}` | SUPER_ADMIN | Change a business's settings |
+| PUT | `/api/v1/businesses/{businessId}/status` | SUPER_ADMIN | Suspend / reactivate |
+| PUT | `/api/v1/businesses/{businessId}/jurisone-link` | SUPER_ADMIN | Link a standalone business to its JurisOne business |
+| DELETE | `/api/v1/businesses/{businessId}/jurisone-link` | SUPER_ADMIN | Remove that link |
+| GET | `/api/v1/business` | ADMIN | The owner's business settings |
+| PATCH | `/api/v1/business` | ADMIN | Change the owner's business settings |
+| GET | `/api/v1/employees` | ADMIN | List the business's people |
+| POST | `/api/v1/employees` | ADMIN | Add an employee |
+| GET | `/api/v1/employees/{employeeId}` | ADMIN | One employee |
+| PATCH | `/api/v1/employees/{employeeId}` | ADMIN | Change an employee |
+| PUT | `/api/v1/employees/{employeeId}/status` | ADMIN | Deactivate / reactivate |
+| PUT | `/api/v1/employees/{employeeId}/login-access` | ADMIN | Switch the person's sign-in off / on (they stay in the business) |
+| GET | `/api/v1/shifts` | ADMIN, MANAGER, EMPLOYEE | The business's shifts (filter `isActive`) |
+| POST | `/api/v1/shifts` | ADMIN | Create a shift |
+| GET | `/api/v1/shifts/{shiftId}` | ADMIN, MANAGER, EMPLOYEE | One shift |
+| PATCH | `/api/v1/shifts/{shiftId}` | ADMIN | Change a shift (future occurrences only) |
+| PUT | `/api/v1/shifts/{shiftId}/status` | ADMIN | Deactivate / reactivate a shift |
+| PUT | `/api/v1/employees/{employeeId}/shift` | ADMIN | Give an employee a shift from a date on |
+| GET | `/api/v1/schedule-entries` | ADMIN, MANAGER | The roster (shift or week off per date) of the people in scope |
+| GET | `/api/v1/me/schedule` | ADMIN, MANAGER, EMPLOYEE | My roster |
+| PUT | `/api/v1/employees/{employeeId}/schedule-entries/{date}` | ADMIN | Set one date of the roster (a shift or a week off) |
+| DELETE | `/api/v1/employees/{employeeId}/schedule-entries/{date}` | ADMIN | Remove that entry (back to the assigned shift) |
+| PUT | `/api/v1/employees/{employeeId}/schedule-entries` | ADMIN | Set up to 62 dates at once |
+| GET | `/api/v1/me/time` | ADMIN, MANAGER, EMPLOYEE | My current time state (timer, today's timeline) |
+| POST | `/api/v1/me/time-events` | ADMIN, MANAGER, EMPLOYEE | Start work, break, resume, end the day |
+| GET | `/api/v1/workdays/mine` | ADMIN, MANAGER, EMPLOYEE | My history: workdays of a date range, totals, daily series |
+| GET | `/api/v1/workdays/{workdayId}` | ADMIN, MANAGER, EMPLOYEE | One workday with its work and break intervals: my own, or one of somebody in my scope |
+| GET | `/api/v1/team/members` | ADMIN, MANAGER | Live board of the people in the caller's scope |
+| GET | `/api/v1/team/members/{employeeId}` | ADMIN, MANAGER | One person of the scope with their current time state |
+| GET | `/api/v1/team/members/{employeeId}/workdays` | ADMIN, MANAGER | One person's history (as `GET /api/v1/workdays/mine`) |
+| PATCH | `/api/v1/workdays/{workdayId}/work-sessions/{sessionId}` | ADMIN, MANAGER | Correct a work interval of somebody in scope |
+| PATCH | `/api/v1/workdays/{workdayId}/break-sessions/{sessionId}` | ADMIN, MANAGER | Correct a break interval of somebody in scope |
+| PUT | `/api/v1/workdays/{workdayId}/status` | ADMIN, MANAGER | End an open (forgotten) workday of somebody in scope |
+| GET | `/api/v1/reports/workdays` | ADMIN, MANAGER | Workdays of the people in scope for a date range (rows, totals, daily series); with `Accept: text/csv` the CSV file |
+| GET | `/api/v1/reports/summaries` | ADMIN, MANAGER | The same workdays added up per employee, per manager of the day, or per date |
+| GET | `/api/v1/audit-logs` | ADMIN, SUPER_ADMIN | The audit log (filters, paging); `format=csv` exports it |
+| GET | `/api/v1/audit-logs/{auditLogId}` | ADMIN, SUPER_ADMIN | One audit entry in full |
+| PUT | `/api/v1/integration/employees` | JurisOne service token only | JurisOne pushes its shifts and employees (roster sync, idempotent) |
 
 ## Sign-in (standalone)
 
-### POST /api/auth/otp-requests
+### POST /api/v1/auth/otp-requests
 Body `{ email: string }`. Always 200 `{ ok, message: "If that account exists and is active, a 6-digit code is on its way to the email." }`; no code is sent
 to an unknown or deactivated account, to a person whose login the owner switched off, or to a user of a suspended business. 400 missing/invalid email; 429 too many requests (per IP and per email).
 The IP address is the connection's, or, behind a trusted proxy (`juristrack.security.trusted-proxies`, default loopback only), the client it forwarded in
@@ -102,7 +102,7 @@ The IP address is the connection's, or, behind a trusted proxy (`juristrack.secu
 Audit: `auth.sign_in_code_requested`, SUCCESS when a code was sent, DENIED with the reason (`unknown_email`, `inactive`, `login_disabled`, `business_suspended`) otherwise
 (the answer is the same; a DENIED entry is written once per address, IP and window); a 429 writes `auth.rate_limited` once per limit, key and window.
 
-### POST /api/auth/sessions
+### POST /api/v1/auth/sessions
 Body `{ email: string, otp: string (6 digits), remember?: boolean }` (`remember` = keep me signed in). 201 with the `jt_at` / `jt_rt` cookies and
 `data = { id, firstName, lastName, email, role, businessName }` (`businessName` null for the SUPER_ADMIN). 400 malformed code; 401 wrong, expired or used
 code, unknown or deactivated account, login switched off, or suspended business (always the same message); 429 after too many failures from one IP address (20 per window) or
@@ -110,18 +110,18 @@ for one account (10 per window, from whatever address); only failed attempts cou
 Audit: `auth.signed_in`; a refusal writes `auth.sign_in_failed` with the reason (`wrong_code`, `expired_or_used_code`, `code_burnt`, `unknown_email`,
 `inactive`, `login_disabled`, `business_suspended`), the wrong try that uses up a code's 5 tries also `auth.sign_in_code_burnt`; a 429 writes `auth.rate_limited` (once per window).
 
-### POST /api/auth/session-refreshes
+### POST /api/v1/auth/session-refreshes
 No body; uses the `jt_rt` cookie. 201 with new cookies. A token used again within `refresh-reuse-grace-seconds` (two requests of one browser at once) gets
 a new `jt_at` only, no second `jt_rt` (so a copied token cannot start a parallel chain). 401 (cookies cleared) when the session ended, expired, the user was deactivated or their login switched off, or the refresh
 token was used twice. Audit: a successful refresh is not audited (every few minutes); a reused token writes `auth.session_revoked_refresh_reuse`, any
 other refusal `auth.session_refresh_failed` (reason `unknown`, `revoked`, `expired`, `inactive`, `login_disabled`; once per reason, IP address, user and window); a
 request without the cookie writes nothing.
 
-### DELETE /api/auth/sessions/current
+### DELETE /api/v1/auth/sessions/current
 No body. Always 200; ends this device's session and clears the cookies. Audit: `auth.signed_out` when a session was ended (also with only the refresh
 cookie; `after.withRefreshCookieOnly`).
 
-## GET /api/me
+## GET /api/v1/me
 Any signed-in user. `data = { id, firstName, lastName, email, role, businessName, employeeCode, managerName, businessTimeZone }`.
 `businessName` and `businessTimeZone` are null for the SUPER_ADMIN; `employeeCode` and `managerName` ("First Last" of the reporting manager) are null when
 not set. 401 signed out, 403 `BUSINESS_SUSPENDED`.
@@ -130,14 +130,14 @@ not set. 401 signed out, 403 `BUSINESS_SUSPENDED`.
 
 The SUPER_ADMIN belongs to no business; these requests see every business. A business's **owner** is its earliest-created ADMIN.
 
-### GET /api/businesses
+### GET /api/v1/businesses
 Query: list parameters, `sort` = `name` (default) | `createdAt` | `employeeCount` | `status` (active first when ascending), `status` = `all` (default) |
 `active` | `suspended`. `search` matches the business name, the owner's name and the owner's email.
 Row: `{ id, name, timeZone, isSuspended, isLinkedToJurisone, ownerId, ownerName, ownerEmail, employeeCount, activeEmployeeCount, createdAt }`
 (`owner*` null when the business has no ADMIN, possible for a JurisOne business; `employeeCount` counts every user of the business, owner included).
 Audit: `access.business_list_viewed` (platform log; the query parameters, `rowCount`, `total` in `after`), one per request.
 
-### POST /api/businesses
+### POST /api/v1/businesses
 Body:
 ```json
 { "name": "string, 1-80", "timeZone": "IANA id, optional (default Asia/Kolkata)",
@@ -148,19 +148,19 @@ transaction. 201 `{ ok, message: "Business created.", data: { id, ownerId } }`. 
 Errors: 400 (fields `name`, `timeZone`, `owner.firstName`, `owner.lastName`, `owner.email`, `owner.employeeCode`), 409 `EMAIL_IN_USE` (the email belongs to
 any user of any business or to the super admin; compared lower-cased). Audit: `business.created` and `employee.created` (the owner).
 
-### GET /api/businesses/{businessId}
+### GET /api/v1/businesses/{businessId}
 `data = { id, name, timeZone, staleWorkdayHours, displayTimeZones: string[], isSuspended, isLinkedToJurisone, createdAt, updatedAt,
 owner: { id, employeeCode, firstName, lastName, email, isActive, lastLoginAt } | null, employeeCount, activeEmployeeCount }`. 404 unknown.
 Audit: `access.business_viewed` in that business's log (subject = its owner), so the owner sees that the platform looked.
 
-### PATCH /api/businesses/{businessId}
+### PATCH /api/v1/businesses/{businessId}
 Body (each optional): `{ name: string 1-80, timeZone: string, staleWorkdayHours: integer 1-48, displayTimeZones: string[] (at most 8) }`. None may be
 `null` (send `[]` for no display zones). Time zones are checked against the IANA database (any case, links such as `Asia/Calcutta`, three-letter ids such
 as `IST`, offsets such as `+05:30`) and stored in canonical form; duplicate display zones are dropped. A new time zone applies to workdays started from
-then on. 200 `{ ok, message: "Business saved.", data: <as GET /api/businesses/{businessId}> }`. 400 (field names as above, `displayTimeZones[i]` for one
+then on. 200 `{ ok, message: "Business saved.", data: <as GET /api/v1/businesses/{businessId}> }`. 400 (field names as above, `displayTimeZones[i]` for one
 zone), 404. Audit: `business.updated` (only when something changed).
 
-### PUT /api/businesses/{businessId}/status
+### PUT /api/v1/businesses/{businessId}/status
 Body `{ isSuspended: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Business suspended." | "Business is active.", data: <detail> }`.
 While suspended the business's users get no sign-in codes, cannot sign in, and every request of theirs with an existing session (or JurisOne token) answers
 403 `BUSINESS_SUSPENDED`; sessions are not ended, so they work again after reactivation. 400 (`isSuspended`, `reason`), 404.
@@ -169,28 +169,28 @@ count as work time): the open work or break interval ends, the day is `DAY_ENDED
 `business_suspended`, actor = the super admin). Reactivating reopens nothing.
 Audit: `business.suspended` / `business.reactivated` with the reason.
 
-### PUT /api/businesses/{businessId}/jurisone-link
+### PUT /api/v1/businesses/{businessId}/jurisone-link
 Body `{ jurisoneBusinessId: uuid (required) }`. Links a **standalone** business to its business in JurisOne: from then on the JurisOne tokens of that
 business resolve to it and its people are linked by email on their first token (a token never takes the ADMIN role away from an owner). This is the only
 way an existing business is linked: a JurisOne token never adopts a business by email (that would let any owner plant an email and take over a company).
-200 `{ ok, message: "Business linked to JurisOne.", data: <as GET /api/businesses/{businessId}> }` (`isLinkedToJurisone: true`); the same link again changes
+200 `{ ok, message: "Business linked to JurisOne.", data: <as GET /api/v1/businesses/{businessId}> }` (`isLinkedToJurisone: true`); the same link again changes
 nothing and writes no entry. Errors: 400 (`jurisoneBusinessId` missing or not a UUID), 404, 409 `BUSINESS_ALREADY_LINKED` (linked to another JurisOne
 business: remove the link first), 409 `JURISONE_BUSINESS_IN_USE` (another business has that JurisOne id; a JurisOne business that already got a
 business of its own by a token is in this state). Audit: `integration.business_linked` (category `integration`, in the business's log, `after.jurisoneBusinessId`).
 
-### DELETE /api/businesses/{businessId}/jurisone-link
+### DELETE /api/v1/businesses/{businessId}/jurisone-link
 No body. Removes the link; the business stays a standalone one and its people keep their accounts (their JurisOne employee ids stay recorded). 200
 `{ ok, message: "Business unlinked from JurisOne.", data: <detail> }` (`isLinkedToJurisone: false`); a business that is not linked is left as it is
 (nothing written). 404. Audit: `integration.business_unlinked` (`before.jurisoneBusinessId`).
 
 ## Business settings (owner)
 
-### GET /api/business
+### GET /api/v1/business
 ADMIN. The owner's own business: `data = { id, name, timeZone, staleWorkdayHours, displayTimeZones, createdAt, updatedAt }`. `displayTimeZones` is stored as
 is; the business time zone is always offered for display as well (the client adds it).
 
-### PATCH /api/business
-ADMIN. Body and rules as `PATCH /api/businesses/{businessId}`. 200 `{ ok, message: "Settings saved.", data: <as GET /api/business> }`. 400. Audit:
+### PATCH /api/v1/business
+ADMIN. Body and rules as `PATCH /api/v1/businesses/{businessId}`. 200 `{ ok, message: "Settings saved.", data: <as GET /api/v1/business> }`. 400. Audit:
 `business.updated`.
 
 ## Employees (owner)
@@ -202,24 +202,24 @@ Employee (rows of the list and the single employee):
 (`isLoginEnabled` = false when the owner switched the person's sign-in off, see `PUT .../login-access`; `managerName` = "First Last" of the manager, `lastLoginAt` null before the first sign-in, `activeReportCount` = active users whose manager this is, `shift` = the shift
 assigned today in the business time zone, the default shift "General day" without an assignment; times are `HH:mm`).
 
-### GET /api/employees
+### GET /api/v1/employees
 Query: list parameters, `sort` = `name` (default; first then last name) | `employeeCode` (empty codes last) | `email` | `role` (ADMIN, MANAGER, EMPLOYEE
 when ascending) | `status` (active first when ascending) | `lastLoginAt` (never signed in last); filters `status` = `active` (default) | `inactive` | `all`,
 `role` = one or more of `EMPLOYEE`, `MANAGER`, `ADMIN` comma-separated (any case; e.g. `role=MANAGER,ADMIN` for a manager picker), `managerId` = only the
 direct reports of that user. `search` matches first name, last name, "first last", email and employee code (`%` and `_` are literal).
 Audit: `access.employee_list_viewed`, one per request, with the query parameters, `rowCount` and `total` in `after`.
 
-### POST /api/employees
+### POST /api/v1/employees
 Body: `{ firstName: 1-60, lastName: 1-60, email: valid, at most 200, employeeCode?: letters/digits/-/_, at most 32, role?: "EMPLOYEE" (default) | "MANAGER",
 managerId?: uuid }`. The employee is active at once and signs in with an emailed code. 201 `{ ok, message: "Employee added.", data: { id } }`.
 Errors: 400 (fields `firstName`, `lastName`, `email`, `employeeCode`; an unknown role or malformed `managerId` is a 400 without field), 409 `EMAIL_IN_USE`
 (any business), 409 `EMPLOYEE_CODE_IN_USE` (this business), 422 `ROLE_NOT_ASSIGNABLE` (role ADMIN or SUPER_ADMIN), 422 manager rules (below).
 Audit: `employee.created`; a 422 writes `employee.change_refused` (outcome DENIED, the code as reason) although nothing is created.
 
-### GET /api/employees/{employeeId}
+### GET /api/v1/employees/{employeeId}
 `data = <employee>`. 404. Audit: `access.employee_viewed` (subject = the employee), not when the owner opens their own record.
 
-### PATCH /api/employees/{employeeId}
+### PATCH /api/v1/employees/{employeeId}
 Body (each optional): `{ employeeCode: string | null, firstName: string, lastName: string, email: string, role: "EMPLOYEE" | "MANAGER", managerId: uuid | null }`.
 `null` clears `employeeCode` or `managerId`; `null` for a name, the email or the role is a 400. 200 `{ ok, message: "Employee saved.", data: <employee> }`.
 Errors: 400, 404, 409 `EMAIL_IN_USE`, 409 `EMPLOYEE_CODE_IN_USE`, 422 `ROLE_NOT_ASSIGNABLE` (giving ADMIN / SUPER_ADMIN, or changing an ADMIN's role),
@@ -231,7 +231,7 @@ only when something changed); a 422 writes `employee.change_refused` (DENIED, th
 `MANAGER_INACTIVE` (deactivated), `MANAGER_ROLE_REQUIRED` (the manager's role is EMPLOYEE; it must be MANAGER or ADMIN), `MANAGER_IS_SELF`,
 `MANAGER_CYCLE` (the chosen manager reports, directly or further down, to this employee).
 
-### PUT /api/employees/{employeeId}/status
+### PUT /api/v1/employees/{employeeId}/status
 Body `{ isActive: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Employee deactivated." | "Employee is active.", data: <employee> }`.
 Deactivating ends every session of the person at once (their next request is 401) and they get no new sign-in codes until reactivated. Their reports keep
 them as manager. In the same transaction their open workday (if any) is closed at that moment: the running work or break interval ends, the day is
@@ -240,14 +240,14 @@ keep one active ADMIN). Audit: `employee.deactivated` (after includes `endedSess
 `employee.reactivated`, with the reason; a closed workday also writes `workday.closed` (before `{ status, endedAt: null }`, after
 `{ status: "COMPLETED", endedAt }`, the reason given, else "Employee deactivated."); a 422 writes `employee.change_refused` (DENIED, the code as reason).
 
-### PUT /api/employees/{employeeId}/shift
+### PUT /api/v1/employees/{employeeId}/shift
 Body `{ shiftId: uuid (required), effectiveFrom?: "YYYY-MM-DD" }`; `effectiveFrom` defaults to today in the business time zone, a past date is 422
 `SHIFT_EFFECTIVE_DATE_IN_PAST`. The shift applies to every shift date from `effectiveFrom` on (the latest assignment not after a date applies; the
 history is kept, no workday is rewritten). 200 `{ ok, message: "Shift saved.", data: <employee> }` (with `shift` = the shift assigned today). Giving
 the shift the employee already has on that date changes nothing and writes no audit entry. Errors: 400 (`shiftId`, `effectiveFrom`), 404, 422
 `SHIFT_NOT_FOUND` (unknown or another business's shift), 422 `SHIFT_INACTIVE`. Audit: `employee.shift_changed` (subject = the employee; before
 `{ shiftId, shiftName }` of that date, after `{ shiftId, shiftName, effectiveFrom }`); a 422 writes `employee.change_refused`.
-### PUT /api/employees/{employeeId}/login-access
+### PUT /api/v1/employees/{employeeId}/login-access
 Switches a person's sign-in off or on **without deactivating them**: they stay active, in the list, on the board and in the reports, and their history is kept;
 they only cannot sign in. Body `{ isEnabled: boolean (required), reason?: string (at most 500) }`. 200 `{ ok, message: "Login disabled." | "Login enabled.",
 data: <employee> }`. Idempotent: setting the state the person already has changes nothing and writes no audit entry. Only the owner (ADMIN) of the
@@ -279,7 +279,7 @@ occurrence** **reopens** that workday with a new work session; the gap between t
 (it stays inside `spanSeconds`); a `START` in another occurrence creates a new workday. `BREAK`, `RESUME` and `END` act on the open workday whatever its
 date. A break must be ended with `RESUME` before `END`.
 
-**Workday** (snapshot; `GET /api/me/time` as `workday`, `GET /api/workdays/{workdayId}` as `data`):
+**Workday** (snapshot; `GET /api/v1/me/time` as `workday`, `GET /api/v1/workdays/{workdayId}` as `data`):
 `{ id, date, status: "WORKING" | "ON_BREAK" | "DAY_ENDED", startedAt, endedAt | null, isStale, closedProductiveSeconds, closedBreakSeconds,
 activeWorkStartedAt | null, activeBreakStartedAt | null, productiveSeconds, breakSeconds, spanSeconds, breakCount,
 lastBreak: { startedAt, endedAt | null } | null,
@@ -301,19 +301,19 @@ the last time it was started again after the day had ended) is more than the bus
 **Precision**: events are stamped to the millisecond (what a browser keeps), never before the latest instant already recorded for the person (a clock that
 steps back, or an instance whose clock runs behind, cannot put an interval before the previous one: the event is stamped at that latest instant).
 
-### GET /api/me/time
+### GET /api/v1/me/time
 `data = { employeeId, serverTime, today, businessTimeZone, staleWorkdayHours, displayTimeZones: string[], status: "NOT_STARTED" | "WORKING" | "ON_BREAK" |
 "DAY_ENDED", shiftDate, isOffDay, shift, workday | null }`. `shiftDate` is the date of the shift occurrence "now" belongs to for this person (the calendar
 date for the default shift; `today` stays the calendar date), `isOffDay` whether the roster has a week off for it, `shift` that occurrence's shift as in
-the workday snapshot (so the timer can show "Shift 19:30-04:30" before the day starts). `displayTimeZones` is the business's configured list (IANA ids, as stored; see `GET /api/business`) for every signed-in
+the workday snapshot (so the timer can show "Shift 19:30-04:30" before the day starts). `displayTimeZones` is the business's configured list (IANA ids, as stored; see `GET /api/v1/business`) for every signed-in
 user's time-zone switcher; the business time zone is always offered as well (the client adds it). It is returned only here and in the `state` of
-`POST /api/me/time-events`; the history and workday endpoints do not repeat it.
+`POST /api/v1/me/time-events`; the history and workday endpoints do not repeat it.
 `workday` is the **current workday**: the open workday (whatever its date), else the workday of the shift occurrence "now" belongs to (`DAY_ENDED`, with
 its own `date`: a night shift that ended after midnight stays the current workday until a later occurrence is nearer), else null (`status` NOT_STARTED).
 Which occurrence "now" belongs to: see "Shifts and the roster". `serverTime` lets the client measure its clock offset.
 
-### POST /api/me/time-events
-Body `{ type: "START" | "BREAK" | "RESUME" | "END" }` (any case). Answer `data = { type, alreadyApplied, workdayId, state: <as GET /api/me/time> }`:
+### POST /api/v1/me/time-events
+Body `{ type: "START" | "BREAK" | "RESUME" | "END" }` (any case). Answer `data = { type, alreadyApplied, workdayId, state: <as GET /api/v1/me/time> }`:
 - **201** when the event changed the state, with `message` "Workday started. Have a productive day." / "Break started. Your productive timer is paused." /
   "Welcome back. Your productive timer is running." / "Workday ended. Your summary is ready." (`alreadyApplied` false);
 - **200** without `message` when the person already is where the event leads (a double click, a retry, another device): nothing is created or changed
@@ -331,9 +331,9 @@ workday before taking a break." / "You have not started a workday."; also `BREAK
 (the open workday's intervals do not match its status; an administrator has to correct it).
 Audit (applied events only, actor = subject = the person, entity `workday`): `time.workday_started`, `time.workday_reopened`, `time.break_started`,
 `time.work_resumed`, `time.workday_ended`, each with before `{ status }` and after `{ status, at }`. A repeat writes nothing; a 500
-`TIME_RECORD_INCONSISTENT` writes `time.event_failed` (outcome FAILED, `after.type`). `GET /api/me/time` (polled) is never audited.
+`TIME_RECORD_INCONSISTENT` writes `time.event_failed` (outcome FAILED, `after.type`). `GET /api/v1/me/time` (polled) is never audited.
 
-### GET /api/workdays/mine
+### GET /api/v1/workdays/mine
 The signed-in person's workdays dated in a range. Query: `range` = `today` | `yesterday` | `week` (Monday to today) | `month` (default; the 1st to today) |
 `custom` with `from` / `to` (`YYYY-MM-DD`; a missing `from` is this week's Monday, a missing `to` today, reversed ends are swapped, at most 366 days: an
 earlier `from` is moved up); `sort` = `date` (default) | `startedAt` | `endedAt` (open days last when ascending) | `productiveSeconds` | `breakSeconds` |
@@ -349,7 +349,7 @@ default shift), so a night shift that runs past midnight, or just ended, is in "
   `averageProductiveSeconds` = productive seconds per workday of the range, rounded half up, 0 without workdays (see "Averages");
 - `dailySeries = [{ date, productiveSeconds, breakSeconds, workdays }]`, one point for every date from `from` to `to` (zero when nothing was recorded).
 
-### GET /api/workdays/{workdayId}
+### GET /api/v1/workdays/{workdayId}
 `data = <workday>` with every work and break interval. One's own workdays, and (MANAGER, ADMIN) a workday of anybody in the caller's scope (section
 "Who sees and corrects whom"). Anybody else's, another business's and an unknown id answer 404 `NOT_FOUND` ("Workday not found."); 400 for a malformed
 id. Reading somebody else's workday is audited (`access.workday_viewed`, subject = the person, entity `workday`, after `{ date }`); reading one's own
@@ -364,20 +364,20 @@ EMPLOYEE and SUPER_ADMIN get 403 `FORBIDDEN` on every Team and correction endpoi
 The reporting line (`users.manager_id`) decides, read when the request runs (not the manager stored on old workdays), through
 `ReportingScopeService` (depth 1 = direct reports, depth 2 = also their reports; never the caller, nobody above or beside them; cycle-safe):
 
-| Caller | Board (`GET /api/team/members`) and reports (`scope`) | One person, their history, their workdays, corrections |
+| Caller | Board (`GET /api/v1/team/members`) and reports (`scope`) | One person, their history, their workdays, corrections |
 |---|---|---|
 | MANAGER | `scope=direct` (default): their direct reports; `scope=indirect`: also the reports of those (one level further down) | direct and indirect reports (depth 2), whatever the board's switch shows |
 | ADMIN (owner) | `scope=all` (default): everybody of the business; `scope=direct` / `indirect`: their own reporting line as for a manager | everybody of the business |
 
-- The caller is never in their own list or scope: their own record is the personal section (`/api/me/time`, `/api/workdays/mine`), and
-  `GET /api/team/members/{ownId}` answers 404.
+- The caller is never in their own list or scope: their own record is the personal section (`/api/v1/me/time`, `/api/v1/workdays/mine`), and
+  `GET /api/v1/team/members/{ownId}` answers 404.
 - People above or beside a manager, people of another business, unknown ids and out-of-scope ids all answer **404** `NOT_FOUND` (never 403), so a
   caller cannot learn that a record exists.
 - **Nobody corrects their own time**: 403 `CANNOT_CORRECT_OWN_TIME` ("You cannot correct your own time. Ask your manager or the owner to do it."), also
   for the owner. A manager's time is corrected by their own manager or the owner.
 - Deactivated people stay in the scope for reading and correcting their past days (their history stays visible); the board leaves them out (below).
 
-### GET /api/team/members
+### GET /api/v1/team/members
 Query:
 - `scope` = `direct` | `indirect` (MANAGER, default `direct`) or `all` | `direct` | `indirect` (ADMIN, default `all`); any case. Anything else (also
   `all` for a manager) is 400 with field `scope`.
@@ -388,7 +388,7 @@ Query:
 - `page`, `pageSize` (list parameters).
 
 Who is on the board: the people of the scope who are **active**, plus a deactivated person whose workday is still open (should not happen:
-deactivation closes it). Each person's state is decided exactly as `GET /api/me/time` decides it for oneself: the open workday whatever its date (a
+deactivation closes it). Each person's state is decided exactly as `GET /api/v1/me/time` decides it for oneself: the open workday whatever its date (a
 night shift that started yesterday is `WORKING` with yesterday's `date`), else the workday of the shift occurrence the person is in now (`DAY_ENDED`
 with its own shift `date`, also after midnight), else `NOT_STARTED`. A person whose roster has a week off for their current shift date and who has no
 workday is `NOT_STARTED` in the row (`isOffDay` true) but is counted in `metrics.weekOff`, not in `metrics.notStarted`.
@@ -408,14 +408,14 @@ workday is `NOT_STARTED` in the row (`isOffDay` true) but is counted in `metrics
 The board is read in batches (people, workdays, work intervals, break intervals: one query each), whatever its size. Reading the board is **not**
 audited (it refreshes every few seconds and shows only today's state); opening one person is.
 
-### GET /api/team/members/{employeeId}
+### GET /api/v1/team/members/{employeeId}
 `data = { employee: <as in the board row>, serverTime, today, businessTimeZone, staleWorkdayHours, status, workday | null }`, where `status` and
-`workday` (the full workday snapshot with `segments`) are chosen as `GET /api/me/time` chooses them for oneself. A deactivated person can be opened.
+`workday` (the full workday snapshot with `segments`) are chosen as `GET /api/v1/me/time` chooses them for oneself. A deactivated person can be opened.
 404 `NOT_FOUND` ("Employee not found.") outside the scope; 400 for a malformed id.
 Audit (access): `access.team_member_viewed` (actor = caller, subject = the person, entity `user`), one per request.
 
-### GET /api/team/members/{employeeId}/workdays
-The person's workdays with the query parameters, sorting, defaults (`sortDirection` default `desc`) and answer of `GET /api/workdays/mine`:
+### GET /api/v1/team/members/{employeeId}/workdays
+The person's workdays with the query parameters, sorting, defaults (`sortDirection` default `desc`) and answer of `GET /api/v1/workdays/mine`:
 `data = { rows, total, page, pageSize, range, from, to, totals, dailySeries }`. 404 outside the scope; 400 for a bad parameter (e.g. field `range`).
 Audit (access): `access.team_member_workdays_viewed` (subject = the person, entity `user`, after `{ range, from, to }`), one per request.
 
@@ -447,15 +447,15 @@ interval). Rules:
 - The workday's `startedAt` becomes the start of its first interval and, when it has ended, its `endedAt` the end of its last interval. Its `date`
   never changes. A `DAY_ENDED` workday stays ended. Its stored totals are recomputed from the intervals (so they always equal the sum of the
   intervals); an open workday keeps none (it is computed live).
-- Each correction locks the employee's row first, like `POST /api/me/time-events`, so it never interleaves with the employee's own start, break,
+- Each correction locks the employee's row first, like `POST /api/v1/me/time-events`, so it never interleaves with the employee's own start, break,
   resume or end; the state is read after the lock.
 
 Error order: 401 / 403 role, then 400 for the body, then 404 (unknown workday, another business, out of scope) or 403 `CANNOT_CORRECT_OWN_TIME`,
 then 404 for the interval, then the rules above (400 / 422). A 422 is audited as `time.correction_refused` (outcome DENIED, the code as reason,
 `after.operation` = `adjust_work_session` | `adjust_break_session` | `close_workday`), written after the rollback.
 
-### PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}
-### PATCH /api/workdays/{workdayId}/break-sessions/{sessionId}
+### PATCH /api/v1/workdays/{workdayId}/work-sessions/{sessionId}
+### PATCH /api/v1/workdays/{workdayId}/break-sessions/{sessionId}
 Body: `{ startedAt?: string, endedAt?: string | null, reason: string }` (PATCH: a field left out stays as it is; `startedAt: null` is 400).
 200 `{ ok, message: "Time corrected.", data: <workday> }`; when the times equal the stored ones nothing is written and the answer is 200 with
 `message: "Nothing changed."`. 404 "Time record not found." when the interval does not exist, belongs to another workday or is of the other type
@@ -464,7 +464,7 @@ Audit: `time.session_adjusted`, actor = caller, subject = the employee, entity `
 before / after `{ interval: { id, type: "WORK" | "BREAK", startedAt, endedAt }, workday: { id, date, status, startedAt, endedAt, productiveSeconds,
 breakSeconds, spanSeconds, breakCount } }` (an open day's totals as of the correction).
 
-### PUT /api/workdays/{workdayId}/status
+### PUT /api/v1/workdays/{workdayId}/status
 Body: `{ status: "DAY_ENDED" (any case; nothing else can be set, 400 field status), endedAt?: string, reason: string }`. Ends an open workday,
 typically a forgotten (stale) one: the running work or break interval ends at `endedAt` and the day becomes `DAY_ENDED` with recomputed totals.
 Without `endedAt` the end is **now** while an interval is running (the old app's rule), otherwise the end of the last interval; either way it must lie in the
@@ -512,30 +512,30 @@ default 24-hour shift). Shown separately, included in productive time, added up 
 
 **Roster (schedule entries).** The effective schedule of an employee for a date is: the **roster entry** for that date if there is one (a shift, or a
 week off when `shiftId` is null), else the shift **assigned** to the employee from the latest assignment effective by that date (`PUT
-/api/employees/{id}/shift`), else the business's default shift. Weeks off are rotational, so they are stored per date. A date can be set up to 365 days
+/api/v1/employees/{id}/shift`), else the business's default shift. Weeks off are rotational, so they are stored per date. A date can be set up to 365 days
 ahead; a date on which the employee already has a workday cannot change.
 
-### GET /api/shifts
+### GET /api/v1/shifts
 All signed-in roles of the business. Query: `isActive` = `true` | `false` (else 400). `data = [<shift>]`, the default shift first, then by start time.
 
-### POST /api/shifts
+### POST /api/v1/shifts
 ADMIN. Body `{ name: 1-60 (unique in the business, any case), startTime: "HH:mm", endTime: "HH:mm", earlyStartMinutes?: 0-720, lateEndMinutes?: 0-720 }`
 (grace default 180). 201 `{ ok, message: "Shift added.", data: { id } }`. Errors: 400 (field per bad input), 409 `SHIFT_NAME_IN_USE`. Audit: `shift.created`.
 
-### GET /api/shifts/{shiftId}
+### GET /api/v1/shifts/{shiftId}
 `data = <shift>`; 404 for an unknown id or another business's shift.
 
-### PATCH /api/shifts/{shiftId}
+### PATCH /api/v1/shifts/{shiftId}
 ADMIN. Body (each optional): `{ name, startTime, endTime, earlyStartMinutes, lateEndMinutes }`. Changing times or grace affects **future occurrences
 only** (every workday keeps its snapshot). The default shift: only `name` can change (else 400). 200 `{ ok, message: "Shift saved.", data: <shift> }`.
 Audit: `shift.updated` (before / after; nothing changed, nothing audited).
 
-### PUT /api/shifts/{shiftId}/status
+### PUT /api/v1/shifts/{shiftId}/status
 ADMIN. Body `{ isActive: boolean }`. 422 `DEFAULT_SHIFT_REQUIRED` (the default shift), 422 `SHIFT_IN_USE` (active employees still work it: their latest
 assignment is this shift). A deactivated shift cannot be assigned or put on a roster (422 `SHIFT_INACTIVE`); existing workdays are untouched.
 Idempotent. 200 `{ ok, message: "Shift deactivated." | "Shift is active.", data: <shift> }`. Audit: `shift.status_changed`.
 
-### GET /api/schedule-entries
+### GET /api/v1/schedule-entries
 ADMIN (everybody of the business except themselves) and MANAGER (direct and indirect reports); EMPLOYEE 403. Query:
 `from`, `to` (`YYYY-MM-DD`; default today and the 6 days after; at most 62 days, else 400), `employeeId`, `managerId` (direct reports of that user),
 `search`, `page`, `pageSize` (list parameters; sorted by name). Only active people.
@@ -543,21 +543,21 @@ ADMIN (everybody of the business except themselves) and MANAGER (direct and indi
 shiftId | null, shiftName | null, isOff, source: "ENTRY" | "ASSIGNMENT" | "DEFAULT", reason | null }] }`. `shift` = the shift assigned today; a day with
 `isOff` true has `shiftId` and `shiftName` null; `source` says where the day's schedule comes from.
 
-### GET /api/me/schedule
+### GET /api/v1/me/schedule
 The caller's own row (same query `from`, `to`, same row shape without paging): `data = { employeeId, name, employeeCode, shift, days }`.
 
-### PUT /api/employees/{employeeId}/schedule-entries/{date}
+### PUT /api/v1/employees/{employeeId}/schedule-entries/{date}
 ADMIN. Body `{ shiftId: uuid | null (null = week off), reason?: string (at most 500) }`; idempotent upsert. 200 `{ ok, message: "Schedule saved.", data: <day> }`
 (`<day>` as a `days` element). Errors: 400 (malformed date), 404 (employee), 422 `SHIFT_NOT_FOUND` / `SHIFT_INACTIVE`, 422 `SCHEDULE_DATE_TOO_FAR`
 (more than 365 days ahead), 422 `SCHEDULE_DATE_HAS_WORKDAY` (the employee has a workday on that date; past dates without a workday are allowed).
 Audit: `schedule.entry_set` (subject = the employee, entity id `<employeeId>/<date>`, before / after `{ date, shiftId, isOff, reason }`); setting the
 value the date already has writes nothing.
 
-### DELETE /api/employees/{employeeId}/schedule-entries/{date}
+### DELETE /api/v1/employees/{employeeId}/schedule-entries/{date}
 ADMIN. Removes the entry: the date follows the assignment again. 200 `{ ok, data: <day> }` (the day as now scheduled); removing a missing entry changes
 nothing. 422 `SCHEDULE_DATE_HAS_WORKDAY` as above. Audit: `schedule.entry_removed` (before).
 
-### PUT /api/employees/{employeeId}/schedule-entries
+### PUT /api/v1/employees/{employeeId}/schedule-entries
 ADMIN. Body `{ entries: [{ date, shiftId | null, reason? }] }`, 1 to 62 entries, each date once (else 400); all or none. Idempotent; **one audit entry
 per changed date**. 200 `{ ok, message: "Schedule saved.", data: [<day>] }` in the order sent.
 
@@ -594,7 +594,7 @@ breakCount, averageProductiveSeconds, extraSeconds }` (`employees` = different p
 point for every date from `from` to `to`; the series and the totals always add up to the rows. The range is read set-based (one query for the scope,
 one for the workdays with employee and manager joined, one each for the intervals of the open days; index `workdays (business_id, work_date)`, V11).
 
-### GET /api/reports/workdays
+### GET /api/v1/reports/workdays
 Sort keys: `date` (default), `employee` (name, case-insensitive), `startedAt`, `productiveSeconds`, `breakSeconds`, `spanSeconds`, `breakCount`.
 **Default `sortDirection` is `desc`** (newest first). Ties: date (newest first), employee name, start, id.
 `data = { rows, total, page, pageSize, range, from, to, scope, totals, dailySeries }`, row: `{ id, date, employee: { id, employeeCode | null, name },
@@ -617,7 +617,7 @@ a cell with `"`, `,`, LF or CR is quoted. More than `juristrack.reports.maximum-
 export has N rows; at most M fit in one file. Choose a shorter date range or fewer people."), nothing exported or audited.
 Audit (access): `reports.exported`, after `{ report, filters, rowCount, timeZone, fileName }`.
 
-### GET /api/reports/summaries
+### GET /api/v1/reports/summaries
 `groupBy` = `employee` (default) | `manager` (the manager of the day; workdays without one form the group with key `none`) | `date`. Sort keys:
 `label` (default; case-insensitive; the `none` group last in both directions), `workdays`, `employees`, `productiveSeconds`, `breakSeconds`,
 `spanSeconds`, `breakCount`, `averageProductiveSeconds`. Default `sortDirection`: `asc`, but `desc` for `groupBy=date`. Ties: label, key.
@@ -631,13 +631,13 @@ A report filtered on the caller themselves (`employeeId` = own id, owner only) i
 ### Averages
 - Board `metrics.averageProductiveSeconds` = `totalProductiveSeconds` divided by the people who started today (working, on a break or day ended),
   rounded down; 0 when nobody started.
-- Report `totals.averageProductiveSeconds`, a summary row's `averageProductiveSeconds` and the history's `totals.averageProductiveSeconds` (`GET /api/workdays/mine`,
-  `GET /api/team/members/{employeeId}/workdays`) = productive seconds per workday of the range, rounded half up; 0 without
+- Report `totals.averageProductiveSeconds`, a summary row's `averageProductiveSeconds` and the history's `totals.averageProductiveSeconds` (`GET /api/v1/workdays/mine`,
+  `GET /api/v1/team/members/{employeeId}/workdays`) = productive seconds per workday of the range, rounded half up; 0 without
   workdays.
 
 ## Roster sync (JurisOne service token)
 
-### PUT /api/integration/employees
+### PUT /api/v1/integration/employees
 JurisOne pushes its employees and shifts so that a manager sees every report before those people ever opened JurisTrack, each person is on the right
 shift, and people deactivated in JurisOne are deactivated here. Idempotent; one business per call; any subset of the business's employees is fine (the
 ones not sent are left untouched). Only while `juristrack.integration.enabled=true`.
@@ -677,14 +677,14 @@ Body (`shifts` and `employees` may each be absent or empty):
   of the list does not matter**; absent or null = no manager; a person is never their own manager (that means none). A manager who is unknown, or a
   reporting line that would go round in a circle, skips the person who has the problem (`unknown_manager`, `manager_cycle`); a new person whose manager is
   skipped is skipped too.
-- **Active**: `isActive: false` deactivates exactly like `PUT /api/employees/{employeeId}/status` (the open workday is closed, `workday.closed`; every
+- **Active**: `isActive: false` deactivates exactly like `PUT /api/v1/employees/{employeeId}/status` (the open workday is closed, `workday.closed`; every
   session ends) and marks the person as deactivated by the sync (`users.is_deactivated_by_roster_sync`). `isActive: true` reactivates **only a person the
   sync deactivated**: somebody the owner deactivated (any manual status change clears the mark), or whose login access the owner switched off, stays as
   they are. A new person sent with `isActive: false` is **not created** (counted in `employees.unchanged`, not in `skipped`). The owner (`ADMIN`) is never deactivated by the sync (`owner_cannot_be_deactivated`).
-- **`shiftCode`**: assigns that shift from today (business zone) exactly like `PUT /api/employees/{employeeId}/shift`: history is kept, the same shift
+- **`shiftCode`**: assigns that shift from today (business zone) exactly like `PUT /api/v1/employees/{employeeId}/shift`: history is kept, the same shift
   again changes nothing; absent or null leaves the assignment. Unknown code `unknown_shift_code`, deactivated shift `shift_inactive`.
 - **`schedule`**: up to 62 entries per employee (`schedule_too_long` skips the person), one per date (`duplicate_schedule_date`, `invalid_schedule_date`),
-  `shiftCode` null = a week off; idempotent upsert per date (the same records as `PUT /api/employees/{employeeId}/schedule-entries`; a reason the owner
+  `shiftCode` null = a week off; idempotent upsert per date (the same records as `PUT /api/v1/employees/{employeeId}/schedule-entries`; a reason the owner
   wrote on an entry is kept). A date that already has a workday is not changed and a date more than 365 days ahead is refused: both are listed in
   `skippedScheduleEntries` (the person is still applied). Dates not listed are left as they are.
 - **Per-person problems never fail the batch**: the person is skipped, listed in `skipped` with a reason code, and everything else is applied. Reason
@@ -727,7 +727,7 @@ for unknown emails, refused tokens), `actor` (who did it; `actorRole` = their ro
 (`auth`, `people`, `business`, `time`, `security`, `access`, `integration`, `audit`), `outcome` (`SUCCESS`; `DENIED` = refused for a rule, a role or a
 security reason; `FAILED` = allowed but went wrong), `entityType` / `entityId`, `before` / `after` (JSON), `reason`, and the request: `source`
 (`STANDALONE` cookie session or standalone sign-in, `INTEGRATION` JurisOne's Bearer token, `SYSTEM` no HTTP request), `ipAddress` (the connection's address, or,
-behind a trusted proxy, the client it forwarded in `X-Forwarded-For`; the same as the rate limits, see `POST /api/auth/otp-requests`), `userAgent` (at most 400 characters), `requestId`,
+behind a trusted proxy, the client it forwarded in `X-Forwarded-For`; the same as the rate limits, see `POST /api/v1/auth/otp-requests`), `userAgent` (at most 400 characters), `requestId`,
 `httpMethod`, `requestPath` (never the query string).
 
 **Never stored**: sign-in codes, tokens, cookies, secrets. Values of JSON keys that name a password, token, secret, cookie, authorization or one-time code
@@ -777,7 +777,7 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `time.event_failed` | time | FAILED | a time event refused with 500 `TIME_RECORD_INCONSISTENT` |
 | `workday.closed` | time | SUCCESS | somebody else closed a workday because of a deactivation, a switched-off login (reason `login_disabled`) or a suspension of the business (reason `business_suspended`) |
 | `time.session_adjusted` | time | SUCCESS | a manager or the owner corrected a work or break interval (interval and workday totals before / after, the reason) |
-| `time.workday_closed` | time | SUCCESS | a manager or the owner ended somebody's open workday (`PUT /api/workdays/{workdayId}/status`), with the closed intervals |
+| `time.workday_closed` | time | SUCCESS | a manager or the owner ended somebody's open workday (`PUT /api/v1/workdays/{workdayId}/status`), with the closed intervals |
 | `time.correction_refused` | time | DENIED | a 422 business rule refused a correction (`TIME_INTERVAL_OVERLAP`, `WORKDAY_OVERLAP`, `CORRECTION_OUT_OF_RANGE`, `WORKDAY_MUST_START_WITH_WORK`, `INTERVAL_STILL_RUNNING`, ...) |
 | `access.team_member_viewed` | access | SUCCESS | a manager or the owner opened one person's live state |
 | `access.team_member_workdays_viewed` | access | SUCCESS | a manager or the owner opened one person's history (`after = { range, from, to }`) |
@@ -785,16 +785,16 @@ operation outside the application (drop the trigger, delete, recreate the trigge
 | `reports.viewed` | access | SUCCESS | a report was read (`after = { report, filters, rowCount }`), one per request |
 | `reports.exported` | access | SUCCESS | the workday report was downloaded as CSV (`after` adds `timeZone`, `fileName`) |
 | `integration.business_provisioned` | integration | SUCCESS | a JurisOne token created a business (a token never links an existing one) |
-| `integration.business_linked` / `integration.business_unlinked` | integration | SUCCESS | the super admin linked / unlinked a business to JurisOne (`PUT` / `DELETE /api/businesses/{businessId}/jurisone-link`; `after` / `before.jurisoneBusinessId`) |
+| `integration.business_linked` / `integration.business_unlinked` | integration | SUCCESS | the super admin linked / unlinked a business to JurisOne (`PUT` / `DELETE /api/v1/businesses/{businessId}/jurisone-link`; `after` / `before.jurisoneBusinessId`) |
 | `integration.business_updated` | integration | SUCCESS | the token renamed a linked business |
 | `integration.user_provisioned` / `integration.user_linked` / `integration.user_updated` | integration | SUCCESS | a token or the roster sync created / linked / changed a user |
-| `integration.roster_synced` | integration | SUCCESS | one per roster sync call (`PUT /api/integration/employees`), also when nothing changed: counts only (`receivedEmployees`, `shifts`, `employees`, `scheduleEntries`, `skippedEmployeesByReason`); source INTEGRATION, no actor |
+| `integration.roster_synced` | integration | SUCCESS | one per roster sync call (`PUT /api/v1/integration/employees`), also when nothing changed: counts only (`receivedEmployees`, `shifts`, `employees`, `scheduleEntries`, `skippedEmployeesByReason`); source INTEGRATION, no actor |
 | `integration.token_rejected` | integration | DENIED | a refused JurisOne token: reason code only (`bad_signature`, `expired`, `wrong_issuer`, `wrong_audience`, `malformed_token`, `missing_issue_time`, `lifetime_too_long`, `replayed_token`, `missing_scope`, `wrong_scope`, `not_a_service_token`, `service_token_not_accepted`, `missing_claim: <name>`, ...), never the token; once per reason, IP, window |
 | `integration.user_refused` | integration | DENIED | a valid token whose person may not use JurisTrack (`user_deactivated`, `login_disabled`, `email_of_another_business`, `conflict`), or a roster sync of a suspended business (`business_suspended`); once per reason, user, window |
 
 **Volume decisions**: one entry per write; reads of somebody else's data one entry per request (the Team tab's live board, which refreshes every few
 seconds, is not recorded; opening one person, their history or workday, and every report and export is); never audited: reading one's own data
-(`GET /api/me`, `/api/me/time` (polled), `/api/workdays/mine`, one's own workday, one's own employee record, `GET /api/business`), a successful session
+(`GET /api/v1/me`, `/api/v1/me/time` (polled), `/api/v1/workdays/mine`, one's own workday, one's own employee record, `GET /api/v1/business`), a successful session
 refresh, a 401 without a session or with an access token that merely ran out, validation errors and conflicts (400, 409), a 404 for a route or a record
 of one's own scope that does not exist (but a 404 for somebody else's person or workday is `security.out_of_scope_access`, once per window), viewing the audit log
 (only exports). High-volume security events (rate limits, refused refreshes, bad cookies, refused tokens, suspended-business requests, cross-site
@@ -803,7 +803,7 @@ are written in a transaction of their own, so they stay although the request fai
 transaction** (one database connection per request; the data is never served without its entry). Entries that nobody signed in caused (sign-in attempts,
 refused tokens and cookies) are capped per IP address and window (`juristrack.audit.unauthenticated-entries-per-ip`, default 500): the log is append-only.
 
-### GET /api/audit-logs
+### GET /api/v1/audit-logs
 ADMIN (their business) and SUPER_ADMIN (every entry); MANAGER and EMPLOYEE 403. Query: list parameters (`sort` = `createdAt` (default) | `action` |
 `category` | `outcome` | `actor` | `subject`; **`sortDirection` default `desc`**: newest first; ties newest first), and the filters `from`, `to`
 (`YYYY-MM-DD`, inclusive; in the business time zone for the owner, UTC for the super admin; reversed ends are swapped), `actorId`, `subjectId`, `action`
@@ -821,7 +821,7 @@ changed fields of an update (`"changed: role, managerId"`), else the reason of a
 Entity type, Entity id, Source, IP address, Request id, Method, Path, Reason, Summary, Before, After (JSON). Every cell is quoted; a cell starting with
 `=`, `+`, `-`, `@`, tab or CR gets a leading `'`. Audit: `audit.exported` (the owner's in their business, the super admin's in the platform log).
 
-### GET /api/audit-logs/{auditLogId}
+### GET /api/v1/audit-logs/{auditLogId}
 ADMIN, SUPER_ADMIN. `data` = the row plus `before`, `after` (JSON or null), `userAgent`, `httpMethod`, `requestPath`. 404 unknown or of another business
 (the owner), 400 malformed id. Not audited.
 

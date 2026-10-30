@@ -13,7 +13,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@code GET /api/reports/summaries}: the workdays added up per employee, per manager of the day and per date, with the same scope,
+ * {@code GET /api/v1/reports/summaries}: the workdays added up per employee, per manager of the day and per date, with the same scope,
  * filters, sorting and paging as the workday report; the groups add up to the totals. Data: {@link ReportTestBase}.
  */
 class ReportSummariesTest extends ReportTestBase {

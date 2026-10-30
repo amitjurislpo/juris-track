@@ -105,7 +105,7 @@ abstract class RosterSyncTestBase extends EmbeddedIntegrationTest {
     /** Calls the roster sync with this exact token; a new request id is kept in {@link #requestId}. */
     ResultActions syncAs(String token, String content) throws Exception {
         requestId = "roster-" + UUID.randomUUID();
-        return mockMvc.perform(put("/api/integration/employees").header("Authorization", "Bearer " + token).header("X-Request-Id", requestId)
+        return mockMvc.perform(put("/api/v1/integration/employees").header("Authorization", "Bearer " + token).header("X-Request-Id", requestId)
                 .contentType(MediaType.APPLICATION_JSON).content(content));
     }
 

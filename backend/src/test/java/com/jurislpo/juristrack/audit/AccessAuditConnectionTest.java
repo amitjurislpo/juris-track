@@ -56,7 +56,7 @@ class AccessAuditConnectionTest extends IntegrationTest {
             for (int i = 0; i < parallelReads; i++) {
                 answers.add(executor.submit(() -> {
                     startTogether.await();
-                    return mockMvc.perform(get("/api/employees/" + employeeId).cookie(ownerCookie)).andReturn().getResponse().getStatus();
+                    return mockMvc.perform(get("/api/v1/employees/" + employeeId).cookie(ownerCookie)).andReturn().getResponse().getStatus();
                 }));
             }
             startTogether.countDown();

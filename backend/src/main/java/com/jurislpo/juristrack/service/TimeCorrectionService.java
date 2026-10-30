@@ -66,7 +66,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class TimeCorrectionService {
 
-    /** {@code PUT /api/workdays/{workdayId}/status} body: {@code status} = DAY_ENDED, optional {@code endedAt}, the reason. */
+    /** {@code PUT /api/v1/workdays/{workdayId}/status} body: {@code status} = DAY_ENDED, optional {@code endedAt}, the reason. */
     public record WorkdayStatusInput(String status, String endedAt, String reason) {}
 
     /**
@@ -116,7 +116,7 @@ public class TimeCorrectionService {
     }
 
     /**
-     * {@code PATCH /api/workdays/{workdayId}/work-sessions/{sessionId}} (type WORK) and {@code .../break-sessions/{sessionId}}
+     * {@code PATCH /api/v1/workdays/{workdayId}/work-sessions/{sessionId}} (type WORK) and {@code .../break-sessions/{sessionId}}
      * (BREAK): body {@code startedAt?}, {@code endedAt?} (left out: unchanged; {@code null} only for the running interval) and
      * {@code reason}.
      */
@@ -200,7 +200,7 @@ public class TimeCorrectionService {
     }
 
     /**
-     * {@code PUT /api/workdays/{workdayId}/status} with {@code status = DAY_ENDED}: ends an open (typically forgotten) workday at
+     * {@code PUT /api/v1/workdays/{workdayId}/status} with {@code status = DAY_ENDED}: ends an open (typically forgotten) workday at
      * {@code endedAt}, by default now when an interval is still running (otherwise the end of its last interval). The running work
      * or break interval ends then. A workday that has already ended is left as it is (idempotent, nothing written).
      */

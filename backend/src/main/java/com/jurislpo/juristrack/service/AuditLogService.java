@@ -70,7 +70,7 @@ public class AuditLogService {
     /** A CSV file: its name and its bytes (UTF-8 with a byte order mark, CRLF line ends). */
     public record CsvFile(String fileName, byte[] content) {}
 
-    /** The sort keys of {@code GET /api/audit-logs}. */
+    /** The sort keys of {@code GET /api/v1/audit-logs}. */
     public static final List<String> SORT_KEYS = List.of("createdAt", "action", "category", "outcome", "actor", "subject");
     /** The most rows one export may hold; a larger filter answers 422 {@code EXPORT_TOO_LARGE}. */
     public static final int MAXIMUM_EXPORT_ROWS = 10_000;

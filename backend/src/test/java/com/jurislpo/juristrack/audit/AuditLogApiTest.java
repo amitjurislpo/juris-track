@@ -33,7 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * {@code GET /api/audit-logs} and {@code /{auditLogId}}: the owner reads their business's log, the super admin every entry; filters,
+ * {@code GET /api/v1/audit-logs} and {@code /{auditLogId}}: the owner reads their business's log, the super admin every entry; filters,
  * sorting, paging, the full entry, and the CSV export with its own audit entry and its row cap.
  */
 class AuditLogApiTest extends IntegrationTest {
@@ -97,13 +97,13 @@ class AuditLogApiTest extends IntegrationTest {
         jdbcTemplate.update("INSERT INTO audit_logs (id, business_id, actor_id, actor_role, subject_id, action, category, outcome, source, created_at, request_id, "
                 + "entity_type, entity_id, \"before\", \"after\", reason, ip_address, user_agent, http_method, request_path) "
                 + "VALUES (?, ?, ?, (SELECT role::text FROM users WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, '203.0.113.9', 'Test Agent/2.0', "
-                + "'POST', '/api/test')", id, entryBusinessId, actorId, actorId, subjectId, action, category, outcome, source,
+                + "'POST', '/api/v1/test')", id, entryBusinessId, actorId, actorId, subjectId, action, category, outcome, source,
                 Timestamp.from(Instant.parse(createdAt)), requestId, entityType, entityId, beforeJson, afterJson, reason);
         return id;
     }
 
     private ResultActions list(Cookie cookie, String query) throws Exception {
-        return mockMvc.perform(get("/api/audit-logs?" + query).cookie(cookie));
+        return mockMvc.perform(get("/api/v1/audit-logs?" + query).cookie(cookie));
     }
 
     @ParameterizedTest
@@ -112,10 +112,10 @@ class AuditLogApiTest extends IntegrationTest {
         String email = TestData.uniqueEmail("auditlog." + role.toLowerCase());
         testData.createUser(businessId, role, email, null);
         Cookie cookie = SignIn.session(mockMvc, email).accessCookie();
-        mockMvc.perform(get("/api/audit-logs").cookie(cookie)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        mockMvc.perform(get("/api/audit-logs/" + startedEntryId).cookie(cookie)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/audit-logs?format=csv").cookie(cookie)).andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/audit-logs")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/audit-logs").cookie(cookie)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(get("/api/v1/audit-logs/" + startedEntryId).cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/audit-logs?format=csv").cookie(cookie)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/audit-logs")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -125,16 +125,16 @@ class AuditLogApiTest extends IntegrationTest {
         list(otherOwnerCookie, MARCH).andExpect(jsonPath("$.data.total").value(1)).andExpect(jsonPath("$.data.rows[0].id").value(otherBusinessEntryId.toString()));
         // an owner's businessId is ignored: they never see another business
         list(ownerCookie, MARCH + "&businessId=" + otherBusinessId).andExpect(jsonPath("$.data.total").value(3));
-        mockMvc.perform(get("/api/audit-logs/" + otherBusinessEntryId).cookie(ownerCookie)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/audit-logs/" + platformEntryId).cookie(ownerCookie)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/audit-logs/" + otherBusinessEntryId).cookie(ownerCookie)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/audit-logs/" + platformEntryId).cookie(ownerCookie)).andExpect(status().isNotFound());
 
         list(superAdminCookie, MARCH + "&businessId=" + businessId).andExpect(jsonPath("$.data.total").value(3));
         list(superAdminCookie, MARCH + "&businessId=" + otherBusinessId).andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.rows[0].businessName").value(startsWith("Other Audit Log Co")));
         list(superAdminCookie, "businessId=none&search=" + jdbcTemplate.queryForObject("SELECT request_id FROM audit_logs WHERE id = ?", String.class,
                 platformEntryId)).andExpect(jsonPath("$.data.total").value(1)).andExpect(jsonPath("$.data.rows[0].businessId").value(nullValue()));
-        mockMvc.perform(get("/api/audit-logs/" + otherBusinessEntryId).cookie(superAdminCookie)).andExpect(status().isOk());
-        mockMvc.perform(get("/api/audit-logs/" + UUID.randomUUID()).cookie(superAdminCookie)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/audit-logs/" + otherBusinessEntryId).cookie(superAdminCookie)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/audit-logs/" + UUID.randomUUID()).cookie(superAdminCookie)).andExpect(status().isNotFound());
     }
 
     @Test
@@ -168,15 +168,15 @@ class AuditLogApiTest extends IntegrationTest {
 
     @Test
     void theFullEntryHasBeforeAfterAndTheRequest() throws Exception {
-        mockMvc.perform(get("/api/audit-logs/" + startedEntryId).cookie(ownerCookie)).andExpect(status().isOk())
+        mockMvc.perform(get("/api/v1/audit-logs/" + startedEntryId).cookie(ownerCookie)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.before.status").value("NOT_STARTED"))
                 .andExpect(jsonPath("$.data.after.status").value("WORKING"))
                 .andExpect(jsonPath("$.data.userAgent").value("Test Agent/2.0"))
                 .andExpect(jsonPath("$.data.httpMethod").value("POST"))
-                .andExpect(jsonPath("$.data.requestPath").value("/api/test"))
+                .andExpect(jsonPath("$.data.requestPath").value("/api/v1/test"))
                 .andExpect(jsonPath("$.data.businessId").value(businessId.toString()))
                 .andExpect(jsonPath("$.data.reason").value(nullValue()));
-        mockMvc.perform(get("/api/audit-logs/not-an-id").cookie(ownerCookie)).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/audit-logs/not-an-id").cookie(ownerCookie)).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -227,7 +227,7 @@ class AuditLogApiTest extends IntegrationTest {
     @Test
     void theCsvExportHasTheFilteredRowsAndIsAuditedItself() throws Exception {
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        MockHttpServletResponse response = mockMvc.perform(trace.on(get("/api/audit-logs?format=csv&" + MARCH)).cookie(ownerCookie))
+        MockHttpServletResponse response = mockMvc.perform(trace.on(get("/api/v1/audit-logs?format=csv&" + MARCH)).cookie(ownerCookie))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", startsWith("text/csv")))
                 .andExpect(header().string("Content-Disposition", startsWith("attachment; filename=\"audit-log-")))
@@ -247,7 +247,7 @@ class AuditLogApiTest extends IntegrationTest {
 
         // the super admin's export is a platform entry
         AuditTrace platformTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(platformTrace.on(get("/api/audit-logs?format=csv&" + MARCH + "&businessId=" + otherBusinessId)).cookie(superAdminCookie))
+        mockMvc.perform(platformTrace.on(get("/api/v1/audit-logs?format=csv&" + MARCH + "&businessId=" + otherBusinessId)).cookie(superAdminCookie))
                 .andExpect(status().isOk());
         Map<String, Object> platformEntry = platformTrace.entry("audit.exported");
         assertThat(platformEntry.get("business_id")).isNull();
@@ -265,14 +265,14 @@ class AuditLogApiTest extends IntegrationTest {
                 + "TIMESTAMPTZ '2026-03-10T00:00:00Z' + n * interval '1 second' "
                 + "FROM generate_series(1, ?) AS n", bigBusinessId, AuditLogService.MAXIMUM_EXPORT_ROWS + 1);
         AuditTrace trace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(trace.on(get("/api/audit-logs?format=csv&" + MARCH)).cookie(bigOwnerCookie)).andExpect(status().isUnprocessableEntity())
+        mockMvc.perform(trace.on(get("/api/v1/audit-logs?format=csv&" + MARCH)).cookie(bigOwnerCookie)).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("EXPORT_TOO_LARGE"));
         assertThat(trace.entries()).isEmpty();
         list(bigOwnerCookie, MARCH + "&pageSize=100&page=101").andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(10_001))
                 .andExpect(jsonPath("$.data.rows.length()").value(1));
         // exactly at the cap it works
         AuditTrace capTrace = new AuditTrace(jdbcTemplate);
-        mockMvc.perform(capTrace.on(get("/api/audit-logs?format=csv&from=2026-03-10&to=2026-03-10&action=test.bulk")).cookie(bigOwnerCookie))
+        mockMvc.perform(capTrace.on(get("/api/v1/audit-logs?format=csv&from=2026-03-10&to=2026-03-10&action=test.bulk")).cookie(bigOwnerCookie))
                 .andExpect(status().isOk());
         assertThat((String) capTrace.entry("audit.exported").get("after_json")).contains("\"rowCount\": 10000");
     }

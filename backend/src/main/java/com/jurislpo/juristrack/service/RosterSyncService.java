@@ -38,7 +38,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * JurisOne pushes its employees and shifts ({@code PUT /api/integration/employees}, caller: JurisOne's service token) so that a manager
+ * JurisOne pushes its employees and shifts ({@code PUT /api/v1/integration/employees}, caller: JurisOne's service token) so that a manager
  * sees every report even before those people ever opened JurisTrack, each person is on the right shift, and people deactivated in
  * JurisOne are deactivated here. One business per call (the one the token names); any subset of its employees is fine, the ones not sent
  * are left untouched; the same body twice changes nothing.

@@ -5,7 +5,7 @@ import com.jurislpo.juristrack.security.CurrentUser;
 import java.util.UUID;
 
 /**
- * Who is signed in, as {@code GET /api/me} and a successful sign-in return it.
+ * Who is signed in, as {@code GET /api/v1/me} and a successful sign-in return it.
  *
  * @param businessName null for the SUPER_ADMIN (a platform user without a business)
  */

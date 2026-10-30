@@ -26,11 +26,11 @@ class RequestBodyLimitTest extends IntegrationTest {
     @Test
     void aBodyAbove64KilobytesIsRefusedWith413() throws Exception {
         String hugeEmail = "a".repeat(70_000) + "@example.test";
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/otp-requests")).content("{\"email\":\"" + hugeEmail + "\"}"))
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/otp-requests")).content("{\"email\":\"" + hugeEmail + "\"}"))
                 .andExpect(status().isPayloadTooLarge()).andExpect(jsonPath("$.code").value("PAYLOAD_TOO_LARGE"));
         // a normal body still passes
         rateLimiter.clear();
-        mockMvc.perform(SignIn.fromWebApp(post("/api/auth/otp-requests")).content("{\"email\":\"" + TestData.uniqueEmail("small") + "\"}"))
+        mockMvc.perform(SignIn.fromWebApp(post("/api/v1/auth/otp-requests")).content("{\"email\":\"" + TestData.uniqueEmail("small") + "\"}"))
                 .andExpect(status().isOk());
     }
 
@@ -43,10 +43,10 @@ class RequestBodyLimitTest extends IntegrationTest {
         Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
         StringBuilder zones = new StringBuilder("[");
         for (int i = 0; i < 40; i++) zones.append(i == 0 ? "" : ",").append("\"Asia/Kolkata\"");
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/business")).cookie(ownerCookie).content("{\"displayTimeZones\":" + zones + "]}"))
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/business")).cookie(ownerCookie).content("{\"displayTimeZones\":" + zones + "]}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].field").value("displayTimeZones"));
         // duplicates up to the bound are still dropped as before
-        mockMvc.perform(SignIn.fromWebApp(patch("/api/business")).cookie(ownerCookie)
+        mockMvc.perform(SignIn.fromWebApp(patch("/api/v1/business")).cookie(ownerCookie)
                 .content("{\"displayTimeZones\":[\"UTC\",\"UTC\",\"Asia/Kolkata\",\"UTC\",\"UTC\",\"UTC\",\"UTC\",\"UTC\",\"UTC\",\"UTC\"]}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.displayTimeZones.length()").value(2));
     }

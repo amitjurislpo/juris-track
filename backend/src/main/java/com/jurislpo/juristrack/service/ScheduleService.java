@@ -60,16 +60,16 @@ public class ScheduleService {
     /** One person's schedule for the range; {@code shift} is the shift they are assigned now. */
     public record ScheduleRow(UUID employeeId, String name, String employeeCode, ShiftSummary shift, List<ScheduleDayView> days) {}
 
-    /** {@code GET /api/schedule-entries}: one page of people with their schedule for {@code from} to {@code to}. */
+    /** {@code GET /api/v1/schedule-entries}: one page of people with their schedule for {@code from} to {@code to}. */
     public record ScheduleBoard(List<ScheduleRow> rows, long total, int page, int pageSize, LocalDate from, LocalDate to) {}
 
-    /** One entry of {@code PUT /api/employees/{employeeId}/schedule-entries}; {@code shiftId} null = a week off. */
+    /** One entry of {@code PUT /api/v1/employees/{employeeId}/schedule-entries}; {@code shiftId} null = a week off. */
     public record ScheduleEntryInput(String date, UUID shiftId, String reason) {}
 
-    /** {@code PUT /api/employees/{employeeId}/schedule-entries/{date}} body. */
+    /** {@code PUT /api/v1/employees/{employeeId}/schedule-entries/{date}} body. */
     public record ScheduleEntryBody(UUID shiftId, String reason) {}
 
-    /** {@code PUT /api/employees/{employeeId}/schedule-entries} body. */
+    /** {@code PUT /api/v1/employees/{employeeId}/schedule-entries} body. */
     public record ScheduleEntriesBody(List<ScheduleEntryInput> entries) {}
 
     public static final List<String> SORT_KEYS = List.of("name");

@@ -20,7 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@code PUT /api/workdays/{workdayId}/status} with DAY_ENDED: a manager or the owner ends a forgotten workday. The employee started
+ * {@code PUT /api/v1/workdays/{workdayId}/status} with DAY_ENDED: a manager or the owner ends a forgotten workday. The employee started
  * on Monday 5 October at 09:00 Kolkata (03:30 UTC) and never ended the day; "now" is Tuesday 10:00 Kolkata (04:30 UTC), 25 hours
  * later, so the day is stale ("not ended").
  */
@@ -41,7 +41,7 @@ class CloseWorkdayTest extends IntegrationTest {
         team = new TeamFixture(mockMvc, jdbcTemplate, rateLimiter);
         clock.setTo("2026-10-05T03:30:00Z");
         workdayId = team.applyEvent(team.employeeId, "START");
-        statusPath = "/api/workdays/" + workdayId + "/status";
+        statusPath = "/api/v1/workdays/" + workdayId + "/status";
         clock.setTo("2026-10-06T04:30:00Z");
     }
 
@@ -67,7 +67,7 @@ class CloseWorkdayTest extends IntegrationTest {
 
     @Test
     void aStaleWorkdayShowsOnTheBoardAndItsManagerEndsItAtAGivenTime() throws Exception {
-        team.read(team.managerBId, "/api/team/members").andExpect(jsonPath("$.data.rows[0].isStale").value(true))
+        team.read(team.managerBId, "/api/v1/team/members").andExpect(jsonPath("$.data.rows[0].isStale").value(true))
                 .andExpect(jsonPath("$.data.rows[0].status").value("WORKING"));
         String answer = team.putJson(team.managerBId, statusPath, body("2026-10-05T12:30:00Z", REASON)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Workday ended.")).andReturn().getResponse().getContentAsString();
@@ -98,7 +98,7 @@ class CloseWorkdayTest extends IntegrationTest {
         assertThat(closedTypes).containsExactly("WORK");
 
         // the employee's today (Tuesday) has not started; the closed Monday stays in their history
-        String state = team.read(team.employeeId, "/api/me/time").andReturn().getResponse().getContentAsString();
+        String state = team.read(team.employeeId, "/api/v1/me/time").andReturn().getResponse().getContentAsString();
         assertThat((String) JsonPath.read(state, "$.data.status")).isEqualTo("NOT_STARTED");
         team.applyEvent(team.employeeId, "START");
     }
@@ -152,7 +152,7 @@ class CloseWorkdayTest extends IntegrationTest {
         team.putJson(team.employeeOfAId, statusPath, body(null, REASON)).andExpect(status().isForbidden());
         team.putJson(team.managerCId, statusPath, body(null, REASON)).andExpect(status().isNotFound());
         String managerWorkdayId = team.applyEvent(team.managerBId, "START");
-        team.putJson(team.managerBId, "/api/workdays/" + managerWorkdayId + "/status", body(null, REASON)).andExpect(status().isForbidden())
+        team.putJson(team.managerBId, "/api/v1/workdays/" + managerWorkdayId + "/status", body(null, REASON)).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("CANNOT_CORRECT_OWN_TIME"));
         TeamFixture otherBusiness = new TeamFixture(mockMvc, jdbcTemplate, rateLimiter);
         otherBusiness.putJson(otherBusiness.ownerId, statusPath, body(null, REASON)).andExpect(status().isNotFound());
