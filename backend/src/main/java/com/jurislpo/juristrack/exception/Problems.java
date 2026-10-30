@@ -68,6 +68,10 @@ public final class Problems {
     public static final String SHIFT_IN_USE = "SHIFT_IN_USE";
     /** 422: the business's default shift (the calendar day) cannot be deactivated. */
     public static final String DEFAULT_SHIFT_REQUIRED = "DEFAULT_SHIFT_REQUIRED";
+    /** 422: the stale workday hours are below the longest active shift plus 3 hours. */
+    public static final String STALE_WORKDAY_HOURS_TOO_LOW = "STALE_WORKDAY_HOURS_TOO_LOW";
+    /** 422: the shift is so long that the business's stale workday hours would be below its length plus 3 hours (raise them first). */
+    public static final String SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS = "SHIFT_LONGER_THAN_STALE_WORKDAY_HOURS";
     /** 422: a shift assignment cannot start on a date that has passed. */
     public static final String SHIFT_EFFECTIVE_DATE_IN_PAST = "SHIFT_EFFECTIVE_DATE_IN_PAST";
     /** 422: a roster entry is more than 365 days ahead. */
