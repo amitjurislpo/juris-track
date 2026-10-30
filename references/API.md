@@ -1,13 +1,13 @@
 # JurisTrack API
 
-**Document version 2.1** (2026-10-27; 1.1 last break and "Work started", 1.2 login access, 2.0 shift-based calculation: shifts, roster, shift fields on every workday, extra time, 2.1 JurisOne roster sync). The version table is in `FRD-JurisTrack.md`.
+**Document version 2.2** (2026-10-30; 1.1 last break and "Work started", 1.2 login access, 2.0 shift-based calculation: shifts, roster, shift fields on every workday, extra time, 2.1 JurisOne roster sync, 2.2 API versioned under `/api/v1`). The version table is in `FRD-JurisTrack.md`.
 
 The contract between this backend and its clients (the `juris-track-frontend` web app and, embedded, the JurisOne gateway). Keep it exactly in
 sync with the code: an endpoint, parameter or field is added, renamed or removed here in the same change as in the controller.
 
 ## Conventions (every endpoint)
 
-- **Base path** `/api/v1`. JSON in and out (`Content-Type: application/json`).
+- **Base path** `/api/v1` (every endpoint; only `/actuator/health` is unversioned). JSON in and out (`Content-Type: application/json`).
 - **Authentication**: standalone, the `jt_at` / `jt_rt` cookies set by `POST /api/v1/auth/sessions`; embedded in JurisOne, `Authorization: Bearer <JurisOne token>`
   (see `INTEGRATION.md`). Both produce the same signed-in user and the same rules. The one exception is `PUT /api/v1/integration/employees`, which takes
   JurisOne's service token (no user) and nothing else.

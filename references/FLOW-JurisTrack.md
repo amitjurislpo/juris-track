@@ -6,6 +6,7 @@
 | 1.1 | 2026-10-24 | Section 3 and 7: the snapshot and the board row carry `lastBreak`, shown as the time of the last break (FRD 1.1: FR-TIME-11, FR-TEAM-12); history and report rows and the CSV carry it too and label the day's start "Work started" and show an end after midnight with its date (FR-HIST-6, FR-HIST-7, FR-REP-14). | Owner |
 | 1.2 | 2026-10-24 | Login access: the owner can switch an employee's sign-in off and on (`PUT /api/v1/employees/{employeeId}/login-access`), separate from Deactivate; sign-in flow and a new employee login access flow (section 15) | Owner |
 | 2.0 | 2026-10-24 | Shift-based calculation (new section 14: shift occurrence, attribution, the START decision, roster); sections 3, 4 and 5 rewritten from the calendar day to the shift occurrence | Owner |
+| 2.1 | 2026-10-30 | API versioned: all paths now below `/api/v1`; `/actuator/health` unversioned. No change of any rule or flow | Owner |
 
 This is the document version, not the app version. Companion documents (same folder): [FRD-JurisTrack.md](FRD-JurisTrack.md) (the requirements, ids `FR-...` are quoted below) and [FLOW-JurisTrack-JurisOne-Connection.md](FLOW-JurisTrack-JurisOne-Connection.md) (how JurisTrack and JurisOne talk to each other).
 
