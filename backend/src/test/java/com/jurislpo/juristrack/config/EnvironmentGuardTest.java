@@ -61,13 +61,16 @@ class EnvironmentGuardTest {
     }
 
     @Test
-    void sqeNeedsRealCodesByEmailButMayKeepDemoDataAndHttp() {
+    void sqeNeedsRealCodesByEmailAndHttpsButMayKeepDemoData() {
         Map<String, String> configuration = new HashMap<>();
         configuration.put("juristrack.env", "sqe");
         configuration.put("juristrack.seed.demo", "true");
-        configuration.put("juristrack.app-url", "http://sqe.internal:3017");
+        configuration.put("juristrack.app-url", "https://sqe.internal");
+        configuration.put("juristrack.security.cookie-secure", "true");
         configuration.put("juristrack.mail.host", "smtp.example.com");
         configuration.put("juristrack.seed.super-admin-email", "admin@jurislpo.com");
+        configuration.put("juristrack.security.jwt-secret", "x".repeat(64));
+        configuration.put("spring.datasource.password", "database-password");
         assertThat(problemsOf(configuration)).isEmpty();
         configuration.put("juristrack.otp.fixed-code", "000000");
         configuration.put("juristrack.mail.host", "");
@@ -96,15 +99,11 @@ class EnvironmentGuardTest {
 
     @Test
     void sessionCookiesMustBeSecureInProduction() {
-        for (String environmentName : List.of("uat", "prd")) {
+        for (String environmentName : List.of("sqe", "uat", "prd")) {
             Map<String, String> configuration = completeConfiguration(environmentName);
             configuration.put("juristrack.security.cookie-secure", "false");
             assertThat(problemsOf(configuration)).as(environmentName).singleElement().asString().contains("juristrack.security.cookie-secure");
         }
-        // sqe is served over http and may keep plain cookies
-        Map<String, String> sqeConfiguration = completeConfiguration("sqe");
-        sqeConfiguration.put("juristrack.security.cookie-secure", "false");
-        assertThat(problemsOf(sqeConfiguration)).isEmpty();
     }
 
     @Test
@@ -115,6 +114,14 @@ class EnvironmentGuardTest {
         assertThat(problemsOf(configuration)).hasSize(2)
                 .anyMatch(problem -> problem.startsWith("juristrack.security.jwt-secret"))
                 .anyMatch(problem -> problem.startsWith("spring.datasource.password"));
+    }
+
+    @Test
+    void sqeRefusesMissingSecrets() {
+        Map<String, String> configuration = completeConfiguration("sqe");
+        configuration.put("juristrack.security.jwt-secret", "");
+        configuration.put("spring.datasource.password", "<set me>");
+        assertThat(problemsOf(configuration)).hasSize(2);
     }
 
     @Test

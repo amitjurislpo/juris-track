@@ -53,7 +53,9 @@ class OtpSignInTest extends IntegrationTest {
         SignIn.requestCode(mockMvc, email.toUpperCase()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.ok").value(true)).andExpect(jsonPath("$.message").value(AuthService.CODE_REQUESTED));
         assertThat(openCodes(email)).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("SELECT code_hash FROM login_otps WHERE email = ?", String.class, email)).doesNotContain(SignIn.CODE);
+        assertThat(jdbcTemplate.queryForObject("SELECT code_hash FROM login_otps WHERE email = ?", String.class, email)).doesNotContain(SignIn.CODE)
+                // keyed with a server secret: not the plain SHA-256 that anybody with a stolen database could brute-force (10^6 codes)
+                .isNotEqualTo(com.jurislpo.juristrack.crypto.Tokens.sha256(email.toLowerCase() + ":" + SignIn.CODE));
 
         MockHttpServletResponse response = SignIn.postCode(mockMvc, email, SignIn.CODE, true).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.ok").value(true))
