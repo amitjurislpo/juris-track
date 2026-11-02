@@ -4,6 +4,7 @@ import com.jurislpo.juristrack.config.JuristrackProperties;
 import com.jurislpo.juristrack.crypto.Tokens;
 import com.jurislpo.juristrack.repository.LoginOtpRepository;
 import com.jurislpo.juristrack.repository.LoginOtpRepository.OpenCode;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -12,7 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Emailed sign-in codes. Only a salted SHA-256 of a code is stored (the email is the salt). A code works once, for
+ * Emailed sign-in codes. Only an HMAC-SHA-256 of a code is stored, keyed with a server secret derived from {@code juristrack.security.jwt-secret} (a six-digit code would fall to brute force from a stolen database under a plain hash). A code works once, for
  * {@code juristrack.otp.code-ttl-minutes}, and is burnt after {@code juristrack.otp.max-attempts} wrong tries; a new code
  * replaces the old one. With {@code juristrack.otp.fixed-code} set (dev only, EnvironmentGuard) every code is that value.
  */
@@ -23,6 +24,7 @@ public class OtpService {
     private final TransactionTemplate transactionTemplate;
     private final MailService mailService;
     private final JuristrackProperties.Otp settings;
+    private final byte[] hashKey;
 
     public OtpService(LoginOtpRepository loginOtpRepository, TransactionTemplate transactionTemplate, MailService mailService,
             JuristrackProperties properties) {
@@ -30,10 +32,13 @@ public class OtpService {
         this.transactionTemplate = transactionTemplate;
         this.mailService = mailService;
         this.settings = properties.otp();
+        // a key of its own, so the access-token signing key itself is never used for two purposes
+        this.hashKey = Tokens.hmacSha256(String.valueOf(properties.security().jwtSecret()).getBytes(StandardCharsets.UTF_8), "juristrack:otp-code-key")
+                .getBytes(StandardCharsets.UTF_8);
     }
 
-    static String hash(String email, String code) {
-        return Tokens.sha256(email + ":" + code);
+    String hash(String email, String code) {
+        return Tokens.hmacSha256(hashKey, email + ":" + code);
     }
 
     /** Creates a code for this (already checked) account and emails it. */
