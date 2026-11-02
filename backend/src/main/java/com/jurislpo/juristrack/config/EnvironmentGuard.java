@@ -9,9 +9,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Refuses to start a shared environment with development shortcuts or unfilled placeholders. Only dev may use the fixed
- * sign-in code; sqe, uat and prd must send real codes by email (SMTP set), name the platform super admin and, when
- * embedded in JurisOne, hold JurisOne's public key. uat and prd are also checked for demo data, an http:// public URL, cookies without the Secure flag and secrets still written as
- * {@code <...>} or missing. The environment name is {@code juristrack.env} (dev | sqe | uat | prd), set by each
+ * sign-in code; sqe, uat and prd must send real codes by email (SMTP set), name the platform super admin, have their secrets set (not empty or a {@code <...>} placeholder) and, when
+ * embedded in JurisOne, hold JurisOne's public key. sqe, uat and prd are also checked for an http:// public URL and cookies without the Secure flag; uat and prd also for demo data. The environment name is {@code juristrack.env} (dev | sqe | uat | prd), set by each
  * application-&lt;env&gt;.properties.
  */
 @Component
@@ -79,9 +78,9 @@ public class EnvironmentGuard {
                 problems.add("juristrack.integration.public-key must be set when juristrack.integration.enabled=true (JurisOne's public key)");
             }
         }
-        if (!STRICT_ENVIRONMENTS.contains(environmentName)) return problems;
-        if ("true".equalsIgnoreCase(valueOrDefault(property.apply("juristrack.seed.demo"), "false"))) {
-            problems.add("juristrack.seed.demo must be false (no demo data outside dev and sqe)");
+        for (String secretName : SECRETS) {
+            String value = valueOrDefault(property.apply(secretName), "");
+            if (value.isBlank() || value.contains("<")) problems.add(secretName + " is not set (still a placeholder or empty)");
         }
         if (!valueOrDefault(property.apply("juristrack.app-url"), "").startsWith("https://")) {
             problems.add("juristrack.app-url must be an https:// URL");
@@ -89,9 +88,9 @@ public class EnvironmentGuard {
         if (!"true".equalsIgnoreCase(valueOrDefault(property.apply("juristrack.security.cookie-secure"), "false"))) {
             problems.add("juristrack.security.cookie-secure must be true (session cookies over https only)");
         }
-        for (String secretName : SECRETS) {
-            String value = valueOrDefault(property.apply(secretName), "");
-            if (value.isBlank() || value.contains("<")) problems.add(secretName + " is not set (still a placeholder or empty)");
+        if (!STRICT_ENVIRONMENTS.contains(environmentName)) return problems;
+        if ("true".equalsIgnoreCase(valueOrDefault(property.apply("juristrack.seed.demo"), "false"))) {
+            problems.add("juristrack.seed.demo must be false (no demo data outside dev and sqe)");
         }
         return problems;
     }

@@ -3,9 +3,12 @@ package com.jurislpo.juristrack.crypto;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.InvalidKeyException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HexFormat;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /** Session and refresh tokens: random base64url values in the cookie, only their SHA-256 (hex) in the database. */
 public final class Tokens {
@@ -17,6 +20,17 @@ public final class Tokens {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** HMAC-SHA-256 (hex) of {@code text} under a server secret: unlike a plain hash it cannot be guessed offline from a stolen database. */
+    public static String hmacSha256(byte[] secret, String text) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret, "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(text.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             throw new IllegalStateException(e);
         }
     }
