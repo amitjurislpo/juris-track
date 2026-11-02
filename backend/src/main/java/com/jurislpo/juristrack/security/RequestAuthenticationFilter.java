@@ -77,6 +77,7 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     /** {@code PUT} here is the roster sync, the only request that takes JurisOne's service token. */
     public static final String ROSTER_SYNC_PATH = ApiPaths.PREFIX + "/integration/employees";
+    public static final String BUSINESS_STATUS_PATH = ApiPaths.PREFIX + "/integration/business/status";
     private static final Duration TOUCH_EVERY = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(RequestAuthenticationFilter.class);
 
@@ -107,7 +108,8 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
             if (integrationTokenVerifier.isEnabled() && hasBearerToken) {
                 AuditRequestContext.markIntegrationRequest();
                 String token = authorization.substring(BEARER_PREFIX.length()).trim();
-                boolean isAuthenticated = isRosterSyncRequest(request) ? authenticateServiceToken(token, request, response)
+                boolean isAuthenticated = isRosterSyncRequest(request) ? authenticateServiceToken(token, IntegrationTokenVerifier.ROSTER_SYNC_SCOPE, request, response)
+                        : isBusinessStatusRequest(request) ? authenticateServiceToken(token, IntegrationTokenVerifier.BUSINESS_STATUS_SCOPE, request, response)
                         : authenticateIntegrationToken(token, request, response);
                 if (!isAuthenticated) return;
             } else {
@@ -119,6 +121,11 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
+    /** The second endpoint a service token opens: setting the linked business suspended or active (its own scope). Matched exactly. */
+    static boolean isBusinessStatusRequest(HttpServletRequest request) {
+        return "PUT".equals(request.getMethod()) && BUSINESS_STATUS_PATH.equals(request.getRequestURI());
+    }
+
     /** The one endpoint JurisOne's service token opens: the roster sync. Matched exactly; any other spelling is not it (and is refused). */
     static boolean isRosterSyncRequest(HttpServletRequest request) {
         return "PUT".equals(request.getMethod()) && ROSTER_SYNC_PATH.equals(request.getRequestURI());
@@ -128,10 +135,10 @@ public class RequestAuthenticationFilter extends OncePerRequestFilter {
      * The roster sync: JurisOne's service token (scope {@code employees:sync}) is the caller, there is no user and no business yet (the
      * service finds or creates it from the token), so the request runs in system mode. False when the response was already written.
      */
-    private boolean authenticateServiceToken(String token, HttpServletRequest request, HttpServletResponse response) throws IOException {
+    private boolean authenticateServiceToken(String token, String expectedScope, HttpServletRequest request, HttpServletResponse response) throws IOException {
         IntegrationServiceClaims serviceClaims;
         try {
-            serviceClaims = integrationTokenVerifier.verifyServiceToken(token);
+            serviceClaims = integrationTokenVerifier.verifyServiceToken(token, expectedScope);
         } catch (IntegrationTokenVerifier.InvalidIntegrationTokenException e) {
             return rejectToken(e, request, response);
         }

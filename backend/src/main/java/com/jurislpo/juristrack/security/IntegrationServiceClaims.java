@@ -9,5 +9,6 @@ import java.util.UUID;
  *
  * @param jurisoneBusinessId {@code businessId}: the one JurisOne business this call is about
  * @param businessName       {@code businessName}
+ * @param scope              {@code scope}: what this token may do (roster sync, or setting the business status), checked per endpoint
  */
-public record IntegrationServiceClaims(UUID jurisoneBusinessId, String businessName) {}
+public record IntegrationServiceClaims(UUID jurisoneBusinessId, String businessName, String scope) {}

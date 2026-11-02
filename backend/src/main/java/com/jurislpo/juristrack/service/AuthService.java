@@ -44,6 +44,7 @@ public class AuthService {
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Pattern CODE_PATTERN = Pattern.compile("^[0-9]{6}$");
     private static final String SESSION_ENTITY = "session";
+    static final String REFUSED_BUSINESS_LINKED = "business_linked_to_jurisone";
     /** The rate limits as {@code auth.rate_limited} names them. */
     static final String CODE_REQUESTS_PER_IP_LIMIT = "code_requests_per_ip";
     static final String CODE_REQUESTS_PER_EMAIL_LIMIT = "code_requests_per_email";
@@ -223,13 +224,20 @@ public class AuthService {
 
     /**
      * Why this account may not sign in, or null: {@code unknown_email}, {@code inactive}, {@code login_disabled} (the owner switched
-     * sign-in off), {@code business_suspended}. Only the audit entry tells them apart; the caller always gets the same answer.
+     * sign-in off), {@code business_suspended}, {@code business_linked_to_jurisone} (a business linked to JurisOne is reached only through JurisOne, so
+     * it has no sign-in of its own). Only the audit entry tells them apart; the caller always gets the same answer.
      */
     private String refusalReason(User user) {
         if (user == null) return "unknown_email";
         if (!user.isActive()) return "inactive";
         if (!user.isLoginEnabled()) return "login_disabled";
-        return maySignIn(user) ? null : "business_suspended";
+        if (!maySignIn(user)) return "business_suspended";
+        return isLinkedToJurisone(user) ? REFUSED_BUSINESS_LINKED : null;
+    }
+
+    /** The user's business is linked to a JurisOne business (the super admin has no business). */
+    private boolean isLinkedToJurisone(User user) {
+        return user.getBusinessId() != null && businessRepository.findById(user.getBusinessId()).map(business -> business.getJurisoneBusinessId() != null).orElse(false);
     }
 
     /** Why the code was refused, or null when it matched. */
