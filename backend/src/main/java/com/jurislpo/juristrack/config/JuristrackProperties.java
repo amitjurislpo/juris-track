@@ -22,7 +22,7 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
 
     public JuristrackProperties {
         if (seed == null) seed = new Seed(null, false);
-        if (integration == null) integration = new Integration(false, null, Integration.DEFAULT_AUDIENCE, null, Integration.DEFAULT_CLOCK_SKEW_SECONDS);
+        if (integration == null) integration = new Integration(false, null, Integration.DEFAULT_AUDIENCE, null, Integration.DEFAULT_CLOCK_SKEW_SECONDS, false);
         if (security == null) security = new Security(null, 0, 0, 0, false, -1, null);
         if (otp == null) otp = new Otp(null, 0, 0, 0, 0, 0, 0, 0);
         if (mail == null) mail = new Mail(null, 0, null, null, null);
@@ -45,8 +45,11 @@ public record JuristrackProperties(String appUrl, String frontendOrigin, boolean
      * @param audience           the expected {@code aud} claim ({@code juristrack})
      * @param publicKey          JurisOne's public key (PEM, RSA or EC); never a private key
      * @param clockSkewSeconds   tolerance for {@code exp} / {@code nbf} between the two servers' clocks
+     * @param requireHostBinding per-business addresses: a user token must carry the {@code bid} claim JurisOne adds when the request came in on the
+     *                           address of the person's own business, and it must equal {@code businessId}. Switch on together with JurisOne's
+     *                           {@code jurisone.tenant-host.enabled}. A {@code bid} that is present and differs from {@code businessId} is refused whatever this says
      */
-    public record Integration(boolean enabled, String issuer, String audience, String publicKey, int clockSkewSeconds) {
+    public record Integration(boolean enabled, String issuer, String audience, String publicKey, int clockSkewSeconds, boolean requireHostBinding) {
 
         static final String DEFAULT_AUDIENCE = "juristrack";
         static final int DEFAULT_CLOCK_SKEW_SECONDS = 30;

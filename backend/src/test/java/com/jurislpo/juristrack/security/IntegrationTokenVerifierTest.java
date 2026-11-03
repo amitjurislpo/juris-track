@@ -24,8 +24,12 @@ import org.junit.jupiter.api.Test;
 class IntegrationTokenVerifierTest {
 
     static IntegrationTokenVerifier verifierFor(KeyPair keyPair) {
+        return verifierFor(keyPair, false);
+    }
+
+    static IntegrationTokenVerifier verifierFor(KeyPair keyPair, boolean requireHostBinding) {
         JuristrackProperties properties = new JuristrackProperties(null, null, false, null,
-                new JuristrackProperties.Integration(true, IntegrationTokens.ISSUER, IntegrationTokens.AUDIENCE, IntegrationTokens.pemOf(keyPair.getPublic()), 30),
+                new JuristrackProperties.Integration(true, IntegrationTokens.ISSUER, IntegrationTokens.AUDIENCE, IntegrationTokens.pemOf(keyPair.getPublic()), 30, requireHostBinding),
                 null, null, null);
         return new IntegrationTokenVerifier(properties);
     }
@@ -129,5 +133,31 @@ class IntegrationTokenVerifierTest {
         String token = IntegrationTokens.tokenFor(employee());
         verifier.verify(token);
         assertThatThrownBy(() -> verifier.verify(token)).hasMessage("replayed_token");
+    }
+
+    // ── per-business addresses: the bid claim ──
+
+    @Test
+    void theHostBindingMustEqualTheBusinessOfTheToken() {
+        Employee employee = employee();
+        IntegrationTokenVerifier verifier = verifierFor(IntegrationTokens.JURISONE_KEY_PAIR);
+        String bound = IntegrationTokens.tokenFor(employee, claims -> claims.claim("bid", employee.businessId().toString()));
+        assertThat(verifier.verify(bound).jurisoneBusinessId()).isEqualTo(employee.businessId());
+        for (Object other : new Object[] {UUID.randomUUID().toString(), "platform", "", " ", employee.businessId().toString().toUpperCase() + "x", 42, true}) {
+            String forged = IntegrationTokens.tokenFor(employee, claims -> claims.claim("bid", other));
+            assertThatThrownBy(() -> verifier.verify(forged)).as(String.valueOf(other)).hasMessage("host_binding_mismatch");
+        }
+    }
+
+    @Test
+    void whenRequiredATokenWithoutTheHostBindingIsRefusedButAServiceTokenIsNot() {
+        Employee employee = employee();
+        IntegrationTokenVerifier required = verifierFor(IntegrationTokens.JURISONE_KEY_PAIR, true);
+        assertThatThrownBy(() -> required.verify(IntegrationTokens.tokenFor(employee))).hasMessage("missing_host_binding");
+        assertThat(required.verify(IntegrationTokens.tokenFor(employee, claims -> claims.claim("bid", employee.businessId().toString()))).jurisoneEmployeeId())
+                .isEqualTo(employee.employeeId());
+        assertThat(required.verifyServiceToken(IntegrationTokens.serviceTokenFor(employee.businessId(), "Acme")).jurisoneBusinessId()).isEqualTo(employee.businessId());
+        // not required: a token without it still works (per-business addresses off)
+        assertThat(verifierFor(IntegrationTokens.JURISONE_KEY_PAIR).verify(IntegrationTokens.tokenFor(employee)).jurisoneEmployeeId()).isEqualTo(employee.employeeId());
     }
 }
