@@ -192,7 +192,7 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
         UUID employeeId = UUID.randomUUID();
         Map<String, Object> person = person(employeeId, "EMPLOYEE", null);
         sync(body(person)).andExpect(status().isOk());
-        Cookie employeeCookie = SignIn.session(mockMvc, (String) person.get("email")).accessCookie();
+        Cookie employeeCookie = signInStandalone((String) person.get("email")).accessCookie();
         mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie).content("{\"type\":\"START\"}")).andExpect(status().isCreated());
         String workdayDate = jdbcTemplate.queryForObject("SELECT work_date::text FROM workdays WHERE employee_id = ?", String.class, userIdOf(employeeId));
 
@@ -287,9 +287,23 @@ class RosterSyncShiftTest extends RosterSyncTestBase {
         sync(body(List.of(shift("EVE", "Evening", "14:00", "23:00")), person)).andExpect(status().isOk());
         String ownerEmail = com.jurislpo.juristrack.TestData.uniqueEmail("shift.owner");
         testData.createUser(businessId(), "ADMIN", ownerEmail, null);
-        Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
+        Cookie ownerCookie = signInStandalone(ownerEmail).accessCookie();
         String answer = mockMvc.perform(get("/api/v1/employees/" + userIdOf(employeeId)).cookie(ownerCookie)).andExpect(status().isOk()).andReturn().getResponse()
                 .getContentAsString();
         assertThat((String) JsonPath.read(answer, "$.data.shift.name")).isEqualTo("Evening");
+    }
+
+    /**
+     * A linked business has no standalone sign-in (FR-AUTH-16), but these tests look at the screens through a cookie session: the business is
+     * unlinked for the sign-in only and linked again at once (its sessions stay open).
+     */
+    private SignIn.SessionCookies signInStandalone(String email) throws Exception {
+        UUID linkedId = jdbcTemplate.queryForObject("SELECT b.jurisone_business_id FROM businesses b JOIN users u ON u.business_id = b.id WHERE u.email = ?", UUID.class, email);
+        jdbcTemplate.update("UPDATE businesses SET jurisone_business_id = NULL WHERE jurisone_business_id = ?", linkedId);
+        try {
+            return SignIn.session(mockMvc, email);
+        } finally {
+            jdbcTemplate.update("UPDATE businesses SET jurisone_business_id = ? WHERE id = (SELECT business_id FROM users WHERE email = ?)", linkedId, email);
+        }
     }
 }

@@ -70,6 +70,8 @@ public class IntegrationTokenVerifier {
     /** The claim that makes a token a service token, and the one value the roster sync accepts. */
     static final String SCOPE_CLAIM = "scope";
     public static final String ROSTER_SYNC_SCOPE = "employees:sync";
+    /** The scope of the service token that sets a linked business suspended or active (`PUT /api/v1/integration/business/status`). */
+    public static final String BUSINESS_STATUS_SCOPE = "business:status";
     private static final int MAXIMUM_SHIFT_CODE_LENGTH = 40;
     private static final int MAXIMUM_REMEMBERED_TOKEN_IDS = 100_000;
 
@@ -136,15 +138,20 @@ public class IntegrationTokenVerifier {
      * {@code sub} or an {@code email}: a service token is not about a person.
      */
     public IntegrationServiceClaims verifyServiceToken(String token) {
+        return verifyServiceToken(token, ROSTER_SYNC_SCOPE);
+    }
+
+    /** Like {@link #verifyServiceToken(String)} for the endpoint that needs {@code expectedScope}: a token of any other scope is refused. */
+    public IntegrationServiceClaims verifyServiceToken(String token, String expectedScope) {
         JWTClaimsSet claims = verifiedClaims(token);
         Object scope = claims.getClaim(SCOPE_CLAIM);
         if (scope == null) throw new InvalidIntegrationTokenException("missing_scope");
-        if (!ROSTER_SYNC_SCOPE.equals(scope)) throw new InvalidIntegrationTokenException("wrong_scope");
+        if (!expectedScope.equals(scope)) throw new InvalidIntegrationTokenException("wrong_scope");
         if (claims.getSubject() != null || claims.getClaim("email") != null) throw new InvalidIntegrationTokenException("not_a_service_token");
         IntegrationServiceClaims serviceClaims;
         try {
             serviceClaims = new IntegrationServiceClaims(requiredUuid(claims.getStringClaim("businessId"), "businessId"),
-                    requiredText(claims.getStringClaim("businessName"), "businessName"));
+                    requiredText(claims.getStringClaim("businessName"), "businessName"), expectedScope);
         } catch (ParseException e) {
             throw new InvalidIntegrationTokenException("invalid_claim_type");
         }

@@ -24,9 +24,9 @@ public class Auth {
      * JurisOne's service token, which only the roster sync accepts (see RequestAuthenticationFilter): 401 when nobody is signed in, 403 for a
      * signed-in user (a cookie session or a user token can never call the roster sync).
      */
-    public IntegrationServiceClaims requireIntegrationService() {
+    public IntegrationServiceClaims requireIntegrationService(String scope) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof IntegrationServiceClaims serviceClaims) return serviceClaims;
+        if (authentication != null && authentication.getPrincipal() instanceof IntegrationServiceClaims serviceClaims && scope.equals(serviceClaims.scope())) return serviceClaims;
         if (current() == null) throw new UnauthenticatedException();
         throw new ForbiddenException();
     }

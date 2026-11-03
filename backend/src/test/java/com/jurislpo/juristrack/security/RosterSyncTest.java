@@ -117,7 +117,7 @@ class RosterSyncTest extends RosterSyncTestBase {
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM sessions WHERE user_id IN (?, ?)", Integer.class, userIdOf(reportId),
                 userIdOf(secondReportId))).isZero();
 
-        Cookie topCookie = SignIn.session(mockMvc, (String) topManager.get("email")).accessCookie();
+        Cookie topCookie = signInStandalone((String) topManager.get("email")).accessCookie();
         String board = mockMvc.perform(get("/api/v1/team/members").cookie(topCookie)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         List<String> ids = JsonPath.read(board, "$.data.rows[*].employee.id");
         assertThat(ids).containsExactlyInAnyOrder(userIdOf(middleManagerId).toString(), userIdOf(secondReportId).toString());
@@ -193,7 +193,7 @@ class RosterSyncTest extends RosterSyncTestBase {
         UUID employeeId = UUID.randomUUID();
         Map<String, Object> person = person(employeeId, "EMPLOYEE", null);
         sync(body(person)).andExpect(status().isOk());
-        Cookie employeeCookie = SignIn.session(mockMvc, (String) person.get("email")).accessCookie();
+        Cookie employeeCookie = signInStandalone((String) person.get("email")).accessCookie();
         mockMvc.perform(SignIn.fromWebApp(post("/api/v1/me/time-events")).cookie(employeeCookie)
                 .content("{\"type\":\"START\"}")).andExpect(status().isCreated());
         UUID storedId = userIdOf(employeeId);
@@ -236,7 +236,7 @@ class RosterSyncTest extends RosterSyncTestBase {
         UUID businessId = businessId();
         String ownerEmail = TestData.uniqueEmail("status.owner");
         testData.createUser(businessId, "ADMIN", ownerEmail, null);
-        Cookie ownerCookie = SignIn.session(mockMvc, ownerEmail).accessCookie();
+        Cookie ownerCookie = signInStandalone(ownerEmail).accessCookie();
 
         // deactivated by the owner in JurisTrack
         mockMvc.perform(SignIn.fromWebApp(put("/api/v1/employees/" + userIdOf(byOwnerId) + "/status")).cookie(ownerCookie).content("{\"isActive\":false}"))
@@ -498,5 +498,19 @@ class RosterSyncTest extends RosterSyncTestBase {
         UUID reportId = UUID.randomUUID();
         String second = answerOf(sync(body(person(reportId, "EMPLOYEE", employeeId))).andExpect(status().isOk()));
         assertThat(skippedReasons(second)).containsExactly("unknown_manager");
+    }
+
+    /**
+     * A linked business has no standalone sign-in (FR-AUTH-16), but these tests look at the screens through a cookie session: the business is
+     * unlinked for the sign-in only and linked again at once (its sessions stay open).
+     */
+    private SignIn.SessionCookies signInStandalone(String email) throws Exception {
+        UUID linkedId = jdbcTemplate.queryForObject("SELECT b.jurisone_business_id FROM businesses b JOIN users u ON u.business_id = b.id WHERE u.email = ?", UUID.class, email);
+        jdbcTemplate.update("UPDATE businesses SET jurisone_business_id = NULL WHERE jurisone_business_id = ?", linkedId);
+        try {
+            return SignIn.session(mockMvc, email);
+        } finally {
+            jdbcTemplate.update("UPDATE businesses SET jurisone_business_id = ? WHERE id = (SELECT business_id FROM users WHERE email = ?)", linkedId, email);
+        }
     }
 }

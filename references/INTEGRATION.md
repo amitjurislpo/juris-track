@@ -48,7 +48,7 @@ leaves the JurisOne backend, JurisOne keeps control of who may use the module (p
 | `businessId`, `businessName` | JurisOne business id and name |
 | `managerId` (optional) | JurisOne employee id of this employee's assigned manager (null if none): JurisTrack keeps it as `manager_id` and refreshes it on every token |
 | `shiftCode` (optional, **built**) | The code of the shift JurisOne has assigned to this employee (a `code` from the roster's `shifts` list). A first-time user who signs in before any roster push gets this shift assigned from today, so their first workday is attributed to the right shift. Later changes come with the roster; a claim never changes an assignment that already exists (only a user this very token creates gets it; an unknown, blank or non-text code is ignored) |
-| `trackRole` (optional) | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` (optional `ADMIN` only if JurisOne wants an owner-type user). Sent on **every** token; JurisTrack follows it, so granting or removing the role in JurisOne takes effect on the next call |
+| `trackRole` (optional) | `MANAGER` when JurisOne has granted this user the **JurisTrack manager** role, otherwise `EMPLOYEE` `ADMIN` for the business owner in JurisOne. MANAGER only for a holder of the "JurisTrack manager" role (reports alone give nothing). Sent on **every** token; JurisTrack follows it exactly (the last active owner is never demoted), so granting or removing the role in JurisOne takes effect on the next call |
 | `exp`, `iat`, `jti` | all three required: expiry (short, `exp - iat` at most 10 minutes), issue time, unique id. A `jti` is accepted **once**: a replayed token answers 401 and is audited (`replayed_token`), so the gateway issues a fresh token for every request |
 
 **Just-in-time provisioning (implemented):** on a valid token, in system mode inside one transaction: find the business by `businesses.jurisone_business_id` (create it
@@ -141,7 +141,7 @@ the manager assigned to the employee; in standalone the owner assigns it when ad
 |---|---|---|
 | `SUPER_ADMIN` | Platform user of the product owner. Belongs to no business. Creates businesses and their owner. | Not used (JurisOne's own super admin manages businesses). |
 | `ADMIN` | The business **owner**: adds employees, assigns managers, sees everyone, corrects time, reports, audit log, settings. | Not required. Only if JurisOne hints it. |
-| `MANAGER` | The **JurisTrack manager**: sees the live board, history and reports of the people in their scope, and can correct their time. | One role, **granted in JurisOne** ("JurisTrack manager") and sent as `trackRole=MANAGER` on every token. Whoever has it sees the people under them in JurisOne's reporting line. Without the role nobody sees anybody else, even with reports. |
+| `MANAGER` | The **JurisTrack manager**: sees the live board, history and reports of the people in their scope, and can correct their time. | One role, **granted in JurisOne** ("JurisTrack manager") and sent as `trackRole=MANAGER` on every token. Whoever has it sees the people under them in JurisOne's reporting line. Having reports alone does not make a manager. |
 | `EMPLOYEE` | Every added employee: signs in with the emailed code and tracks time at once. | **Every JurisOne employee, whatever their JurisOne role (HR, Finance, ...).** |
 
 No HR, Finance or other functional roles exist in JurisTrack. "Individual" (small company) mode is simply standalone mode: a company that bought only JurisTrack.

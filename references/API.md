@@ -213,8 +213,11 @@ Audit: `access.employee_list_viewed`, one per request, with the query parameters
 Body: `{ firstName: 1-60, lastName: 1-60, email: valid, at most 200, employeeCode?: letters/digits/-/_, at most 32, role?: "EMPLOYEE" (default) | "MANAGER",
 managerId?: uuid }`. The employee is active at once and signs in with an emailed code. 201 `{ ok, message: "Employee added.", data: { id } }`.
 Errors: 400 (fields `firstName`, `lastName`, `email`, `employeeCode`; an unknown role or malformed `managerId` is a 400 without field), 409 `EMAIL_IN_USE`
-(any business), 409 `EMPLOYEE_CODE_IN_USE` (this business), 422 `ROLE_NOT_ASSIGNABLE` (role ADMIN or SUPER_ADMIN), 422 manager rules (below).
+(any business), 409 `EMPLOYEE_CODE_IN_USE` (this business), 409 `EMPLOYEES_MANAGED_IN_JURISONE` (the business is linked to JurisOne, where its people are added), 422 `ROLE_NOT_ASSIGNABLE` (role ADMIN or SUPER_ADMIN), 422 manager rules (below).
 Audit: `employee.created`; a 422 writes `employee.change_refused` (outcome DENIED, the code as reason) although nothing is created.
+
+### PUT /api/v1/integration/business/status
+JurisOne's service token (scope `business:status`) only. Body `{ isSuspended: boolean, reason?: text at most 300 }`. `data = { isSuspended, hasChanged }`. Errors: 400 (`isSuspended` missing), 401 (any other token, no token, replay), 404 (no business linked to the token's JurisOne business). Audit: `business.suspended` / `business.reactivated` (actor none, reason as sent) and `workday.closed` for each open workday; nothing when the state is unchanged.
 
 ### GET /api/v1/employees/{employeeId}
 `data = <employee>`. 404. Audit: `access.employee_viewed` (subject = the employee), not when the owner opens their own record.

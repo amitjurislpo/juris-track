@@ -290,6 +290,10 @@ public class EmployeeService {
     }
 
     private UUID createEmployee(CurrentUser owner, EmployeeInput input) {
+        // a business linked to JurisOne gets its people from JurisOne (token and roster): nobody is added here
+        if (businessRepository.findById(owner.businessId()).map(business -> business.getJurisoneBusinessId() != null).orElse(false)) {
+            throw new ApiException(HttpStatus.CONFLICT, Problems.EMPLOYEES_MANAGED_IN_JURISONE, "Employees of this business are added in JurisOne. They appear here by themselves.");
+        }
         EmployeeInput employeeInput = input == null ? new EmployeeInput(null, null, null, null, null, null) : input;
         InputValidator validator = new InputValidator();
         String employeeCode = validator.employeeCode("employeeCode", employeeInput.employeeCode());
