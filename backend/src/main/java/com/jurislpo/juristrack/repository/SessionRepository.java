@@ -104,6 +104,12 @@ public class SessionRepository {
                 Timestamp.from(revokedAt), reason, userId);
     }
 
+    /** Ends every open session of every user of a business (it was linked to JurisOne: from then on only JurisOne reaches it); returns how many were ended. */
+    public int revokeAllOfBusiness(UUID businessId, String reason, Instant revokedAt) {
+        return jdbcTemplate.update("UPDATE sessions SET revoked_at = ?, revoked_reason = ? WHERE revoked_at IS NULL AND user_id IN (SELECT id FROM users WHERE business_id = ?)",
+                Timestamp.from(revokedAt), reason, businessId);
+    }
+
     /** The session (zero or one) a refresh token belongs to, while it is not ended, with its user. */
     public Optional<OpenSession> findOpenSessionByRefreshToken(String tokenHash) {
         return jdbcTemplate.query("""

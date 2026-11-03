@@ -15,6 +15,7 @@ import com.jurislpo.juristrack.repository.BusinessQueryRepository.BusinessFilter
 import com.jurislpo.juristrack.repository.BusinessQueryRepository.BusinessOwner;
 import com.jurislpo.juristrack.repository.BusinessQueryRepository.BusinessRow;
 import com.jurislpo.juristrack.repository.BusinessRepository;
+import com.jurislpo.juristrack.repository.SessionRepository;
 import com.jurislpo.juristrack.repository.UserRepository;
 import com.jurislpo.juristrack.repository.WorkdayRepository;
 import com.jurislpo.juristrack.security.CurrentUser;
@@ -112,10 +113,12 @@ public class BusinessService {
     private final WorkdayRepository workdayRepository;
     private final AuditService auditService;
     private final ShiftService shiftService;
+    private final SessionRepository sessionRepository;
 
     public BusinessService(BusinessRepository businessRepository, BusinessQueryRepository businessQueryRepository, UserRepository userRepository,
             EmployeeService employeeService, TimeTrackingService timeTrackingService, WorkdayRepository workdayRepository, AuditService auditService,
-            ShiftService shiftService) {
+            ShiftService shiftService, SessionRepository sessionRepository) {
+        this.sessionRepository = sessionRepository;
         this.shiftService = shiftService;
         this.businessRepository = businessRepository;
         this.businessQueryRepository = businessQueryRepository;
@@ -230,26 +233,47 @@ public class BusinessService {
     @Transactional
     public BusinessDetail setStatus(CurrentUser superAdmin, UUID businessId, BusinessStatusChange statusChange) {
         Business business = businessRepository.findById(businessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+        applyStatus(business, superAdmin.userId(), statusChange);
+        return findDetail(businessId);
+    }
+
+    /** What JurisOne is told after it set its business suspended or active: the state JurisTrack now has. */
+    public record JurisoneStatusResult(boolean isSuspended, boolean hasChanged) {}
+
+    /**
+     * JurisOne suspends or reactivates its business ({@code PUT /api/v1/integration/business/status}, service token of scope
+     * {@code business:status}): the linked business here follows at once. Idempotent (the state it already has changes nothing and writes no
+     * entry); 404 when no business is linked to that JurisOne business (not provisioned yet, so there is nothing to do). Audited like the super
+     * admin's change, with no actor and the reason "jurisone".
+     */
+    @Transactional
+    public JurisoneStatusResult setStatusFromJurisone(UUID jurisoneBusinessId, BusinessStatusChange statusChange) {
+        Business business = businessRepository.findByJurisoneBusinessId(jurisoneBusinessId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND));
+        boolean hasChanged = applyStatus(business, null, statusChange);
+        return new JurisoneStatusResult(business.isSuspended(), hasChanged);
+    }
+
+    private boolean applyStatus(Business business, UUID actorUserId, BusinessStatusChange statusChange) {
+        UUID businessId = business.getId();
         InputValidator validator = new InputValidator();
         if (statusChange == null || statusChange.isSuspended() == null) validator.reject("isSuspended", "Say whether the business is suspended (isSuspended).");
         String reason = validator.optionalText("reason", "Reason", statusChange == null ? null : statusChange.reason(), InputValidator.MAXIMUM_REASON_LENGTH);
         validator.throwIfInvalid();
         boolean isSuspended = statusChange.isSuspended();
-        if (isSuspended != business.isSuspended()) {
-            business.setSuspended(isSuspended);
-            businessRepository.saveAndFlush(business);
-            auditService.record(new AuditEntry(businessId, superAdmin.userId(), null,
-                    isSuspended ? AuditAction.BUSINESS_SUSPENDED : AuditAction.BUSINESS_REACTIVATED, BUSINESS_ENTITY, businessId.toString(),
-                    Map.of("isSuspended", !isSuspended), Map.of("isSuspended", isSuspended), reason));
-            if (isSuspended) {
-                // nobody can end or correct a day while the business is suspended, so the suspension must not count as work time:
-                // every open workday ends now (audited as workday.closed); reactivating reopens nothing
-                for (UUID employeeId : workdayRepository.findEmployeeIdsWithOpenWorkday(businessId)) {
-                    timeTrackingService.closeOpenWorkday(businessId, superAdmin.userId(), employeeId, SUSPENSION_REASON);
-                }
+        if (isSuspended == business.isSuspended()) return false;
+        business.setSuspended(isSuspended);
+        businessRepository.saveAndFlush(business);
+        auditService.record(new AuditEntry(businessId, actorUserId, null,
+                isSuspended ? AuditAction.BUSINESS_SUSPENDED : AuditAction.BUSINESS_REACTIVATED, BUSINESS_ENTITY, businessId.toString(),
+                Map.of("isSuspended", !isSuspended), Map.of("isSuspended", isSuspended), reason));
+        if (isSuspended) {
+            // nobody can end or correct a day while the business is suspended, so the suspension must not count as work time:
+            // every open workday ends now (audited as workday.closed); reactivating reopens nothing
+            for (UUID employeeId : workdayRepository.findEmployeeIdsWithOpenWorkday(businessId)) {
+                timeTrackingService.closeOpenWorkday(businessId, actorUserId, employeeId, SUSPENSION_REASON);
             }
         }
-        return findDetail(businessId);
+        return true;
     }
 
     /**
@@ -284,6 +308,7 @@ public class BusinessService {
         }
         business.setJurisoneBusinessId(jurisoneBusinessId);
         businessRepository.saveAndFlush(business);
+        sessionRepository.revokeAllOfBusiness(businessId, "linked_to_jurisone", java.time.Instant.now()); // from now on only JurisOne reaches this business
         auditService.record(new AuditEntry(businessId, superAdmin.userId(), null, AuditAction.BUSINESS_LINKED, BUSINESS_ENTITY, businessId.toString(),
                 null, Map.of("jurisoneBusinessId", jurisoneBusinessId.toString()), null));
         return findDetail(businessId);
