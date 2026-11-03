@@ -54,6 +54,8 @@ public final class Problems {
     public static final String LAST_ACTIVE_OWNER = "LAST_ACTIVE_OWNER";
     /** 409: the business is already linked to a JurisOne business (unlink it first). */
     public static final String BUSINESS_ALREADY_LINKED = "BUSINESS_ALREADY_LINKED";
+    /** 409: the business is linked to JurisOne, where its employees are added; JurisTrack does not add people to it. */
+    public static final String EMPLOYEES_MANAGED_IN_JURISONE = "EMPLOYEES_MANAGED_IN_JURISONE";
     /** 409: another business is already linked to that JurisOne business. */
     public static final String JURISONE_BUSINESS_IN_USE = "JURISONE_BUSINESS_IN_USE";
     /** 413: the request body is larger than the API accepts. */

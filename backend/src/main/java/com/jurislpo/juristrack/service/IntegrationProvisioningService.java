@@ -5,6 +5,7 @@ import com.jurislpo.juristrack.entity.Role;
 import com.jurislpo.juristrack.entity.Shift;
 import com.jurislpo.juristrack.entity.User;
 import com.jurislpo.juristrack.repository.BusinessRepository;
+import com.jurislpo.juristrack.repository.EmployeeQueryRepository;
 import com.jurislpo.juristrack.repository.ShiftRepository;
 import com.jurislpo.juristrack.repository.UserRepository;
 import com.jurislpo.juristrack.security.AuthenticationSource;
@@ -32,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>the user by {@code jurisone_employee_id}, else by email inside that same business (an existing user of the linked business is
  *       linked), else created.</li>
  *   <li>first and last name from {@code name}, the role from {@code trackRole} (JurisOne decides who is a JurisTrack manager; an
- *       existing owner stays the owner unless the token says ADMIN),
+ *       existing person's role follows the token, ADMIN included, except that the last active owner is never demoted),
  *       and the reporting manager from {@code managerId}, resolved through the manager's {@code jurisone_employee_id} inside the
  *       same business (null while that manager has not been seen yet; never the user themselves).</li>
  * </ol>
@@ -79,9 +80,11 @@ public class IntegrationProvisioningService {
     private final AuditService auditService;
     private final ShiftRepository shiftRepository;
     private final EmployeeService employeeService;
+    private final EmployeeQueryRepository employeeQueryRepository;
 
     public IntegrationProvisioningService(BusinessRepository businessRepository, UserRepository userRepository, AuditService auditService,
-            ShiftRepository shiftRepository, EmployeeService employeeService) {
+            ShiftRepository shiftRepository, EmployeeService employeeService, EmployeeQueryRepository employeeQueryRepository) {
+        this.employeeQueryRepository = employeeQueryRepository;
         this.shiftRepository = shiftRepository;
         this.employeeService = employeeService;
         this.businessRepository = businessRepository;
@@ -180,8 +183,8 @@ public class IntegrationProvisioningService {
         Map<String, Object> before = userDetails(user);
         applyName(user, claims.name());
         user.setEmail(claims.email());
-        // JurisOne moves people between EMPLOYEE and MANAGER; an owner (ADMIN) stays the owner unless the token itself says otherwise
-        if (user.getRole() != Role.ADMIN) user.setRole(claims.role());
+        // JurisOne decides the role: ADMIN is the business owner there, MANAGER holds the manager role or has reports, EMPLOYEE is everybody else
+        user.setRole(roleFollowingToken(user, claims.role(), business));
         user.setManagerId(resolveManagerId(claims, business, user.getId()));
         Map<String, Object> after = userDetails(user);
         if (!before.equals(after)) {
@@ -189,6 +192,15 @@ public class IntegrationProvisioningService {
             auditService.record(new AuditEntry(business.getId(), user.getId(), user.getId(), AuditAction.USER_UPDATED_FROM_TOKEN, USER_ENTITY,
                     user.getId().toString(), before, after, null));
         }
+    }
+
+    /**
+     * The token's role, except that the last active owner of a business is never demoted by a token (the business must keep one; the real
+     * owner's own token makes them ADMIN, and the old one is demoted by their next token).
+     */
+    private Role roleFollowingToken(User user, Role tokenRole, Business business) {
+        if (user.getRole() == Role.ADMIN && tokenRole != Role.ADMIN && employeeQueryRepository.countOtherActiveOwners(business.getId(), user.getId()) == 0) return Role.ADMIN;
+        return tokenRole;
     }
 
     private UUID resolveManagerId(IntegrationClaims claims, Business business, UUID userId) {
