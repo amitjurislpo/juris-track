@@ -42,6 +42,7 @@ import org.springframework.stereotype.Component;
  *   <li>{@code exp} present and not passed, {@code iat} present and, with {@code nbf}, not in the future (each within
  *       {@code juristrack.integration.clock-skew-seconds}), {@code exp - iat} at most 10 minutes;</li>
  *   <li>{@code jti} present and not seen before: a token is single-use, so JurisOne issues one per request (replay guard);</li>
+ *   <li>with per-business addresses: the claim {@code bid} equals {@code businessId} (and is required when {@code require-host-binding} is on);</li>
  *   <li>the claims {@code sub} (JurisOne employee id), {@code email}, {@code name}, {@code businessId} and {@code businessName};
  *       {@code managerId} (null when absent) and {@code trackRole} (MANAGER or EMPLOYEE; ADMIN only when sent; anything else
  *       or nothing is EMPLOYEE) and the optional {@code shiftCode}.</li>
@@ -80,6 +81,7 @@ public class IntegrationTokenVerifier {
     private final String issuer;
     private final String audience;
     private final Duration clockSkew;
+    private final boolean requireHostBinding;
     private final JWSVerifier signatureVerifier;
     private final JWSAlgorithm expectedAlgorithm;
 
@@ -89,6 +91,7 @@ public class IntegrationTokenVerifier {
         this.issuer = integration.issuer();
         this.audience = integration.audience();
         this.clockSkew = Duration.ofSeconds(integration.clockSkewSeconds());
+        this.requireHostBinding = integration.requireHostBinding();
         if (!isEnabled) {
             this.signatureVerifier = null;
             this.expectedAlgorithm = null;
@@ -123,6 +126,7 @@ public class IntegrationTokenVerifier {
         JWTClaimsSet claims = verifiedClaims(token);
         if (claims.getClaim(SCOPE_CLAIM) != null) throw new InvalidIntegrationTokenException("service_token_not_accepted");
         IntegrationClaims integrationClaims = readClaims(claims);
+        checkHostBinding(claims, integrationClaims);
         rejectReplay(claims);
         return integrationClaims;
     }
@@ -153,6 +157,20 @@ public class IntegrationTokenVerifier {
         }
         rejectReplay(claims);
         return serviceClaims;
+    }
+
+    /**
+     * Per-business addresses: JurisOne adds {@code bid} (the business whose address the browser used, checked there against the signed-in person)
+     * to a user token. It must be this token's {@code businessId}: a token for one business can never carry another business's address. When
+     * {@code requireHostBinding} is on a token without it is refused too. Service tokens (roster sync) are not about a browser and carry none.
+     */
+    private void checkHostBinding(JWTClaimsSet claims, IntegrationClaims integrationClaims) {
+        Object bid = claims.getClaim("bid");
+        if (bid == null) {
+            if (requireHostBinding) throw new InvalidIntegrationTokenException("missing_host_binding");
+            return;
+        }
+        if (!(bid instanceof String text) || !text.equals(integrationClaims.jurisoneBusinessId().toString())) throw new InvalidIntegrationTokenException("host_binding_mismatch");
     }
 
     /** Signature, algorithm, issuer, audience and lifetime (not yet the claims nor the replay guard). */
